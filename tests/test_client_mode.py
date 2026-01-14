@@ -1,10 +1,7 @@
-"""Tests for hegel client mode (embedded mode support)."""
-
 import json
 import os
 import socket
 import subprocess
-import sys
 import tempfile
 import threading
 from typing import Any
