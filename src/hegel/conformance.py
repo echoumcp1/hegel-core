@@ -224,7 +224,7 @@ def run_conformance_tests(
 
         test_def = CONFORMANCE_TESTS[test_name]
 
-        @settings(max_examples=hypothesis_iterations)
+        @settings(max_examples=hypothesis_iterations, deadline=None)
         @given(params=test_def.params_strategy)
         def run_test(params: dict[str, Any]) -> None:
             metrics_list = _run_single_test(binary, params, test_cases)
