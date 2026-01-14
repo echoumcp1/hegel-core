@@ -1,0 +1,7 @@
+__pycache__/
+.hegel
+.pytest_cache/
+.hypothesis/
+.tox/
+.vscode/
+.venv/
