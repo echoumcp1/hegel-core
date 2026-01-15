@@ -492,14 +492,16 @@ This means 1-10 codepoints. If your language counts bytes by default (e.g., C), 
 
 ## Error Handling
 
-### The reject() Function
+### The assume() Function
 
-Every SDK must implement `reject(message)`:
+Every SDK must implement `assume(condition)`:
 
 ```
-reject(message: string) -> never
-├── Standalone mode: print to stderr, exit with HEGEL_REJECT_CODE
-└── Embedded mode: throw exception / panic with special marker
+assume(condition: bool) -> void
+├── If condition is true: returns normally
+├── If condition is false:
+│   ├── Standalone mode: exit with HEGEL_REJECT_CODE
+│   └── Embedded mode: throw exception / panic with special marker
 ```
 
 **Purpose:** Signal that the current test case is invalid (not a failure). Hegel will try different inputs.
@@ -515,9 +517,9 @@ reject(message: string) -> never
 |------------|--------|
 | Socket connection failure | Exit with SOCKET_ERROR (134) |
 | Socket I/O error | Exit with SOCKET_ERROR (134) |
-| JSON parse error | `reject()` |
-| Server returns error | `reject()` with server message |
-| Filter exhaustion | `reject()` |
+| JSON parse error | `assume(false)` |
+| Server returns error | `assume(false)` |
+| Filter exhaustion | `assume(false)` |
 | Test assertion failure | Exit with code 1 |
 
 ### Filter Implementation
@@ -529,7 +531,7 @@ def filter(self, predicate, max_attempts=3):
             value = self.generate()
             if predicate(value):
                 return value
-        reject(f"Filter failed after {max_attempts} attempts")
+        assume(False)
     return Generator(generate)
 ```
 
@@ -548,43 +550,44 @@ fn generate(&self) -> T {
             return value;
         }
     }
-    reject("Filter failed");
+    assume(false);
+    unreachable!()
 }
 ```
 
 ### Embedded Mode Exceptions
 
-When running embedded (SDK provides the Hegel server), rejection uses exceptions:
+When running embedded (SDK provides the Hegel server), assume(false) uses exceptions:
 
 ```cpp
 // C++
 class HegelReject : public std::exception {
-    std::string message_;
 public:
-    explicit HegelReject(const std::string& msg);
-    const char* what() const noexcept override;
+    const char* what() const noexcept override { return "assume failed"; }
 };
 
-void reject(const std::string& message) {
-    if (current_mode == Mode::Embedded) {
-        throw HegelReject(message);
-    } else {
-        std::cerr << message << "\n";
-        std::exit(get_reject_code());
+void assume(bool condition) {
+    if (!condition) {
+        if (current_mode == Mode::Embedded) {
+            throw HegelReject();
+        } else {
+            std::exit(get_reject_code());
+        }
     }
 }
 ```
 
 ```rust
-// Rust - use panic with special prefix
-const REJECT_PREFIX: &str = "HEGEL_REJECT: ";
+// Rust - use panic with special marker
+const REJECT_MARKER: &str = "HEGEL_REJECT";
 
-pub fn reject(message: &str) -> ! {
-    match current_mode() {
-        HegelMode::Embedded => panic!("{}{}", REJECT_PREFIX, message),
-        HegelMode::Standalone => {
-            eprintln!("REJECT: {}", message);
-            std::process::exit(get_reject_code());
+pub fn assume(condition: bool) {
+    if !condition {
+        match current_mode() {
+            HegelMode::Embedded => panic!("{}", REJECT_MARKER),
+            HegelMode::Standalone => {
+                std::process::exit(get_reject_code());
+            }
         }
     }
 }
@@ -662,7 +665,7 @@ fn test_sorting() {
 - [ ] Socket connection management (thread-local)
 - [ ] Request/response JSON serialization
 - [ ] Request ID counter (atomic)
-- [ ] `reject()` function
+- [ ] `assume()` function
 - [ ] Environment variable reading (`HEGEL_SOCKET`, `HEGEL_REJECT_CODE`)
 - [ ] Basic `Generator<T>` type with `generate()` and `schema()`
 
@@ -717,7 +720,7 @@ fn test_sorting() {
 ### Phase 7: Embedded Mode (Optional)
 
 - [ ] Mode detection (standalone vs embedded)
-- [ ] Exception-based rejection
+- [ ] Exception-based assume(false) handling
 - [ ] Provided file descriptor support
 - [ ] Test runner integration
 
