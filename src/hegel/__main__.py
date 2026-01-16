@@ -197,7 +197,7 @@ def run_client_mode(
     socket_path: str,
     rejected: int,
     test_cases: int,
-    debug: bool,
+    verbosity: Verbosity,
 ) -> None:
     """Run hegel as a client, connecting to an SDK's server socket.
 
@@ -264,7 +264,7 @@ def run_client_mode(
                         print("Invalid handshake_ack", file=sys.stderr)
                         data.mark_invalid()
 
-                    if debug:
+                    if verbosity == Verbosity.debug:
                         print(f"Handshake complete: {ack}", file=sys.stderr)
 
                     while True:
@@ -278,7 +278,7 @@ def run_client_mode(
                             # Skip invalid JSON lines and continue reading
                             continue
 
-                        if debug:
+                        if verbosity == Verbosity.debug:
                             print(f"REQUEST: {request}", file=sys.stderr)
 
                         # Check for test_result message (end of test)
@@ -305,7 +305,7 @@ def run_client_mode(
                         except ValueError as e:
                             # Unknown command - send error response
                             response = {"id": request_id, "error": str(e)}
-                            if debug:  # pragma: no branch
+                            if verbosity == Verbosity.debug:  # pragma: no branch
                                 print(f"RESPONSE: {response}", file=sys.stderr)
                             sock.sendall((json.dumps(response) + "\n").encode())
                             continue
@@ -318,12 +318,12 @@ def run_client_mode(
                                 "reject": True,
                                 "reason": "Test case stopped by hypothesis",
                             }
-                            if debug:
+                            if verbosity == Verbosity.debug:
                                 print(f"RESPONSE: {reject_response}", file=sys.stderr)
                             sock.sendall((json.dumps(reject_response) + "\n").encode())
                             raise
 
-                        if debug:
+                        if verbosity == Verbosity.debug:
                             print(f"RESPONSE: {response}", file=sys.stderr)
 
                         sock.sendall((json.dumps(response) + "\n").encode())
@@ -337,10 +337,7 @@ def run_client_mode(
 
     runner = ConjectureRunner(
         test_function,
-        settings=make_settings(
-            test_cases,
-            Verbosity.verbose if debug else Verbosity.normal,
-        ),
+        settings=make_settings(test_cases, verbosity),
         database_key=db_key,
     )
     runner.run()
@@ -363,7 +360,12 @@ def run_client_mode(
 @click.command()
 @click.argument("test", callback=validate_command, required=False)
 @click.option("--rejected", default=137)
-@click.option("--debug/--no-debug", default=False)
+@click.option(
+    "--verbosity",
+    type=click.Choice(["quiet", "normal", "verbose", "debug"]),
+    default="normal",
+    help="Verbosity level: quiet, normal, verbose, or debug",
+)
 @click.option("--test-cases", default=1000)
 @click.option("--tui/--no-tui", default=True, help="Run with terminal UI")
 @click.option(
@@ -371,34 +373,35 @@ def run_client_mode(
     default=None,
     help="Connect to this socket path as client (embedded mode)",
 )
-def main(test, rejected, debug, test_cases, tui, client_mode):
+def main(test, rejected, verbosity, test_cases, tui, client_mode):
     os.environ["HEGEL_REJECT_CODE"] = str(rejected)
-    if debug:
+    if verbosity == "debug":
         os.environ["HEGEL_DEBUG"] = "true"
+
+    hypothesis_verbosity = Verbosity(verbosity)
 
     if client_mode:
         # Run in client mode - connect to an SDK's server socket
-        run_client_mode(client_mode, rejected, test_cases, debug)
+        run_client_mode(client_mode, rejected, test_cases, hypothesis_verbosity)
     elif test:
         # Run in normal mode - spawn test binary as subprocess
         db_key = json.dumps(test).encode("utf-8")
         if tui:
             _run_with_tui(test, rejected, test_cases, db_key)
         else:
-            _run_without_tui(test, rejected, debug, test_cases, db_key)
+            _run_without_tui(test, rejected, hypothesis_verbosity, test_cases, db_key)
     else:
         raise click.UsageError("Either TEST argument or --client-mode is required")
 
 
-def _run_without_tui(test, rejected, debug, test_cases, db_key):
-    test_function = make_test_function(test, rejected, capture_output=not debug)
+def _run_without_tui(test, rejected, verbosity: Verbosity, test_cases, db_key):
+    # Show output immediately for verbose/debug, capture for quiet/normal
+    capture_output = verbosity in (Verbosity.quiet, Verbosity.normal)
+    test_function = make_test_function(test, rejected, capture_output=capture_output)
 
     runner = ConjectureRunner(
         test_function,
-        settings=make_settings(
-            test_cases,
-            Verbosity.verbose if debug else Verbosity.normal,
-        ),
+        settings=make_settings(test_cases, verbosity),
         database_key=db_key,
     )
     runner.run()
