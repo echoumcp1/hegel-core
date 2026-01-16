@@ -744,22 +744,6 @@ fn test_sorting() {
 - [ ] Update `clean` recipe in `Justfile` to remove SDK build artifacts
 - [ ] Verify `just test` passes with the new SDK
 
-**Example Justfile recipe:**
-```just
-# Internal: Run <Language> SDK property tests
-_<language>-sdk-tests:
-    #!/usr/bin/env bash
-    set -e
-    echo ""
-    echo "=== <Language> SDK Property Tests ==="
-    SDK_DIR="{{justfile_directory()}}/sdks/<language>"
-    cd "$SDK_DIR"
-    # Build if needed
-    <build commands>
-    # Run the workout through hegel
-    uv run hegel --no-tui "<test binary or command>"
-```
-
 ---
 
 ## Reference Implementations
