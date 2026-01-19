@@ -378,10 +378,9 @@ let p: Person = gen.generate();
 
 Use `fixed_dictionaries`:
 ```python
-person_gen = fixed_dictionaries({
-    "name": text(max_size=50),
-    "age": integers(min_value=0, max_value=120)
-})
+person_gen = fixed_dictionaries(
+    {"name": text(max_size=50), "age": integers(min_value=0, max_value=120)}
+)
 ```
 
 ### Schema for Objects
@@ -532,6 +531,7 @@ def filter(self, predicate, max_attempts=3):
             if predicate(value):
                 return value
         assume(False)
+
     return Generator(generate)
 ```
 

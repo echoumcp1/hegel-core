@@ -5,9 +5,10 @@ import sys
 import tempfile
 import threading
 import time
+
 import pytest
 
-from hegel.tui import HegelApp, Stats, OutputPanel, StatsPanel
+from hegel.tui import HegelApp, OutputPanel, Stats, StatsPanel
 
 
 @pytest.mark.asyncio
@@ -241,9 +242,9 @@ class TestRunWithTuiLogic:
             # Simulate poll_output logic
             with lock:
                 try:
-                    with open(stdout_file, "r") as f:
+                    with open(stdout_file) as f:
                         current_content = f.read()
-                except (FileNotFoundError, IOError):
+                except (FileNotFoundError, OSError):
                     current_content = ""
 
                 if state["display_switched"]:
@@ -286,9 +287,9 @@ class TestRunWithTuiLogic:
         try:
             with lock:
                 try:
-                    with open(stdout_file, "r") as f:
+                    with open(stdout_file) as f:
                         current_content = f.read()
-                except (FileNotFoundError, IOError):
+                except (FileNotFoundError, OSError):
                     current_content = ""
 
                 if state["display_switched"]:
@@ -331,9 +332,9 @@ class TestRunWithTuiLogic:
         try:
             with lock:
                 try:
-                    with open(stdout_file, "r") as f:
+                    with open(stdout_file) as f:
                         current_content = f.read()
-                except (FileNotFoundError, IOError):
+                except (FileNotFoundError, OSError):
                     current_content = ""
 
                 if state["display_switched"]:
@@ -376,9 +377,9 @@ class TestRunWithTuiLogic:
         try:
             with lock:
                 try:
-                    with open(stdout_file, "r") as f:
+                    with open(stdout_file) as f:
                         current_content = f.read()
-                except (FileNotFoundError, IOError):
+                except (FileNotFoundError, OSError):
                     current_content = ""
 
                 if state["display_switched"]:
@@ -423,9 +424,9 @@ class TestRunWithTuiLogic:
                     pass  # Early return
                 else:
                     try:
-                        with open(stdout_file, "r") as f:
+                        with open(stdout_file) as f:
                             current_content = f.read()
-                    except (FileNotFoundError, IOError):
+                    except (FileNotFoundError, OSError):
                         current_content = ""
 
                     if state["display_switched"]:
@@ -464,9 +465,9 @@ class TestRunWithTuiLogic:
 
         with lock:
             try:
-                with open(stdout_file, "r") as f:
+                with open(stdout_file) as f:
                     current_content = f.read()
-            except (FileNotFoundError, IOError):
+            except (FileNotFoundError, OSError):
                 current_content = ""
 
             if state["display_switched"]:
@@ -508,9 +509,9 @@ class TestRunWithTuiLogic:
             # Simulate on_result logic
             with lock:
                 try:
-                    with open(stdout_file, "r") as f:
+                    with open(stdout_file) as f:
                         state["saved_output"] = f.read()
-                except (FileNotFoundError, IOError):
+                except (FileNotFoundError, OSError):
                     pass
 
                 update_output(state["saved_output"])
@@ -544,9 +545,9 @@ class TestRunWithTuiLogic:
 
         with lock:
             try:
-                with open(stdout_file, "r") as f:
+                with open(stdout_file) as f:
                     state["saved_output"] = f.read()
-            except (FileNotFoundError, IOError):
+            except (FileNotFoundError, OSError):
                 pass  # Keep previous saved_output
 
             update_output(state["saved_output"])

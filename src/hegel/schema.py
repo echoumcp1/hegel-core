@@ -1,5 +1,3 @@
-
-
 def add_additional_properties_false(schema: dict) -> dict:
     """Recursively add additionalProperties: false to object schemas.
 

@@ -5,11 +5,11 @@ import signal
 import socket
 import subprocess
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from tempfile import TemporaryDirectory
 from time import sleep, time
 from typing import Any
-from collections.abc import Callable
 
 
 def signal_group(sp: subprocess.Popen, signal: int) -> None:

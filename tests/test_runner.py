@@ -1,10 +1,10 @@
 from pathlib import Path
 from typing import Any
 
-from hegel.runner import run_with_callback, SubprocessTimedOut
 import pytest
-
 from conftest import CppTestBinaries
+
+from hegel.runner import SubprocessTimedOut, run_with_callback
 
 
 def test_can_respond_to_the_client(cpp_binaries: CppTestBinaries):

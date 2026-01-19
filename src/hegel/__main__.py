@@ -1,19 +1,19 @@
+import hashlib
 import json
 import os
+import shlex
 import socket
 import sys
-import time
-import click
-from dataclasses import dataclass
-from typing import Any
 import threading
-import shlex
-from shutil import which
-import hashlib
+import time
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import dataclass
+from shutil import which
+from typing import Any
 
-from hypothesis import settings, Verbosity
+import click
+from hypothesis import Verbosity, settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import StopTest, UnsatisfiedAssumption
@@ -478,9 +478,9 @@ def _run_with_tui(test, rejected, test_cases, db_key):
 
             # Try to read current file content
             try:
-                with open(stdout_file, "r") as f:
+                with open(stdout_file) as f:
                     current_content = f.read()
-            except (FileNotFoundError, IOError):
+            except (FileNotFoundError, OSError):
                 current_content = ""
 
             if state["display_switched"]:

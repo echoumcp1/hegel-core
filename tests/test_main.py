@@ -2,8 +2,8 @@ import subprocess
 from pathlib import Path
 
 from conftest import CppTestBinaries
-from hegel.__main__ import cached_from_schema, CACHE_SIZE, FROM_SCHEMA_CACHE
 
+from hegel.__main__ import CACHE_SIZE, FROM_SCHEMA_CACHE, cached_from_schema
 
 UNKNOWN_COMMAND_SCRIPT = """
 #!/usr/bin/env python
@@ -109,9 +109,7 @@ def test_will_fail_on_a_non_existent_command():
 
 
 def test_will_fail_on_empty_command():
-    result = subprocess.run(
-        ["hegel", "--no-tui", ""], capture_output=True, text=True
-    )
+    result = subprocess.run(["hegel", "--no-tui", ""], capture_output=True, text=True)
     assert result.returncode != 0
     assert "command cannot be empty" in result.stderr
 
@@ -171,7 +169,15 @@ def test_span_commands(tmp_path: Path):
 def test_debug_verbosity_shows_output(cpp_binaries: CppTestBinaries):
     """Test that --verbosity debug causes output to be shown."""
     result = subprocess.run(
-        ["hegel", "--no-tui", "--verbosity", "debug", "--test-cases", "1", cpp_binaries.const42],
+        [
+            "hegel",
+            "--no-tui",
+            "--verbosity",
+            "debug",
+            "--test-cases",
+            "1",
+            cpp_binaries.const42,
+        ],
         capture_output=True,
         text=True,
     )
@@ -181,10 +187,10 @@ def test_debug_verbosity_shows_output(cpp_binaries: CppTestBinaries):
 
 def test_on_result_callback_is_called(cpp_binaries: CppTestBinaries):
     """Test that on_result callback is invoked when provided."""
-    from hypothesis.internal.conjecture.engine import ConjectureRunner
     from hypothesis import Verbosity
+    from hypothesis.internal.conjecture.engine import ConjectureRunner
 
-    from hegel.__main__ import make_test_function, make_settings
+    from hegel.__main__ import make_settings, make_test_function
 
     results_received = []
 

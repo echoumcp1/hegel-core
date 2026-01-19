@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Callable
+from collections.abc import Callable
+
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
