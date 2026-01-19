@@ -5,11 +5,13 @@ import sys
 import time
 import click
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
+import threading
 import shlex
 from shutil import which
 import hashlib
 from collections import OrderedDict
+from collections.abc import Callable
 
 from hypothesis import settings, Verbosity
 from hypothesis.control import BuildContext
@@ -21,66 +23,9 @@ from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis_jsonschema import from_schema
 
 from hegel.runner import run_with_callback
-
+from hegel.schema import add_additional_properties_false
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
-
-
-def add_additional_properties_false(schema: dict) -> dict:
-    """Recursively add additionalProperties: false to object schemas.
-
-    This prevents hegel from generating unexpected fields in objects,
-    ensuring generated data matches the expected structure exactly.
-    """
-    if not isinstance(schema, dict):
-        return schema
-
-    # Add additionalProperties: false to object types
-    if schema.get("type") == "object" and "additionalProperties" not in schema:
-        schema["additionalProperties"] = False
-
-    # Recurse into properties
-    if "properties" in schema and isinstance(schema["properties"], dict):
-        for value in schema["properties"].values():
-            add_additional_properties_false(value)
-
-    # Recurse into definitions
-    for key in ("$defs", "definitions"):
-        if key in schema and isinstance(schema[key], dict):
-            for value in schema[key].values():
-                add_additional_properties_false(value)
-
-    # Recurse into items (arrays)
-    if "items" in schema:
-        if isinstance(schema["items"], dict):
-            add_additional_properties_false(schema["items"])
-        elif isinstance(schema["items"], list):
-            for item in schema["items"]:
-                add_additional_properties_false(item)
-
-    # Recurse into prefixItems (tuple schemas)
-    if "prefixItems" in schema and isinstance(schema["prefixItems"], list):
-        for item in schema["prefixItems"]:
-            add_additional_properties_false(item)
-
-    # Recurse into allOf, anyOf, oneOf
-    for key in ("allOf", "anyOf", "oneOf"):
-        if key in schema and isinstance(schema[key], list):
-            for subschema in schema[key]:
-                add_additional_properties_false(subschema)
-
-    # Recurse into if/then/else/not conditionals
-    for key in ("if", "then", "else", "not"):
-        if key in schema and isinstance(schema[key], dict):
-            add_additional_properties_false(schema[key])
-
-    # Recurse into additionalProperties if it's a schema
-    if "additionalProperties" in schema and isinstance(
-        schema["additionalProperties"], dict
-    ):
-        add_additional_properties_false(schema["additionalProperties"])
-
-    return schema
 
 
 def validate_command(ctx: Any, param: Any, value: str | None) -> list[str] | None:
@@ -415,8 +360,6 @@ def _run_without_tui(test, rejected, verbosity: Verbosity, test_cases, db_key):
 
 
 def _run_with_tui(test, rejected, test_cases, db_key):
-    import threading
-
     from hegel.tui import HegelApp, Stats
 
     exit_code = [0]

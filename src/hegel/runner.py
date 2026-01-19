@@ -8,7 +8,8 @@ import traceback
 from dataclasses import dataclass
 from tempfile import TemporaryDirectory
 from time import sleep, time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 
 def signal_group(sp: subprocess.Popen, signal: int) -> None:
@@ -121,11 +122,10 @@ def run_with_callback(
                 while time() <= start + timeout:
                     try:
                         conn, _ = server_socket.accept()
-                    except socket.timeout:
+                    except TimeoutError:
                         if sp.poll() is not None:
                             break
-                        else:
-                            continue
+                        continue
 
                     # Handle multiple requests on this connection until client closes
                     conn.settimeout(0.1)
@@ -192,7 +192,7 @@ def run_with_callback(
                                 connection_open = False
                             else:
                                 buffer.extend(chunk)
-                        except socket.timeout:
+                        except TimeoutError:
                             # No data available, check if subprocess exited.
                             # This is a race condition: we only reach here if recv() times out
                             # (socket still open, no data) AND the subprocess has exited.
