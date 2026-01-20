@@ -139,7 +139,6 @@ def replay_failure(
 
 def run_client_mode(
     socket_path: str,
-    rejected: int,
     test_cases: int,
     verbosity: Verbosity,
 ) -> None:
@@ -326,7 +325,7 @@ def main(test, rejected, verbosity, test_cases, tui, client_mode):
 
     if client_mode:
         # Run in client mode - connect to an SDK's server socket
-        run_client_mode(client_mode, rejected, test_cases, hypothesis_verbosity)
+        run_client_mode(client_mode, test_cases, hypothesis_verbosity)
     elif test:
         # Run in normal mode - spawn test binary as subprocess
         db_key = json.dumps(test).encode("utf-8")
