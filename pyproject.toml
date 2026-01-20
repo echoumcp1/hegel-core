@@ -7,7 +7,6 @@ requires-python = ">=3.10"
 dependencies = [
     "click>=8.3.1",
     "hypothesis>=6.148.5",
-    "hypothesis-jsonschema",
     "textual>=3.0.0",
 ]
 

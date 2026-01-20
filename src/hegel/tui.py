@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from rich.text import Text
 from textual.app import App, ComposeResult

@@ -2,10 +2,10 @@ import json
 import os
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
 
 from hypothesis import given, settings, strategies as st
 
@@ -16,7 +16,13 @@ INT32_MAX = 2**31 - 1
 @dataclass
 class ConformanceTest:
     params_strategy: st.SearchStrategy[dict[str, Any]]
-    validate: Callable[[dict[str, Any], dict[str, Any]], None]
+    validate: Callable[[dict[str, Any], dict[str, Any]], None] | None = None
+    # For tests that need to check across all test cases
+    aggregate_validate: (
+        Callable[[dict[str, Any], list[dict[str, Any]]], None] | None
+    ) = None
+    # Override test_cases
+    test_cases: int | None = None
 
 
 # =============================================================================
@@ -53,11 +59,16 @@ def _floats_params(draw: st.DrawFn) -> dict[str, Any]:
         exclude_min = False
         exclude_max = False
 
+    allow_nan = draw(st.booleans())
+    allow_infinity = draw(st.booleans())
+
     return {
         "min_value": min_value,
         "max_value": max_value,
         "exclude_min": exclude_min,
         "exclude_max": exclude_max,
+        "allow_nan": allow_nan,
+        "allow_infinity": allow_infinity,
     }
 
 
@@ -103,14 +114,26 @@ def _validate_integers(params: dict[str, Any], metrics: dict[str, Any]) -> None:
     assert params["min_value"] <= metrics["value"] <= params["max_value"]
 
 
-def _validate_floats(params: dict[str, Any], metrics: dict[str, Any]) -> None:
-    value = metrics["value"]
-    assert value >= params["min_value"]
-    assert value <= params["max_value"]
-    if params["exclude_min"]:
-        assert value != params["min_value"]
-    if params["exclude_max"]:
-        assert value != params["max_value"]
+def _aggregate_validate_floats(
+    params: dict[str, Any], metrics_list: list[dict[str, Any]]
+) -> None:
+    if params.get("allow_nan"):
+        assert any(m.get("is_nan") for m in metrics_list)
+
+    if params.get("allow_infinity"):
+        assert any(m.get("is_infinite") for m in metrics_list)
+
+    for metrics in metrics_list:
+        if metrics.get("is_nan") or metrics.get("is_infinite"):
+            continue
+
+        value = metrics["value"]
+        assert value >= params["min_value"]
+        assert value <= params["max_value"]
+        if params["exclude_min"]:
+            assert value != params["min_value"]
+        if params["exclude_max"]:
+            assert value != params["max_value"]
 
 
 def _validate_text(params: dict[str, Any], metrics: dict[str, Any]) -> None:
@@ -143,7 +166,8 @@ CONFORMANCE_TESTS: dict[str, ConformanceTest] = {
     ),
     "floats": ConformanceTest(
         params_strategy=_floats_params(),
-        validate=_validate_floats,
+        aggregate_validate=_aggregate_validate_floats,
+        test_cases=500,  # NaN/infinity are rare, need more samples
     ),
     "text": ConformanceTest(
         params_strategy=_text_params(),
@@ -224,11 +248,16 @@ def run_conformance_tests(
 
         test_def = CONFORMANCE_TESTS[test_name]
 
+        effective_test_cases = test_def.test_cases or test_cases
+
         @settings(max_examples=hypothesis_iterations, deadline=None)
         @given(params=test_def.params_strategy)
         def run_test(params: dict[str, Any]) -> None:
-            metrics_list = _run_single_test(binary, params, test_cases)
-            for metrics in metrics_list:
-                test_def.validate(params, metrics)
+            metrics_list = _run_single_test(binary, params, effective_test_cases)
+            if test_def.aggregate_validate:
+                test_def.aggregate_validate(params, metrics_list)
+            elif test_def.validate:
+                for metrics in metrics_list:
+                    test_def.validate(params, metrics)
 
         run_test()

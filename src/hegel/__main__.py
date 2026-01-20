@@ -20,10 +20,9 @@ from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.conjecture.data import ConjectureData
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
-from hypothesis_jsonschema import from_schema
 
+from hegel.parser import from_schema
 from hegel.runner import run_with_callback
-from hegel.schema import add_additional_properties_false
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
@@ -87,8 +86,7 @@ def make_test_function(
 
             def handle_command(command: str, payload: Any) -> Any:
                 if command == "generate":
-                    schema = add_additional_properties_false(payload)
-                    return data.draw(cached_from_schema(schema))
+                    return data.draw(cached_from_schema(payload))
                 elif command == "start_span":
                     label = payload.get("label", 0)
                     data.start_span(label)
@@ -167,8 +165,7 @@ def run_client_mode(
 
                 def handle_command(command: str, payload: Any) -> Any:
                     if command == "generate":
-                        schema = add_additional_properties_false(payload)
-                        return data.draw(cached_from_schema(schema))
+                        return data.draw(cached_from_schema(payload))
                     elif command == "start_span":
                         label = payload.get("label", 0)
                         data.start_span(label)
