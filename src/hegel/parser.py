@@ -45,8 +45,8 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         )
     if schema_type == "string":
         return st.text(
-            min_size=schema.get("min_length", 0),
-            max_size=schema.get("max_length"),
+            min_size=schema.get("min_size", 0),
+            max_size=schema.get("max_size"),
         )
     if schema_type == "regex":
         return st.from_regex(

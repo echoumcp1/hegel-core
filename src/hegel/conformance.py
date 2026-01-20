@@ -74,9 +74,9 @@ def _floats_params(draw: st.DrawFn) -> dict[str, Any]:
 
 @st.composite
 def _text_params(draw: st.DrawFn) -> dict[str, Any]:
-    min_length = draw(st.integers(0, 50))
-    max_length = draw(st.integers(min_value=min_length, max_value=100))
-    return {"min_length": min_length, "max_length": max_length}
+    min_size = draw(st.integers(0, 50))
+    max_size = draw(st.integers(min_value=min_size, max_value=100))
+    return {"min_size": min_size, "max_size": max_size}
 
 
 @st.composite
@@ -137,7 +137,7 @@ def _aggregate_validate_floats(
 
 
 def _validate_text(params: dict[str, Any], metrics: dict[str, Any]) -> None:
-    assert params["min_length"] <= metrics["length"] <= params["max_length"]
+    assert params["min_size"] <= metrics["length"] <= params["max_size"]
 
 
 def _validate_lists(params: dict[str, Any], metrics: dict[str, Any]) -> None:
