@@ -49,10 +49,10 @@ def test_run_with_tui_passes_on_stdout_file_to_runner(cpp_binaries, monkeypatch)
             on_stdout_file_callbacks.append(kwargs["on_stdout_file"])
         return original_make_test_function(*args, **kwargs)
 
+    monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
     monkeypatch.setattr(
-        main_module, "make_test_function", capture_make_test_function
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
     )
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
     monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -74,7 +74,9 @@ def test_run_with_tui_updates_stats(cpp_binaries, monkeypatch):
         def update_stats(self, stats):
             stats_updates.append(stats)
 
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -97,7 +99,9 @@ def test_run_with_tui_handles_failure(cpp_binaries, monkeypatch):
         def update_stats(self, stats):
             stats_updates.append(stats)
 
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.hfear]).encode("utf-8")
@@ -125,7 +129,9 @@ def test_run_with_tui_poll_callback_receives_correct_interval(
             poll_callbacks.append(poll_callback)
             poll_intervals.append(poll_interval)
 
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -154,7 +160,9 @@ def test_run_with_tui_poll_callback_is_executed(cpp_binaries, monkeypatch):
             if self._poll_callback:
                 self._poll_callback()
 
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -195,7 +203,9 @@ def test_run_with_tui_poll_output_all_branches(cpp_binaries, monkeypatch):
                 self._poll_callback()
                 poll_calls.append("after_finish")
 
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -238,7 +248,9 @@ def test_run_with_tui_poll_during_test_execution(cpp_binaries, monkeypatch):
             self._run_func(self)
 
     monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -274,7 +286,9 @@ def test_run_with_tui_poll_with_file_content(cpp_binaries, monkeypatch):
             poll_callback_ref[0] = poll_callback
 
     monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -318,7 +332,9 @@ def test_run_with_tui_poll_with_switched_state(cpp_binaries, monkeypatch):
             poll_callback_ref[0] = poll_callback
 
     monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -373,7 +389,9 @@ def test_run_with_tui_poll_exercises_all_branches(cpp_binaries, monkeypatch):
             poll_callback_ref[0] = poll_callback
 
     monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -439,7 +457,9 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
 
     monkeypatch.setattr(time, "time", fake_time)
     monkeypatch.setattr(main_module, "make_test_function", wrap_make_test_function)
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -453,11 +473,11 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
     assert len(outputs_synced) >= 1
 
 
-def test_run_with_tui_poll_with_content_and_switched(
-    cpp_binaries, monkeypatch
-):
+def test_run_with_tui_poll_with_content_and_switched(cpp_binaries, monkeypatch):
     """Test poll_output when display_switched is True and file has content."""
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -503,7 +523,9 @@ def test_run_with_tui_on_result_with_missing_file(cpp_binaries, monkeypatch):
         return original_make_test_function(*args, **kwargs)
 
     monkeypatch.setattr(main_module, "make_test_function", patched_make_test_function)
-    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr(
+        sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+    )
     monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")

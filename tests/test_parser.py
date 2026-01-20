@@ -43,7 +43,9 @@ def test_string():
 
 
 def test_string_pattern():
-    v = from_schema({"type": "regex", "pattern": r"^[a-z]+$", "fullmatch": True}).example()
+    v = from_schema(
+        {"type": "regex", "pattern": r"^[a-z]+$", "fullmatch": True}
+    ).example()
     assert v.isalpha()
     assert v.islower()
 

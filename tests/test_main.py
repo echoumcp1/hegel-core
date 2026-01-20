@@ -2,8 +2,16 @@ import subprocess
 from pathlib import Path
 
 from conftest import CppTestBinaries
+from hypothesis import Verbosity
+from hypothesis.internal.conjecture.engine import ConjectureRunner
 
-from hegel.__main__ import CACHE_SIZE, FROM_SCHEMA_CACHE, cached_from_schema
+from hegel.__main__ import (
+    CACHE_SIZE,
+    FROM_SCHEMA_CACHE,
+    cached_from_schema,
+    make_settings,
+    make_test_function,
+)
 
 UNKNOWN_COMMAND_SCRIPT = """
 #!/usr/bin/env python
@@ -187,11 +195,6 @@ def test_debug_verbosity_shows_output(cpp_binaries: CppTestBinaries):
 
 def test_on_result_callback_is_called(cpp_binaries: CppTestBinaries):
     """Test that on_result callback is invoked when provided."""
-    from hypothesis import Verbosity
-    from hypothesis.internal.conjecture.engine import ConjectureRunner
-
-    from hegel.__main__ import make_settings, make_test_function
-
     results_received = []
 
     def capture_result(result):

@@ -629,7 +629,8 @@ def test_client_mode_handles_hypothesis_stoptest():
                     # to exhaust hypothesis's data buffer.
                     # Request very large lists to quickly use up the buffer.
                     got_reject = False
-                    for request_id in range(1, 501):  # Many requests to trigger StopTest
+                    # Many requests to trigger StopTest
+                    for request_id in range(1, 501):
                         # Request large lists that use more of hypothesis's buffer
                         request = {
                             "id": request_id,
