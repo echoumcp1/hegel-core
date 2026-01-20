@@ -169,10 +169,11 @@ def test_run_with_tui_poll_callback_is_executed(cpp_binaries, monkeypatch):
 
 def test_run_with_tui_main_entry_point(cpp_binaries, monkeypatch):
     """Test that main() calls _run_with_tui when tui=True."""
-    run_with_tui_called = [False]
+    run_with_tui_called = False
 
     def mock_run_with_tui(*args, **kwargs):
-        run_with_tui_called[0] = True
+        nonlocal run_with_tui_called
+        run_with_tui_called = True
 
     monkeypatch.setattr(main_module, "_run_with_tui", mock_run_with_tui)
     monkeypatch.setattr(sys, "exit", lambda code: None)
@@ -180,7 +181,7 @@ def test_run_with_tui_main_entry_point(cpp_binaries, monkeypatch):
     runner = CliRunner()
     runner.invoke(main, [cpp_binaries.const42])
 
-    assert run_with_tui_called[0] is True
+    assert run_with_tui_called is True
 
 
 def test_run_with_tui_poll_output_all_branches(cpp_binaries, monkeypatch):
@@ -332,18 +333,21 @@ def test_run_with_tui_poll_with_switched_state(cpp_binaries, monkeypatch):
 
 def test_run_with_tui_poll_exercises_all_branches(cpp_binaries, monkeypatch):
     """Test poll_output with actual file content during execution."""
-    poll_callback_ref = [None]
-    stdout_file_ref = [None]
+    poll_callback_ref = [None]  # Used by class, can't use nonlocal
+    stdout_file = None
     poll_during_test_results = []
 
     original_make_test_function = main_module.make_test_function
 
     def capture_make_test_function(*args, **kwargs):
+        nonlocal stdout_file
+
         if "on_stdout_file" in kwargs:
             original_callback = kwargs["on_stdout_file"]
 
             def wrapped_callback(path):
-                stdout_file_ref[0] = path
+                nonlocal stdout_file
+                stdout_file = path
                 if original_callback:
                     original_callback(path)
 
@@ -352,7 +356,7 @@ def test_run_with_tui_poll_exercises_all_branches(cpp_binaries, monkeypatch):
         orig_on_result = kwargs.get("on_result")
 
         def wrapped_on_result(result):
-            if stdout_file_ref[0]:
+            if stdout_file:
                 if poll_callback_ref[0]:
                     poll_callback_ref[0]()
                     poll_during_test_results.append("poll_before_on_result")
@@ -386,15 +390,16 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
     """Test that poll_output reads stdout file during test execution."""
     outputs_synced = []
     poll_callback_ref = [None]
-    poll_called_with_file = [False]
+    poll_called_with_file = False
 
     real_time = time.time
-    fake_start_time = [None]
+    fake_start_time = None
 
     def fake_time():
-        if fake_start_time[0] is None:
-            fake_start_time[0] = real_time()
-        return fake_start_time[0] + 2.0
+        nonlocal fake_start_time
+        if fake_start_time is None:
+            fake_start_time = real_time()
+        return fake_start_time + 2.0
 
     class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
@@ -407,9 +412,11 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
     original_make_test_function = main_module.make_test_function
 
     def wrap_make_test_function(*args, **kwargs):
+        nonlocal poll_called_with_file
         orig_on_stdout_file = kwargs.get("on_stdout_file")
 
         def wrapped_on_stdout_file(path):
+            nonlocal poll_called_with_file
             if orig_on_stdout_file:
                 orig_on_stdout_file(path)
 
@@ -419,7 +426,7 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
                 with open(path, "w") as f:
                     f.write("test output\n")
                 poll_callback_ref[0]()
-                poll_called_with_file[0] = True
+                poll_called_with_file = True
 
                 poll_callback_ref[0]()
 
@@ -442,7 +449,7 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
     except SystemExit:
         pass
 
-    assert poll_called_with_file[0] is True
+    assert poll_called_with_file is True
     assert len(outputs_synced) >= 1
 
 
@@ -463,17 +470,20 @@ def test_run_with_tui_poll_with_content_and_switched(
 
 def test_run_with_tui_on_result_with_missing_file(cpp_binaries, monkeypatch):
     """Test on_result callback when stdout file doesn't exist."""
-    on_result_called = [False]
-    captured_stdout_file = [None]
+    on_result_called = False
+    captured_stdout_file = None
 
     original_make_test_function = main_module.make_test_function
 
     def patched_make_test_function(*args, **kwargs):
+        nonlocal captured_stdout_file
+
         if "on_stdout_file" in kwargs:
             original_on_stdout_file = kwargs["on_stdout_file"]
 
             def wrapped_on_stdout_file(path):
-                captured_stdout_file[0] = path
+                nonlocal captured_stdout_file
+                captured_stdout_file = path
                 if original_on_stdout_file:
                     original_on_stdout_file(path)
 
@@ -482,9 +492,10 @@ def test_run_with_tui_on_result_with_missing_file(cpp_binaries, monkeypatch):
         original_on_result = kwargs.get("on_result")
 
         def wrapped_on_result(result):
-            if captured_stdout_file[0] and os.path.exists(captured_stdout_file[0]):
-                os.unlink(captured_stdout_file[0])
-            on_result_called[0] = True
+            nonlocal on_result_called
+            if captured_stdout_file and os.path.exists(captured_stdout_file):
+                os.unlink(captured_stdout_file)
+            on_result_called = True
             if original_on_result:
                 original_on_result(result)
 
@@ -502,4 +513,4 @@ def test_run_with_tui_on_result_with_missing_file(cpp_binaries, monkeypatch):
     except SystemExit:
         pass
 
-    assert on_result_called[0] is True
+    assert on_result_called is True
