@@ -105,6 +105,27 @@ ignore = [
     "UP037",
 ]
 
+[tool.mypy]
+python_version = "3.14"
+platform = "linux"
+
+allow_redefinition = true
+disallow_untyped_decorators = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+no_implicit_reexport = true
+
+follow_imports = "silent"
+ignore_missing_imports = true
+
+strict_equality = true
+warn_no_return = true
+warn_unused_ignores = true
+warn_unused_configs = true
+warn_redundant_casts = true
+
+disable_error_code = "annotation-unchecked"
+
 [tool.coverage.run]
 branch = true
 parallel = true
