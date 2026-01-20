@@ -30,6 +30,8 @@ jobs:
       - name: Install dependencies
         run: pip install --group dev -e .
       - run: ruff check .
+      - run: shed
+      - run: git diff --exit-code
 
   typecheck:
     name: Type Check
