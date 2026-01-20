@@ -340,8 +340,8 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 | Function | Description | Schema |
 |----------|-------------|--------|
 | `sampled_from(elements)` | Uniform selection from fixed collection | `{"enum": [...]}` |
-| `one_of(generators...)` | Choose from homogeneous generators | `{"anyOf": [...]}` |
-| `optional(generator)` | None/null or a value | `{"anyOf": [{"type": "null"}, ...]}` |
+| `one_of(generators...)` | Choose from homogeneous generators | `{"one_of": [...]}` |
+| `optional(generator)` | None/null or a value | `{"one_of": [{"type": "null"}, ...]}` |
 | `builds(type, generators...)` | Construct objects from generated values | Compose field schemas |
 
 #### Dynamic Language Only

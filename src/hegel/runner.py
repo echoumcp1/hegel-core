@@ -66,10 +66,10 @@ class Result:
 def run_with_callback(
     command: list[str],
     *,
-    timeout=300,
-    capture_output=True,
+    timeout: float = 300,
+    capture_output: bool = True,
     on_stdout_file: Callable[[str], None] | None = None,
-):
+) -> Callable[[Callable[[Any, Any], Any]], Result]:
     """Run a command with a callback mechanism via Unix socket.
 
     Args:
@@ -79,7 +79,7 @@ def run_with_callback(
         on_stdout_file: Callback invoked with the stdout file path when it's created
     """
 
-    def accept(callback_function: Callable[[Any], Any]):
+    def accept(callback_function: Callable[[Any, Any], Any]) -> Result:
         with TemporaryDirectory() as d:
             socket_path = os.path.join(d, f"callback.{callback_function.__name__}.sock")
             cwd = os.path.join(d, "cwd")
@@ -214,10 +214,11 @@ def run_with_callback(
                 server_socket.close()
 
             if capture_output:
-                with open(stdout_path) as out:
+                assert stdout_path is not None
+                with open(stdout_path) as f:
                     return Result(
                         exit_code=sp.returncode,
-                        output=out.read(),
+                        output=f.read(),
                     )
             else:
                 return Result(exit_code=sp.returncode, output=None)

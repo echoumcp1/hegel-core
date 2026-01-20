@@ -57,7 +57,7 @@ def run_simple_test_server(socket_path: str, responses: list[tuple[str, Any]]):
             conn.sendall((json.dumps(result_msg) + "\n").encode())
 
             conn.close()
-        except socket.timeout:
+        except TimeoutError:
             break
 
     server.close()
@@ -151,7 +151,7 @@ def test_client_mode_handles_test_failure():
                     # Stop after handling the final replay connection
                     if is_last_run:
                         break
-                except socket.timeout:
+                except TimeoutError:
                     break
 
             server.close()
@@ -204,7 +204,7 @@ def test_client_mode_handles_rejection():
                 conn.sendall(b'{"type": "handshake_ack"}\n')
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass  # Expected if hegel finishes early
 
             server.close()
@@ -281,7 +281,7 @@ def test_client_mode_handles_span_commands():
                 # Send pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -364,7 +364,7 @@ def test_client_mode_handles_invalid_json():
                 # Then send valid pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -441,7 +441,7 @@ def test_client_mode_handles_unknown_command():
                 # Send pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -481,7 +481,7 @@ def test_client_mode_handles_no_handshake_ack():
                 reader.readline()
                 # Close connection without sending handshake_ack
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -523,7 +523,7 @@ def test_client_mode_handles_invalid_handshake_ack():
                 # Send invalid JSON as handshake_ack
                 conn.sendall(b"not valid json\n")
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -566,7 +566,7 @@ def test_client_mode_handles_connection_closed_during_requests():
 
                 # Close connection unexpectedly without sending test_result
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -608,7 +608,7 @@ def test_client_mode_handles_hypothesis_stoptest():
 
             # We need to make many generate requests in a single test case
             # to trigger hypothesis's internal data exhaustion (StopTest)
-            for conn_num in range(100):
+            for _ in range(100):
                 try:
                     conn, _ = server.accept()
                     conn.settimeout(10.0)
@@ -630,7 +630,7 @@ def test_client_mode_handles_hypothesis_stoptest():
                     # Request very large arrays to quickly use up the buffer.
                     request_id = 0
                     got_reject = False
-                    for i in range(500):  # Many requests to trigger StopTest
+                    for _ in range(500):  # Many requests to trigger StopTest
                         request_id += 1
                         # Request large arrays that use more of hypothesis's buffer
                         request = {
@@ -665,7 +665,7 @@ def test_client_mode_handles_hypothesis_stoptest():
                     # Send test result
                     conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                     conn.close()
-                except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                except (TimeoutError, ConnectionResetError, BrokenPipeError):
                     break
 
             server.close()
@@ -712,7 +712,7 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug_verbosity():
             server = create_server_socket(socket_path)
             server.settimeout(15.0)
 
-            for conn_num in range(100):
+            for _ in range(100):
                 try:
                     conn, _ = server.accept()
                     conn.settimeout(10.0)
@@ -727,7 +727,7 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug_verbosity():
 
                     request_id = 0
                     got_reject = False
-                    for i in range(500):
+                    for _ in range(500):
                         request_id += 1
                         request = {
                             "id": request_id,
@@ -757,7 +757,7 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug_verbosity():
 
                     conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                     conn.close()
-                except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                except (TimeoutError, ConnectionResetError, BrokenPipeError):
                     break
 
             server.close()
@@ -824,7 +824,7 @@ def test_client_mode_handles_unknown_command_with_debug():
                 # Send pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()

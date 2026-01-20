@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install dependencies
-        run: pip install --dependency-groups=dev -e .
+        run: pip install --group dev -e .
       - run: pytest
 
   lint:
@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install dependencies
-        run: pip install --dependency-groups=dev -e .
+        run: pip install --group dev -e .
       - run: ruff check .
 
   typecheck:
@@ -40,5 +40,5 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install dependencies
-        run: pip install --dependency-groups=dev -e .
+        run: pip install --group dev -e .
       - run: mypy src/

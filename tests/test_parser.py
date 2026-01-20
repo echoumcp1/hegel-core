@@ -93,13 +93,8 @@ def test_enum():
     assert v in [1, 2, 3]
 
 
-def test_anyOf():
-    v = from_schema({"anyOf": [{"type": "integer"}, {"type": "string"}]}).example()
-    assert isinstance(v, (int, str))
-
-
-def test_oneOf():
-    v = from_schema({"oneOf": [{"type": "boolean"}, {"type": "null"}]}).example()
+def test_one_of():
+    v = from_schema({"one_of": [{"type": "boolean"}, {"type": "null"}]}).example()
     assert v is None or isinstance(v, bool)
 
 

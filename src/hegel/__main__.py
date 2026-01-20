@@ -56,7 +56,7 @@ def make_settings(test_cases: int, verbosity: Verbosity) -> settings:
     )
 
 
-FROM_SCHEMA_CACHE = OrderedDict()
+FROM_SCHEMA_CACHE: dict[bytes, Any] = OrderedDict()
 CACHE_SIZE = 1024
 
 
@@ -81,7 +81,7 @@ def make_test_function(
     capture_output=True,
     on_stdout_file: Callable[[str], None] | None = None,
 ) -> Callable[[ConjectureData], None]:
-    def test_function(data: ConjectureData):
+    def test_function(data: ConjectureData) -> None:
         with BuildContext(data, is_final=False, wrapped_test=None):
 
             def handle_command(command: str, payload: Any) -> Any:
