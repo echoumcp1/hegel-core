@@ -65,6 +65,7 @@ select = [
 ignore = [
     "B008",
     "B018",
+    "B023",
     "C408",
     "C420",
     "COM812",
@@ -79,7 +80,6 @@ ignore = [
     "E741",
     "FBT001",
     "FBT003",
-    "FBT001",
     "PD011",
     "PIE790",  # See https://github.com/astral-sh/ruff/issues/10538
     "PT001",
@@ -102,6 +102,7 @@ ignore = [
     "SIM105",
     "SIM108",
     "SIM114",
+    "SIM115",
     "SIM300",
     "SIM905",
     "UP031",

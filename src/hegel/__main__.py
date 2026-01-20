@@ -77,6 +77,7 @@ def cached_from_schema(schema):
 def make_test_function(
     test: list[str],
     rejected: int,
+    *,
     on_result: Callable[[Any], None] | None = None,
     capture_output: bool = True,
     on_stdout_file: Callable[[str], None] | None = None,
@@ -158,6 +159,7 @@ def run_client_mode(
     db_key = b"client_mode"
 
     def make_client_test_function(
+        *,
         is_final_run: bool = False,
     ) -> Callable[[ConjectureData], None]:
         def test_function(data: ConjectureData) -> None:

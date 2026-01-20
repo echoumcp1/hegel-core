@@ -29,22 +29,23 @@ def test_number_exclusive():
             "type": "number",
             "minimum": 0.0,
             "maximum": 1.0,
-            "excludeMinimum": True,
-            "excludeMaximum": True,
+            "exclude_minimum": True,
+            "exclude_maximum": True,
         }
     ).example()
     assert 0.0 < v < 1.0
 
 
 def test_string():
-    v = from_schema({"type": "string", "minLength": 1, "maxLength": 5}).example()
+    v = from_schema({"type": "string", "min_size": 1, "max_size": 5}).example()
     assert isinstance(v, str)
     assert 1 <= len(v) <= 5
 
 
 def test_string_pattern():
-    v = from_schema({"type": "string", "pattern": r"^[a-z]+$"}).example()
-    assert v.isalpha() and v.islower()
+    v = from_schema({"type": "regex", "pattern": r"^[a-z]+$", "fullmatch": True}).example()
+    assert v.isalpha()
+    assert v.islower()
 
 
 def test_email():
@@ -131,7 +132,7 @@ def test_set():
 def test_dict():
     schema = {
         "type": "dict",
-        "keys": {"type": "string", "minLength": 1},
+        "keys": {"type": "string", "min_size": 1},
         "values": {"type": "integer"},
     }
     v = from_schema(schema).example()
@@ -178,7 +179,7 @@ def test_tuple_empty():
 def test_nested_dict_of_lists():
     schema = {
         "type": "dict",
-        "keys": {"type": "string", "minLength": 1},
+        "keys": {"type": "string", "min_size": 1},
         "values": {
             "type": "list",
             "elements": {"type": "integer"},
@@ -196,8 +197,8 @@ def test_nested_dict_of_lists():
 
 
 def test_empty_schema():
-    v = from_schema({}).example()
-    assert v is None or isinstance(v, (bool, int, float, str))
+    with pytest.raises(ValueError, match="Unsupported schema"):
+        from_schema({}).example()
 
 
 def test_unsupported_type():

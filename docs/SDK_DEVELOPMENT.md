@@ -97,10 +97,10 @@ When all child generators have JSON schemas, compose them into a single schema a
 ```
 Schema Request:
 {
-  "type": "array",
-  "items": {"type": "integer", "minimum": 0, "maximum": 100},
-  "minItems": 1,
-  "maxItems": 10
+  "type": "list",
+  "elements": {"type": "integer", "minimum": 0, "maximum": 100},
+  "min_size": 1,
+  "max_size": 10
 }
 
 Single Response:
@@ -252,7 +252,7 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 | Function | Schema | Notes |
 |----------|--------|-------|
 | `nulls()` | `{"type": "null"}` | Generates null/nil/None |
-| `booleans()` | `{"type": "boolean"}` | Generates true/false |
+| `booleans()` | `{"type": "boolean", "p": 0.5}` | Generates true/false; `p` is probability of true (default 0.5) |
 | `just(value)` | `{"const": value}` | Always returns the same value |
 
 #### Numeric
@@ -260,38 +260,43 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 | Function | Parameters | Schema |
 |----------|------------|--------|
 | `integers<T>()` | `min_value`, `max_value` | `{"type": "integer", "minimum": N, "maximum": M}` |
-| `floats<T>()` | `min_value`, `max_value`, `exclude_min`, `exclude_max` | `{"type": "number", ...}` |
+| `floats<T>()` | `min_value`, `max_value`, `exclude_min`, `exclude_max`, `allow_nan`, `allow_infinity` | `{"type": "number", ...}` |
 
 **Static language notes:**
 - Template/generic on return type: `integers<uint8_t>()` auto-derives bounds 0-255
 - Use language's numeric limits as defaults
 
-**Float exclusions:**
-- `exclude_min: true` → `"exclusiveMinimum": min_value`
-- `exclude_max: true` → `"exclusiveMaximum": max_value`
+**Float exclusions and special values:**
+- `exclude_min: true` → `"exclude_minimum": true`
+- `exclude_max: true` → `"exclude_maximum": true`
+- `allow_nan: true` → `"allow_nan": true`
+- `allow_infinity: true` → `"allow_infinity": true`
 
 #### Strings
 
 | Function | Parameters | Schema |
 |----------|------------|--------|
-| `text()` | `min_size`, `max_size` | `{"type": "string", "minLength": N, "maxLength": M}` |
-| `from_regex(pattern)` | pattern string | `{"type": "string", "pattern": "^...$"}` |
+| `text()` | `min_size`, `max_size` | `{"type": "string", "min_size": N, "max_size": M}` |
+| `from_regex(pattern)` | pattern string, `fullmatch` | `{"type": "regex", "pattern": "...", "fullmatch": bool}` |
 
 **from_regex notes:**
-- Auto-anchor: if pattern doesn't start with `^`, prepend it; if doesn't end with `$`, append it
-- Pattern must be valid JSON Schema regex (subset of ECMA-262)
+- By default generates strings that *contain* a match for the pattern
+- Use `fullmatch` to require the entire string to match the pattern
+- Pattern uses Python regex syntax (via Hypothesis)
 
 #### Format Strings
 
-| Function | Parameters | Schema Format |
-|----------|------------|---------------|
-| `emails()` | none | `"format": "email"` |
-| `urls()` | none | `"format": "uri"` |
-| `domains()` | `max_length` | `"format": "hostname"` |
-| `ip_addresses()` | `v=4\|6\|None` | `"format": "ipv4"` or `"ipv6"` |
-| `dates()` | none | `"format": "date"` |
-| `times()` | none | `"format": "time"` |
-| `datetimes()` | none | `"format": "date-time"` |
+Hegel uses direct type names for format strings (not JSON Schema format property):
+
+| Function | Parameters | Schema |
+|----------|------------|--------|
+| `emails()` | none | `{"type": "email"}` |
+| `urls()` | none | `{"type": "url"}` |
+| `domains()` | `max_length` | `{"type": "domain", "max_length": 255}` |
+| `ip_addresses()` | `v=4\|6\|None` | `{"type": "ipv4"}` or `{"type": "ipv6"}` |
+| `dates()` | none | `{"type": "date"}` |
+| `times()` | none | `{"type": "time"}` |
+| `datetimes()` | none | `{"type": "datetime"}` |
 
 **Not supported:** uuid, duration (Hypothesis doesn't support these formats)
 
@@ -300,38 +305,44 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 | Function | Parameters | Notes |
 |----------|------------|-------|
 | `lists(elements)` | `min_size`, `max_size`, `unique` | Name idiomatically: `vectors`, `arrays`, `vecs` |
-| `sets(elements)` | `min_size`, `max_size` | Generate as unique list, convert to set |
-| `dictionaries(keys, values)` | `min_size`, `max_size` | **Keys must be strings** (JSON limitation) |
-| `tuples(gen1, gen2, ...)` | generators | Fixed-length heterogeneous; use `prefixItems` schema |
+| `sets(elements)` | `min_size`, `max_size` | Uses `type: "set"` schema |
+| `dictionaries(keys, values)` | `min_size`, `max_size` | **Keys default to strings** (can override with `keys` schema) |
+| `tuples(gen1, gen2, ...)` | generators | Fixed-length heterogeneous |
 
 **Collection schema composition:**
 
 ```json
 // lists(integers().with_min(0), min_size=1, max_size=5)
 {
-  "type": "array",
-  "items": {"type": "integer", "minimum": 0},
-  "minItems": 1,
-  "maxItems": 5
+  "type": "list",
+  "elements": {"type": "integer", "minimum": 0},
+  "min_size": 1,
+  "max_size": 5
 }
 
-// lists(..., unique=true)
+// lists(..., unique=true) or sets(...)
 {
-  "type": "array",
-  "items": {...},
-  "uniqueItems": true
+  "type": "set",
+  "elements": {...},
+  "min_size": 0,
+  "max_size": 10
+}
+
+// dictionaries(values=integers())
+{
+  "type": "dict",
+  "values": {"type": "integer"},
+  "min_size": 0,
+  "max_size": 10
 }
 
 // tuples(integers(), text())
 {
-  "type": "array",
-  "prefixItems": [
+  "type": "tuple",
+  "elements": [
     {"type": "integer"},
     {"type": "string"}
-  ],
-  "items": false,
-  "minItems": 2,
-  "maxItems": 2
+  ]
 }
 ```
 
@@ -385,18 +396,27 @@ person_gen = fixed_dictionaries(
 
 ### Schema for Objects
 
+**Option 1: Use tuples (recommended for schema composition)**
+
+Generate fields as a tuple and convert to object in generate():
+
 ```json
 {
-  "type": "object",
-  "properties": {
-    "name": {"type": "string", "maxLength": 50},
-    "age": {"type": "integer", "minimum": 0, "maximum": 120}
-  },
-  "required": ["name", "age"]
+  "type": "tuple",
+  "elements": [
+    {"type": "string", "max_size": 50},
+    {"type": "integer", "minimum": 0, "maximum": 120}
+  ]
 }
 ```
 
-**Note:** Server adds `"additionalProperties": false` automatically.
+Then convert the tuple `[name, age]` back to an object `{name: ..., age: ...}`.
+
+**Option 2: Compositional fallback**
+
+When schemas aren't composable, generate each field separately within a labeled group.
+
+**Note:** The Rust derive macro generates `type: "object"` schemas with `properties` and `required` fields. This format is planned for future parser support.
 
 ---
 

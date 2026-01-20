@@ -627,20 +627,18 @@ def test_client_mode_handles_hypothesis_stoptest():
 
                     # Make many generate requests in one test case
                     # to exhaust hypothesis's data buffer.
-                    # Request very large arrays to quickly use up the buffer.
-                    request_id = 0
+                    # Request very large lists to quickly use up the buffer.
                     got_reject = False
-                    for _ in range(500):  # Many requests to trigger StopTest
-                        request_id += 1
-                        # Request large arrays that use more of hypothesis's buffer
+                    for request_id in range(1, 501):  # Many requests to trigger StopTest
+                        # Request large lists that use more of hypothesis's buffer
                         request = {
                             "id": request_id,
                             "command": "generate",
                             "payload": {
-                                "type": "array",
-                                "items": {"type": "integer"},
-                                "minItems": 50,
-                                "maxItems": 100,
+                                "type": "list",
+                                "elements": {"type": "integer"},
+                                "min_size": 50,
+                                "max_size": 100,
                             },
                         }
                         conn.sendall((json.dumps(request) + "\n").encode())
@@ -725,18 +723,16 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug_verbosity():
                     json.loads(handshake_line.decode())
                     conn.sendall(b'{"type": "handshake_ack"}\n')
 
-                    request_id = 0
                     got_reject = False
-                    for _ in range(500):
-                        request_id += 1
+                    for request_id in range(1, 501):
                         request = {
                             "id": request_id,
                             "command": "generate",
                             "payload": {
-                                "type": "array",
-                                "items": {"type": "integer"},
-                                "minItems": 50,
-                                "maxItems": 100,
+                                "type": "list",
+                                "elements": {"type": "integer"},
+                                "min_size": 50,
+                                "max_size": 100,
                             },
                         }
                         conn.sendall((json.dumps(request) + "\n").encode())
