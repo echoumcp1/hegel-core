@@ -11,6 +11,33 @@ import hegel.__main__ as main_module
 from hegel.__main__ import _run_with_tui, main
 
 
+class MockHegelApp:
+    def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
+        self._run_func = run_func
+        self._poll_callback = poll_callback
+        self._poll_interval = poll_interval
+        self._exit_code = 0
+
+    def run(self):
+        self._run_func(self)
+
+    def update_output(self, text):
+        pass
+
+    def update_output_sync(self, text):
+        pass
+
+    def update_stats(self, stats):
+        pass
+
+    def finish(self, exit_code=0):
+        self._exit_code = exit_code
+
+    @property
+    def exit_code(self):
+        return self._exit_code
+
+
 def test_run_with_tui_passes_on_stdout_file_to_runner(cpp_binaries, monkeypatch):
     """Test that _run_with_tui passes on_stdout_file callback to make_test_function."""
     on_stdout_file_callbacks = []
@@ -25,33 +52,7 @@ def test_run_with_tui_passes_on_stdout_file_to_runner(cpp_binaries, monkeypatch)
     monkeypatch.setattr(
         main_module, "make_test_function", capture_make_test_function
     )
-
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    class MockHegelApp:
-        def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._exit_code = 0
-
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
     monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -69,33 +70,12 @@ def test_run_with_tui_updates_stats(cpp_binaries, monkeypatch):
     """Test that _run_with_tui updates stats during test execution."""
     stats_updates = []
 
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    class MockHegelApp:
-        def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._exit_code = 0
-
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
+    class CapturingApp(MockHegelApp):
         def update_stats(self, stats):
             stats_updates.append(stats)
 
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -112,36 +92,13 @@ def test_run_with_tui_updates_stats(cpp_binaries, monkeypatch):
 def test_run_with_tui_handles_failure(cpp_binaries, monkeypatch):
     """Test that _run_with_tui handles test failure correctly."""
     stats_updates = []
-    exit_codes = []
 
-    def mock_exit(code):
-        exit_codes.append(code)
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    class MockHegelApp:
-        def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._exit_code = 0
-
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
+    class CapturingApp(MockHegelApp):
         def update_stats(self, stats):
             stats_updates.append(stats)
 
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.hfear]).encode("utf-8")
 
@@ -162,35 +119,14 @@ def test_run_with_tui_poll_callback_receives_correct_interval(
     poll_intervals = []
     poll_callbacks = []
 
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    class MockHegelApp:
+    class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
+            super().__init__(run_func, poll_callback, poll_interval)
             poll_callbacks.append(poll_callback)
             poll_intervals.append(poll_interval)
-            self._exit_code = 0
 
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -207,42 +143,19 @@ def test_run_with_tui_poll_callback_receives_correct_interval(
 def test_run_with_tui_poll_callback_is_executed(cpp_binaries, monkeypatch):
     """Test that poll callback is actually called and works."""
     poll_callback_ref = [None]
-    outputs_synced = []
 
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    class MockHegelApp:
+    class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
+            super().__init__(run_func, poll_callback, poll_interval)
             poll_callback_ref[0] = poll_callback
-            self._exit_code = 0
 
         def run(self):
             self._run_func(self)
             if self._poll_callback:
                 self._poll_callback()
 
-        def update_output(self, text):
-            pass
-
-        def update_output_sync(self, text):
-            outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -262,11 +175,7 @@ def test_run_with_tui_main_entry_point(cpp_binaries, monkeypatch):
         run_with_tui_called[0] = True
 
     monkeypatch.setattr(main_module, "_run_with_tui", mock_run_with_tui)
-
-    def mock_exit(code):
-        pass
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
+    monkeypatch.setattr(sys, "exit", lambda code: None)
 
     runner = CliRunner()
     runner.invoke(main, [cpp_binaries.const42])
@@ -277,42 +186,16 @@ def test_run_with_tui_main_entry_point(cpp_binaries, monkeypatch):
 def test_run_with_tui_poll_output_all_branches(cpp_binaries, monkeypatch):
     """Test poll_output function with various states to cover all branches."""
     poll_calls = []
-    outputs_synced = []
 
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    class MockHegelApp:
-        def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
-            self._exit_code = 0
-
+    class CapturingApp(MockHegelApp):
         def run(self):
             self._run_func(self)
             if self._poll_callback:
                 self._poll_callback()
                 poll_calls.append("after_finish")
 
-        def update_output(self, text):
-            pass
-
-        def update_output_sync(self, text):
-            outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -327,14 +210,7 @@ def test_run_with_tui_poll_output_all_branches(cpp_binaries, monkeypatch):
 def test_run_with_tui_poll_during_test_execution(cpp_binaries, monkeypatch):
     """Test poll_output during test execution with stdout file content."""
     poll_results = []
-    outputs_synced = []
-    stdout_file_ref = [None]
     poll_callback_ref = [None]
-
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
 
     original_make_test_function = main_module.make_test_function
 
@@ -343,23 +219,16 @@ def test_run_with_tui_poll_during_test_execution(cpp_binaries, monkeypatch):
             original_callback = kwargs["on_stdout_file"]
 
             def wrapped_callback(path):
-                stdout_file_ref[0] = path
                 if original_callback:
                     original_callback(path)
 
             kwargs["on_stdout_file"] = wrapped_callback
         return original_make_test_function(*args, **kwargs)
 
-    monkeypatch.setattr(
-        main_module, "make_test_function", capture_make_test_function
-    )
-
-    class MockHegelApp:
+    class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
+            super().__init__(run_func, poll_callback, poll_interval)
             poll_callback_ref[0] = poll_callback
-            self._exit_code = 0
 
         def run(self):
             if self._poll_callback:
@@ -367,23 +236,9 @@ def test_run_with_tui_poll_during_test_execution(cpp_binaries, monkeypatch):
                 poll_results.append("before_test")
             self._run_func(self)
 
-        def update_output(self, text):
-            pass
-
-        def update_output_sync(self, text):
-            outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -397,14 +252,7 @@ def test_run_with_tui_poll_during_test_execution(cpp_binaries, monkeypatch):
 
 def test_run_with_tui_poll_with_file_content(cpp_binaries, monkeypatch):
     """Test poll_output when file has content and conditions are met."""
-    outputs_synced = []
     poll_callback_ref = [None]
-    stdout_file_ref = [None]
-
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
 
     original_make_test_function = main_module.make_test_function
 
@@ -413,44 +261,20 @@ def test_run_with_tui_poll_with_file_content(cpp_binaries, monkeypatch):
             original_callback = kwargs["on_stdout_file"]
 
             def wrapped_callback(path):
-                stdout_file_ref[0] = path
                 if original_callback:
                     original_callback(path)
 
             kwargs["on_stdout_file"] = wrapped_callback
         return original_make_test_function(*args, **kwargs)
 
-    monkeypatch.setattr(
-        main_module, "make_test_function", capture_make_test_function
-    )
-
-    class MockHegelApp:
+    class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
+            super().__init__(run_func, poll_callback, poll_interval)
             poll_callback_ref[0] = poll_callback
-            self._exit_code = 0
 
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
-        def update_output_sync(self, text):
-            outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -464,15 +288,7 @@ def test_run_with_tui_poll_with_file_content(cpp_binaries, monkeypatch):
 
 def test_run_with_tui_poll_with_switched_state(cpp_binaries, monkeypatch):
     """Test poll_output when display_switched is True."""
-    outputs_synced = []
     poll_callback_ref = [None]
-    stdout_file_ref = [None]
-    original_on_result = [None]
-
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
 
     original_make_test_function = main_module.make_test_function
 
@@ -481,14 +297,12 @@ def test_run_with_tui_poll_with_switched_state(cpp_binaries, monkeypatch):
             original_callback = kwargs["on_stdout_file"]
 
             def wrapped_callback(path):
-                stdout_file_ref[0] = path
                 if original_callback:
                     original_callback(path)
 
             kwargs["on_stdout_file"] = wrapped_callback
 
         orig_on_result = kwargs.get("on_result")
-        original_on_result[0] = orig_on_result
 
         def wrapped_on_result(result):
             if orig_on_result:
@@ -497,37 +311,14 @@ def test_run_with_tui_poll_with_switched_state(cpp_binaries, monkeypatch):
         kwargs["on_result"] = wrapped_on_result
         return original_make_test_function(*args, **kwargs)
 
-    monkeypatch.setattr(
-        main_module, "make_test_function", capture_make_test_function
-    )
-
-    class MockHegelApp:
+    class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
+            super().__init__(run_func, poll_callback, poll_interval)
             poll_callback_ref[0] = poll_callback
-            self._exit_code = 0
 
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
-        def update_output_sync(self, text):
-            outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -541,15 +332,9 @@ def test_run_with_tui_poll_with_switched_state(cpp_binaries, monkeypatch):
 
 def test_run_with_tui_poll_exercises_all_branches(cpp_binaries, monkeypatch):
     """Test poll_output with actual file content during execution."""
-    outputs_synced = []
     poll_callback_ref = [None]
     stdout_file_ref = [None]
     poll_during_test_results = []
-
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
 
     original_make_test_function = main_module.make_test_function
 
@@ -578,37 +363,14 @@ def test_run_with_tui_poll_exercises_all_branches(cpp_binaries, monkeypatch):
         kwargs["on_result"] = wrapped_on_result
         return original_make_test_function(*args, **kwargs)
 
-    monkeypatch.setattr(
-        main_module, "make_test_function", capture_make_test_function
-    )
-
-    class MockHegelApp:
+    class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
+            super().__init__(run_func, poll_callback, poll_interval)
             poll_callback_ref[0] = poll_callback
-            self._exit_code = 0
 
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
-        def update_output_sync(self, text):
-            outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(main_module, "make_test_function", capture_make_test_function)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -626,11 +388,6 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
     poll_callback_ref = [None]
     poll_called_with_file = [False]
 
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
     real_time = time.time
     fake_start_time = [None]
 
@@ -639,33 +396,13 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
             fake_start_time[0] = real_time()
         return fake_start_time[0] + 2.0
 
-    monkeypatch.setattr(time, "time", fake_time)
-
-    class MockHegelApp:
+    class CapturingApp(MockHegelApp):
         def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
+            super().__init__(run_func, poll_callback, poll_interval)
             poll_callback_ref[0] = poll_callback
-            self._exit_code = 0
-
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
 
         def update_output_sync(self, text):
             outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
 
     original_make_test_function = main_module.make_test_function
 
@@ -693,9 +430,10 @@ def test_run_with_tui_poll_reads_file_during_test(cpp_binaries, monkeypatch):
         kwargs["on_stdout_file"] = wrapped_on_stdout_file
         return original_make_test_function(*args, **kwargs)
 
+    monkeypatch.setattr(time, "time", fake_time)
     monkeypatch.setattr(main_module, "make_test_function", wrap_make_test_function)
-
-    monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    monkeypatch.setattr("hegel.tui.HegelApp", CapturingApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
 
@@ -712,38 +450,7 @@ def test_run_with_tui_poll_with_content_and_switched(
     cpp_binaries, monkeypatch
 ):
     """Test poll_output when display_switched is True and file has content."""
-    outputs_synced = []
-
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    class MockHegelApp:
-        def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._poll_callback = poll_callback
-            self._exit_code = 0
-
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            pass
-
-        def update_output_sync(self, text):
-            outputs_synced.append(text)
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
     monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
@@ -756,14 +463,7 @@ def test_run_with_tui_poll_with_content_and_switched(
 
 def test_run_with_tui_on_result_with_missing_file(cpp_binaries, monkeypatch):
     """Test on_result callback when stdout file doesn't exist."""
-    outputs_received = []
     on_result_called = [False]
-
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
     captured_stdout_file = [None]
 
     original_make_test_function = main_module.make_test_function
@@ -791,34 +491,8 @@ def test_run_with_tui_on_result_with_missing_file(cpp_binaries, monkeypatch):
         kwargs["on_result"] = wrapped_on_result
         return original_make_test_function(*args, **kwargs)
 
-    monkeypatch.setattr(
-        main_module, "make_test_function", patched_make_test_function
-    )
-
-    class MockHegelApp:
-        def __init__(self, run_func, poll_callback=None, poll_interval=0.1):
-            self._run_func = run_func
-            self._exit_code = 0
-
-        def run(self):
-            self._run_func(self)
-
-        def update_output(self, text):
-            outputs_received.append(text)
-
-        def update_output_sync(self, text):
-            pass
-
-        def update_stats(self, stats):
-            pass
-
-        def finish(self, exit_code=0):
-            self._exit_code = exit_code
-
-        @property
-        def exit_code(self):
-            return self._exit_code
-
+    monkeypatch.setattr(main_module, "make_test_function", patched_make_test_function)
+    monkeypatch.setattr(sys, "exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
     monkeypatch.setattr("hegel.tui.HegelApp", MockHegelApp)
 
     db_key = json.dumps([cpp_binaries.const42]).encode("utf-8")
