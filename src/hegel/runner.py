@@ -114,7 +114,7 @@ def run_with_callback(
                     env=env,
                     cwd=cwd,
                     universal_newlines=False,
-                    preexec_fn=os.setsid,
+                    start_new_session=True,
                 )
                 if out is not None:
                     out.close()
