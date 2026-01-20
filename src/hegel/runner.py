@@ -116,7 +116,7 @@ def run_with_callback(
                     universal_newlines=False,
                     preexec_fn=os.setsid,
                 )
-                if capture_output:
+                if out is not None:
                     out.close()
                 start = time()
                 while time() <= start + timeout:

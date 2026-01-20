@@ -78,11 +78,11 @@ def make_test_function(
     test: list[str],
     rejected: int,
     on_result: Callable[[Any], None] | None = None,
-    capture_output=True,
+    capture_output: bool = True,
     on_stdout_file: Callable[[str], None] | None = None,
 ) -> Callable[[ConjectureData], None]:
     def test_function(data: ConjectureData) -> None:
-        with BuildContext(data, is_final=False, wrapped_test=None):
+        with BuildContext(data, is_final=False, wrapped_test=None):  # type: ignore
 
             def handle_command(command: str, payload: Any) -> Any:
                 if command == "generate":
@@ -111,7 +111,7 @@ def make_test_function(
                 if result.exit_code == rejected:
                     data.mark_invalid()
                 else:
-                    data.mark_interesting(result.exit_code)
+                    data.mark_interesting(result.exit_code)  # type: ignore
 
     return test_function
 
@@ -123,7 +123,7 @@ class HegelData:
 
 
 def replay_failure(
-    test: list[str], rejected: int, runner: ConjectureRunner, choices
+    test: list[str], rejected: int, runner: ConjectureRunner, choices: Any
 ) -> int:
     test_function = make_test_function(test, rejected, capture_output=False)
     final_data = runner.new_conjecture_data(choices)
@@ -161,7 +161,7 @@ def run_client_mode(
         is_final_run: bool = False,
     ) -> Callable[[ConjectureData], None]:
         def test_function(data: ConjectureData) -> None:
-            with BuildContext(data, is_final=is_final_run, wrapped_test=None):
+            with BuildContext(data, is_final=is_final_run, wrapped_test=None):  # type: ignore
 
                 def handle_command(command: str, payload: Any) -> Any:
                     if command == "generate":
@@ -232,7 +232,7 @@ def run_client_mode(
                                 message = request.get("message", "Test failed")
                                 if is_final_run:
                                     print(f"Test failed: {message}", file=sys.stderr)
-                                data.mark_interesting(1)
+                                data.mark_interesting(1)  # type: ignore
                             # result == "pass" means test passed, nothing to do
                             break
 
@@ -336,7 +336,9 @@ def main(test, rejected, verbosity, test_cases, tui, client_mode):
         raise click.UsageError("Either TEST argument or --client-mode is required")
 
 
-def _run_without_tui(test, rejected, verbosity: Verbosity, test_cases, db_key):
+def _run_without_tui(
+    test: list[str], rejected: int, verbosity: Verbosity, test_cases: int, db_key: bytes
+) -> None:
     # Show output immediately for verbose/debug, capture for quiet/normal
     capture_output = verbosity in (Verbosity.quiet, Verbosity.normal)
     test_function = make_test_function(test, rejected, capture_output=capture_output)
@@ -375,8 +377,8 @@ def _run_with_tui(test, rejected, test_cases, db_key):
         "running": True,  # Whether tests are still running
     }
 
-    def run_tests(app: HegelApp):
-        def on_stdout_file(path):
+    def run_tests(app: HegelApp) -> None:
+        def on_stdout_file(path: str) -> None:
             """Called by runner when stdout file is created."""
             stdout_file_ref[0] = path
 
@@ -407,9 +409,9 @@ def _run_with_tui(test, rejected, test_cases, db_key):
 
         old_test_function = runner.test_function
 
-        def test_function(data):
+        def wrapped_test_function(data: ConjectureData) -> None:
             try:
-                return old_test_function(data)
+                old_test_function(data)
             finally:
                 app.update_stats(
                     Stats(
@@ -421,7 +423,7 @@ def _run_with_tui(test, rejected, test_cases, db_key):
                     )
                 )
 
-        runner.test_function = test_function
+        runner.test_function = wrapped_test_function  # type: ignore
 
         app.update_stats(Stats(phase="running"))
         runner.run()
