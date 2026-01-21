@@ -59,7 +59,7 @@ Test binaries receive these environment variables from Hegel:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Standalone Mode                          │
+│                    External Mode                          │
 ├─────────────────────────────────────────────────────────────┤
 │  1. First generate() or start_span() opens connection       │
 │  2. Connection persisted across multiple generate() calls   │
@@ -519,7 +519,7 @@ Every SDK must implement `assume(condition)`:
 assume(condition: bool) -> void
 ├── If condition is true: returns normally
 ├── If condition is false:
-│   ├── Standalone mode: exit with HEGEL_REJECT_CODE
+│   ├── External mode: exit with HEGEL_REJECT_CODE
 │   └── Embedded mode: throw exception / panic with special marker
 ```
 
@@ -605,7 +605,7 @@ pub fn assume(condition: bool) {
     if !condition {
         match current_mode() {
             HegelMode::Embedded => panic!("{}", REJECT_MARKER),
-            HegelMode::Standalone => {
+            HegelMode::External => {
                 std::process::exit(get_reject_code());
             }
         }
@@ -739,7 +739,7 @@ fn test_sorting() {
 
 ### Phase 7: Embedded Mode (Optional)
 
-- [ ] Mode detection (standalone vs embedded)
+- [ ] Mode detection (external vs embedded)
 - [ ] Exception-based assume(false) handling
 - [ ] Provided file descriptor support
 - [ ] Test runner integration
