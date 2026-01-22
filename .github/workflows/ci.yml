@@ -34,7 +34,7 @@ jobs:
       - run: git diff --exit-code
 
   typecheck:
-    name: Type Check
+    name: Mypy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
