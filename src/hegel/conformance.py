@@ -62,13 +62,17 @@ def _floats_params(draw: st.DrawFn) -> dict[str, Any]:
 
     if use_min_value:
         min_value = draw(
-            st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False)
+            st.floats(
+                min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False
+            )
         )
 
     if use_max_value:
         min_val = min_value if min_value is not None else -1e6
         max_value = draw(
-            st.floats(min_value=min_val, max_value=1e6, allow_nan=False, allow_infinity=False)
+            st.floats(
+                min_value=min_val, max_value=1e6, allow_nan=False, allow_infinity=False
+            )
         )
 
     # exclude_min/max only meaningful with bounds
@@ -100,7 +104,9 @@ def _text_params(draw: st.DrawFn) -> dict[str, Any]:
     use_max_size = draw(st.booleans())
 
     min_size = draw(st.integers(0, 50)) if use_min_size else 0
-    max_size = draw(st.integers(min_value=min_size, max_value=100)) if use_max_size else None
+    max_size = (
+        draw(st.integers(min_value=min_size, max_value=100)) if use_max_size else None
+    )
 
     return {"min_size": min_size, "max_size": max_size}
 
@@ -111,7 +117,9 @@ def _lists_params(draw: st.DrawFn) -> dict[str, Any]:
     use_max_size = draw(st.booleans())
 
     min_size = draw(st.integers(0, 100)) if use_min_size else 0
-    max_size = draw(st.integers(min_value=min_size, max_value=100)) if use_max_size else None
+    max_size = (
+        draw(st.integers(min_value=min_size, max_value=100)) if use_max_size else None
+    )
 
     return {
         "min_size": min_size,
@@ -272,34 +280,33 @@ def _run_single_test(
         metrics_file.unlink(missing_ok=True)
 
 
-def run_conformance_tests(
-    binaries: dict[str, str | Path],
+def run_conformance_test(
+    test_name: str,
+    binary_path: str | Path,
     test_cases: int = 50,
     hypothesis_iterations: int = 5,
 ) -> None:
-    for test_name, binary_path in binaries.items():
-        if test_name not in CONFORMANCE_TESTS:
-            raise ValueError(
-                f"Unknown test: {test_name}. "
-                f"Available tests: {list(CONFORMANCE_TESTS.keys())}"
-            )
+    if test_name not in CONFORMANCE_TESTS:
+        raise ValueError(
+            f"Unknown test: {test_name}. "
+            f"Available tests: {list(CONFORMANCE_TESTS.keys())}"
+        )
 
-        binary = Path(binary_path)
-        if not binary.exists():
-            raise FileNotFoundError(f"Conformance binary not found: {binary}")
+    binary = Path(binary_path)
+    if not binary.exists():
+        raise FileNotFoundError(f"Conformance binary not found: {binary}")
 
-        test_def = CONFORMANCE_TESTS[test_name]
+    test_def = CONFORMANCE_TESTS[test_name]
+    effective_test_cases = test_def.test_cases or test_cases
 
-        effective_test_cases = test_def.test_cases or test_cases
+    @settings(max_examples=hypothesis_iterations, deadline=None)
+    @given(params=test_def.params_strategy)
+    def run_test(params: dict[str, Any]) -> None:
+        metrics_list = _run_single_test(binary, params, effective_test_cases)
+        if test_def.aggregate_validate:
+            test_def.aggregate_validate(params, metrics_list)
+        elif test_def.validate:
+            for metrics in metrics_list:
+                test_def.validate(params, metrics)
 
-        @settings(max_examples=hypothesis_iterations, deadline=None)
-        @given(params=test_def.params_strategy)
-        def run_test(params: dict[str, Any]) -> None:
-            metrics_list = _run_single_test(binary, params, effective_test_cases)
-            if test_def.aggregate_validate:
-                test_def.aggregate_validate(params, metrics_list)
-            elif test_def.validate:
-                for metrics in metrics_list:
-                    test_def.validate(params, metrics)
-
-        run_test()
+    run_test()
