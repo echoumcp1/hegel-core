@@ -1,6 +1,138 @@
+import json
+
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from hegel.parser import from_schema
+from hegel.runner import HegelEncoder
+
+
+def primitive_hashable_schemas():
+    return (
+        st.just({"type": "null"})
+        | st.just({"type": "boolean"})
+        | st.builds(
+            lambda min_val, max_val: {
+                "type": "integer",
+                "minimum": min_val,
+                "maximum": max_val,
+            },
+            min_val=st.integers(min_value=-1000, max_value=0),
+            max_val=st.integers(min_value=0, max_value=1000),
+        )
+        | st.builds(
+            lambda max_size: {"type": "string", "min_size": 0, "max_size": max_size},
+            max_size=st.integers(min_value=0, max_value=10),
+        )
+        | st.just({"type": "email"})
+        | st.just({"type": "ipv4"})
+        | st.just({"type": "ipv6"})
+        | st.just({"type": "date"})
+        | st.just({"type": "time"})
+        | st.just({"type": "datetime"})
+    )
+
+
+def hashable_schemas():
+    return st.recursive(
+        primitive_hashable_schemas(),
+        lambda inner: st.builds(
+            lambda elements: {"type": "tuple", "elements": elements},
+            elements=st.lists(inner, min_size=0, max_size=3),
+        ),
+    )
+
+
+# Strategy that generates arbitrary valid schemas for from_schema
+def schemas():
+    return st.recursive(
+        # Base cases: simple schemas with no nested schemas
+        hashable_schemas()
+        | st.builds(
+            lambda min_val, max_val: {
+                "type": "number",
+                "minimum": min_val,
+                "maximum": max_val,
+                "allow_nan": False,
+                "allow_infinity": False,
+            },
+            min_val=st.floats(min_value=-1000, max_value=0, allow_nan=False),
+            max_val=st.floats(min_value=0, max_value=1000, allow_nan=False),
+        )
+        # const with JSON-serializable values
+        | st.builds(
+            lambda v: {"const": v},
+            v=st.none() | st.booleans() | st.integers() | st.text(max_size=5),
+        )
+        # enum with JSON-serializable values
+        | st.builds(
+            lambda vs: {"enum": vs},
+            vs=st.lists(
+                st.none() | st.booleans() | st.integers(),
+                min_size=1,
+                max_size=5,
+                unique=True,
+            ),
+        ),
+        # Recursive cases: schemas that contain other schemas
+        lambda inner: (
+            # list
+            st.builds(
+                lambda elements, max_size: {
+                    "type": "list",
+                    "elements": elements,
+                    "min_size": 0,
+                    "max_size": max_size,
+                },
+                elements=inner,
+                max_size=st.integers(min_value=0, max_value=3),
+            )
+            # set - only hashable elements
+            | st.builds(
+                lambda elements, max_size: {
+                    "type": "set",
+                    "elements": elements,
+                    "min_size": 0,
+                    "max_size": max_size,
+                },
+                elements=hashable_schemas(),
+                max_size=st.integers(min_value=0, max_value=3),
+            )
+            # dict (keys must be strings for JSON)
+            | st.builds(
+                lambda values, max_size: {
+                    "type": "dict",
+                    "keys": {"type": "string", "min_size": 1, "max_size": 5},
+                    "values": values,
+                    "min_size": 0,
+                    "max_size": max_size,
+                },
+                values=inner,
+                max_size=st.integers(min_value=0, max_value=3),
+            )
+            # tuple
+            | st.builds(
+                lambda elements: {"type": "tuple", "elements": elements},
+                elements=st.lists(inner, min_size=0, max_size=3),
+            )
+            # one_of
+            | st.builds(
+                lambda options: {"one_of": options},
+                options=st.lists(inner, min_size=1, max_size=3),
+            )
+        ),
+        max_leaves=10,
+    )
+
+
+@given(st.data())
+@settings(max_examples=10)
+def test_from_schema_output_is_json_serializable(data):
+    schema = data.draw(schemas())
+    strategy = from_schema(schema)
+    v = data.draw(strategy)
+    json.dumps(v, cls=HegelEncoder)
 
 
 def test_null():
@@ -167,6 +299,7 @@ def test_tuple():
         "elements": [{"type": "integer"}, {"type": "string"}, {"type": "boolean"}],
     }
     v = from_schema(schema).example()
+    assert isinstance(v, tuple)
     assert len(v) == 3
     assert isinstance(v[0], int)
     assert isinstance(v[1], str)
@@ -175,7 +308,21 @@ def test_tuple():
 
 def test_tuple_empty():
     schema = {"type": "tuple", "elements": []}
-    assert from_schema(schema).example() == []
+    assert from_schema(schema).example() == ()
+
+
+def test_set_of_tuples():
+    schema = {
+        "type": "set",
+        "elements": {
+            "type": "tuple",
+            "elements": [{"type": "integer"}, {"type": "integer"}],
+        },
+    }
+    v = from_schema(schema).example()
+    assert isinstance(v, set)
+    assert all(isinstance(elem, tuple) for elem in v)
+    json.dumps(v, cls=HegelEncoder)
 
 
 def test_nested_dict_of_lists():

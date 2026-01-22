@@ -22,7 +22,7 @@ from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 
 from hegel.parser import from_schema
-from hegel.runner import run_with_callback
+from hegel.runner import HegelEncoder, run_with_callback
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
@@ -250,7 +250,9 @@ def run_client_mode(
                             response = {"id": request_id, "error": str(e)}
                             if verbosity == Verbosity.debug:  # pragma: no branch
                                 print(f"RESPONSE: {response}", file=sys.stderr)
-                            sock.sendall((json.dumps(response) + "\n").encode())
+                            sock.sendall(
+                                (json.dumps(response, cls=HegelEncoder) + "\n").encode()
+                            )
                             continue
                         except (StopTest, UnsatisfiedAssumption):
                             # StopTest means hypothesis wants to stop this test case
@@ -263,13 +265,17 @@ def run_client_mode(
                             }
                             if verbosity == Verbosity.debug:
                                 print(f"RESPONSE: {reject_response}", file=sys.stderr)
-                            sock.sendall((json.dumps(reject_response) + "\n").encode())
+                            sock.sendall(
+                                (json.dumps(reject_response, cls=HegelEncoder) + "\n").encode()
+                            )
                             raise
 
                         if verbosity == Verbosity.debug:
                             print(f"RESPONSE: {response}", file=sys.stderr)
 
-                        sock.sendall((json.dumps(response) + "\n").encode())
+                        sock.sendall(
+                            (json.dumps(response, cls=HegelEncoder) + "\n").encode()
+                        )
 
                 finally:
                     sock.close()

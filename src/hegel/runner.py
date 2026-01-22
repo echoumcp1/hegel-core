@@ -12,6 +12,13 @@ from time import sleep, time
 from typing import Any
 
 
+class HegelEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, (set, frozenset)):
+            return list(obj)
+        return super().default(obj)
+
+
 def signal_group(sp: subprocess.Popen, signal: int) -> None:
     gid = os.getpgid(sp.pid)
     assert gid != os.getgid()
@@ -142,9 +149,9 @@ def run_with_callback(
                             except json.JSONDecodeError as e:
                                 response = {"id": None, "error": f"Invalid JSON: {e}"}
                                 conn.sendall(
-                                    json.dumps(response, ensure_ascii=True).encode(
-                                        "utf-8"
-                                    )
+                                    json.dumps(
+                                        response, ensure_ascii=True, cls=HegelEncoder
+                                    ).encode("utf-8")
                                     + b"\n"
                                 )
                                 continue
@@ -168,7 +175,9 @@ def run_with_callback(
                                 }
 
                             conn.sendall(
-                                json.dumps(response, ensure_ascii=True).encode("utf-8")
+                                json.dumps(
+                                    response, ensure_ascii=True, cls=HegelEncoder
+                                ).encode("utf-8")
                                 + b"\n"
                             )
 
@@ -184,9 +193,11 @@ def run_with_callback(
                                         "error": "Invalid JSON: incomplete request (no newline)",
                                     }
                                     conn.sendall(
-                                        json.dumps(response, ensure_ascii=True).encode(
-                                            "utf-8"
-                                        )
+                                        json.dumps(
+                                            response,
+                                            ensure_ascii=True,
+                                            cls=HegelEncoder,
+                                        ).encode("utf-8")
                                         + b"\n"
                                     )
                                 connection_open = False

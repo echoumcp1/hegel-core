@@ -73,7 +73,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         )
     if schema_type == "tuple":
         elements = [from_schema(s) for s in schema.get("elements", [])]
-        return st.tuples(*elements).map(list)
+        return st.tuples(*elements)
     if schema_type == "email":
         return st.emails()
     if schema_type == "url":
