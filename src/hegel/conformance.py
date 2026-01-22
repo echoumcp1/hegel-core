@@ -36,31 +36,53 @@ def _booleans_params() -> st.SearchStrategy[dict[str, Any]]:
 
 @st.composite
 def _integers_params(draw: st.DrawFn) -> dict[str, Any]:
-    min_value = draw(st.integers(min_value=INT32_MIN, max_value=INT32_MAX))
-    max_value = draw(st.integers(min_value=min_value, max_value=INT32_MAX))
+    use_min_value = draw(st.booleans())
+    use_max_value = draw(st.booleans())
+
+    min_value = None
+    max_value = None
+
+    if use_min_value:
+        min_value = draw(st.integers(min_value=INT32_MIN, max_value=INT32_MAX))
+
+    if use_max_value:
+        min_val = min_value if min_value is not None else INT32_MIN
+        max_value = draw(st.integers(min_value=min_val, max_value=INT32_MAX))
+
     return {"min_value": min_value, "max_value": max_value}
 
 
 @st.composite
 def _floats_params(draw: st.DrawFn) -> dict[str, Any]:
-    min_value = draw(
-        st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False)
-    )
-    max_value = draw(
-        st.floats(
-            min_value=min_value, max_value=1e6, allow_nan=False, allow_infinity=False
-        )
-    )
-    exclude_min = draw(st.booleans())
-    exclude_max = draw(st.booleans())
+    use_min_value = draw(st.booleans())
+    use_max_value = draw(st.booleans())
 
-    # If min == max, can't exclude both
-    if min_value == max_value and (exclude_min or exclude_max):
+    min_value = None
+    max_value = None
+
+    if use_min_value:
+        min_value = draw(
+            st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False)
+        )
+
+    if use_max_value:
+        min_val = min_value if min_value is not None else -1e6
+        max_value = draw(
+            st.floats(min_value=min_val, max_value=1e6, allow_nan=False, allow_infinity=False)
+        )
+
+    # exclude_min/max only meaningful with bounds
+    exclude_min = draw(st.booleans()) if use_min_value else False
+    exclude_max = draw(st.booleans()) if use_max_value else False
+
+    # Can't exclude both when min == max
+    if min_value is not None and max_value is not None and min_value == max_value:
         exclude_min = False
         exclude_max = False
 
     allow_nan = draw(st.booleans())
-    allow_infinity = draw(st.booleans())
+    # Can only allow infinity without both bounds
+    allow_infinity = False if (use_min_value and use_max_value) else draw(st.booleans())
 
     return {
         "min_value": min_value,
@@ -74,22 +96,27 @@ def _floats_params(draw: st.DrawFn) -> dict[str, Any]:
 
 @st.composite
 def _text_params(draw: st.DrawFn) -> dict[str, Any]:
-    min_size = draw(st.integers(0, 50))
-    max_size = draw(st.integers(min_value=min_size, max_value=100))
+    use_min_size = draw(st.booleans())
+    use_max_size = draw(st.booleans())
+
+    min_size = draw(st.integers(0, 50)) if use_min_size else 0
+    max_size = draw(st.integers(min_value=min_size, max_value=100)) if use_max_size else None
+
     return {"min_size": min_size, "max_size": max_size}
 
 
 @st.composite
 def _lists_params(draw: st.DrawFn) -> dict[str, Any]:
-    min_size = draw(st.integers(0, 100))
-    max_size = draw(st.integers(min_value=min_size, max_value=100))
-    min_value = draw(st.integers(min_value=INT32_MIN, max_value=INT32_MAX))
-    max_value = draw(st.integers(min_value=min_value, max_value=INT32_MAX))
+    use_min_size = draw(st.booleans())
+    use_max_size = draw(st.booleans())
+
+    min_size = draw(st.integers(0, 100)) if use_min_size else 0
+    max_size = draw(st.integers(min_value=min_size, max_value=100)) if use_max_size else None
+
     return {
         "min_size": min_size,
         "max_size": max_size,
-        "min_value": min_value,
-        "max_value": max_value,
+        **draw(_integers_params()),
     }
 
 
@@ -111,7 +138,11 @@ def _validate_booleans(params: dict[str, Any], metrics: dict[str, Any]) -> None:
 
 
 def _validate_integers(params: dict[str, Any], metrics: dict[str, Any]) -> None:
-    assert params["min_value"] <= metrics["value"] <= params["max_value"]
+    value = metrics["value"]
+    if params["min_value"] is not None:
+        assert value >= params["min_value"]
+    if params["max_value"] is not None:
+        assert value <= params["max_value"]
 
 
 def _aggregate_validate_floats(
@@ -128,23 +159,34 @@ def _aggregate_validate_floats(
             continue
 
         value = metrics["value"]
-        assert value >= params["min_value"]
-        assert value <= params["max_value"]
-        if params["exclude_min"]:
-            assert value != params["min_value"]
-        if params["exclude_max"]:
-            assert value != params["max_value"]
+        if params["min_value"] is not None:
+            assert value >= params["min_value"]
+            if params["exclude_min"]:
+                assert value != params["min_value"]
+        if params["max_value"] is not None:
+            assert value <= params["max_value"]
+            if params["exclude_max"]:
+                assert value != params["max_value"]
 
 
 def _validate_text(params: dict[str, Any], metrics: dict[str, Any]) -> None:
-    assert params["min_size"] <= metrics["length"] <= params["max_size"]
+    length = metrics["length"]
+    assert length >= params["min_size"]
+    if params["max_size"] is not None:
+        assert length <= params["max_size"]
 
 
 def _validate_lists(params: dict[str, Any], metrics: dict[str, Any]) -> None:
-    assert params["min_size"] <= metrics["size"] <= params["max_size"]
-    if metrics["size"] > 0:
-        assert metrics["min_element"] >= params["min_value"]
-        assert metrics["max_element"] <= params["max_value"]
+    size = metrics["size"]
+    assert size >= params["min_size"]
+    if params["max_size"] is not None:
+        assert size <= params["max_size"]
+
+    if size > 0:
+        if params["min_value"] is not None:
+            assert metrics["min_element"] >= params["min_value"]
+        if params["max_value"] is not None:
+            assert metrics["max_element"] <= params["max_value"]
 
 
 def _validate_sampled_from(params: dict[str, Any], metrics: dict[str, Any]) -> None:
