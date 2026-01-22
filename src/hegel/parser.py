@@ -18,8 +18,8 @@ class BooleansStrategy(SearchStrategy[bool]):
 def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if "const" in schema:
         return st.just(schema["const"])
-    if "enum" in schema:
-        return st.sampled_from(schema["enum"])
+    if "sampled_from" in schema:
+        return st.sampled_from(schema["sampled_from"])
     if "one_of" in schema:
         return st.one_of([from_schema(s) for s in schema["one_of"]])
 

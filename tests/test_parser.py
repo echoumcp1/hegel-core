@@ -65,9 +65,9 @@ def schemas():
             lambda v: {"const": v},
             v=st.none() | st.booleans() | st.integers() | st.text(max_size=5),
         )
-        # enum with JSON-serializable values
+        # sampled_from with JSON-serializable values
         | st.builds(
-            lambda vs: {"enum": vs},
+            lambda vs: {"sampled_from": vs},
             vs=st.lists(
                 st.none() | st.booleans() | st.integers(),
                 min_size=1,
@@ -223,8 +223,8 @@ def test_const():
     assert from_schema({"const": "hello"}).example() == "hello"
 
 
-def test_enum():
-    v = from_schema({"enum": [1, 2, 3]}).example()
+def test_sampled_from():
+    v = from_schema({"sampled_from": [1, 2, 3]}).example()
     assert v in [1, 2, 3]
 
 
