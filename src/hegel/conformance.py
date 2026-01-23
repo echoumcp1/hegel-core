@@ -13,6 +13,7 @@ INT32_MIN = -(2**31)
 INT32_MAX = 2**31 - 1
 
 
+
 @dataclass
 class ConformanceTest:
     params_strategy: st.SearchStrategy[dict[str, Any]]
@@ -302,6 +303,33 @@ def _run_single_test(
         return metrics_list
     finally:
         metrics_file.unlink(missing_ok=True)
+
+
+def conformance_tests(
+    tests: dict[str, Path | None],
+) -> list[tuple[str, Path]]:
+    """Validate and return conformance test configuration.
+
+    Args:
+        tests: Dict mapping test name to binary path, or None if skipped.
+               Must include all keys from CONFORMANCE_TESTS.
+
+    Returns:
+        List of (test_name, binary_path) tuples for non-skipped tests,
+        suitable for @pytest.mark.parametrize.
+    """
+    expected = set(CONFORMANCE_TESTS.keys())
+    provided = set(tests.keys())
+
+    missing = expected - provided
+    if missing:
+        raise ValueError(f"Missing conformance tests: {sorted(missing)}")
+
+    extra = provided - expected
+    if extra:
+        raise ValueError(f"Unknown conformance tests: {sorted(extra)}")
+
+    return [(name, path) for name, path in tests.items() if path is not None]
 
 
 def run_conformance_test(
