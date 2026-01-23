@@ -254,6 +254,9 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 | `nulls()` | `{"type": "null"}` | Generates null/nil/None |
 | `booleans()` | `{"type": "boolean", "p": 0.5}` | Generates true/false; `p` is probability of true (default 0.5) |
 | `just(value)` | `{"const": value}` | Always returns the same value |
+| `binary()` | `{"type": "binary", "min_size": 0, "max_size": N}` | Generates byte sequences (see note below) |
+
+**Binary encoding:** Since JSON cannot represent raw bytes, binary data is transmitted as base64-encoded strings. The server returns a base64 string, and SDKs decode it to the native byte type (`Vec<u8>`, `[]byte`, `Uint8Array`, etc.).
 
 #### Numeric
 
@@ -697,6 +700,7 @@ fn test_sorting() {
 - [ ] `integers()` with min/max
 - [ ] `floats()` with min/max and exclusions
 - [ ] `text()` with length bounds
+- [ ] `binary()` with min/max size (base64 decoding)
 - [ ] `from_regex(pattern)` with auto-anchoring
 
 ### Phase 3: Format Strings

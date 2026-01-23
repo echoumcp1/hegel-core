@@ -112,6 +112,19 @@ def _text_params(draw: st.DrawFn) -> dict[str, Any]:
 
 
 @st.composite
+def _binary_params(draw: st.DrawFn) -> dict[str, Any]:
+    use_min_size = draw(st.booleans())
+    use_max_size = draw(st.booleans())
+
+    min_size = draw(st.integers(0, 50)) if use_min_size else 0
+    max_size = (
+        draw(st.integers(min_value=min_size, max_value=100)) if use_max_size else None
+    )
+
+    return {"min_size": min_size, "max_size": max_size}
+
+
+@st.composite
 def _lists_params(draw: st.DrawFn) -> dict[str, Any]:
     use_min_size = draw(st.booleans())
     use_max_size = draw(st.booleans())
@@ -184,6 +197,13 @@ def _validate_text(params: dict[str, Any], metrics: dict[str, Any]) -> None:
         assert length <= params["max_size"]
 
 
+def _validate_binary(params: dict[str, Any], metrics: dict[str, Any]) -> None:
+    length = metrics["length"]
+    assert length >= params["min_size"]
+    if params["max_size"] is not None:
+        assert length <= params["max_size"]
+
+
 def _validate_lists(params: dict[str, Any], metrics: dict[str, Any]) -> None:
     size = metrics["size"]
     assert size >= params["min_size"]
@@ -222,6 +242,10 @@ CONFORMANCE_TESTS: dict[str, ConformanceTest] = {
     "text": ConformanceTest(
         params_strategy=_text_params(),
         validate=_validate_text,
+    ),
+    "binary": ConformanceTest(
+        params_strategy=_binary_params(),
+        validate=_validate_binary,
     ),
     "lists": ConformanceTest(
         params_strategy=_lists_params(),
