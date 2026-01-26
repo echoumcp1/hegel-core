@@ -230,9 +230,6 @@ def run_client_mode(
                             if result == "reject":
                                 data.mark_invalid()
                             elif result == "fail":
-                                message = request.get("message", "Test failed")
-                                if is_final_run:
-                                    print(f"Test failed: {message}", file=sys.stderr)
                                 data.mark_interesting(1)  # type: ignore
                             # result == "pass" means test passed, nothing to do
                             break
