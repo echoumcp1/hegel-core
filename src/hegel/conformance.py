@@ -84,8 +84,7 @@ def _floats_params(draw: st.DrawFn) -> dict[str, Any]:
         exclude_min = False
         exclude_max = False
 
-    allow_nan = draw(st.booleans())
-    # Can only allow infinity without both bounds
+    allow_nan = False if (use_min_value or use_max_value) else draw(st.booleans())
     allow_infinity = False if (use_min_value and use_max_value) else draw(st.booleans())
 
     return {

@@ -13,9 +13,6 @@ from shutil import which
 from typing import Any
 
 import click
-
-from hegel.parser import from_schema
-from hegel.runner import HegelEncoder, convert_json, run_with_callback
 from hypothesis import Verbosity, settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
@@ -23,6 +20,9 @@ from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.conjecture.data import ConjectureData
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
+
+from hegel.parser import from_schema
+from hegel.runner import HegelEncoder, convert_json, run_with_callback
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 

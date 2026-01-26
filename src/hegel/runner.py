@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from time import sleep, time
 from typing import Any
 
+
 def convert_json(value: Any) -> Any:
     if isinstance(value, dict):
         return {k: convert_json(v) for k, v in value.items()}
