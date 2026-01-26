@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import random
 import signal
@@ -10,6 +11,27 @@ from dataclasses import dataclass
 from tempfile import TemporaryDirectory
 from time import sleep, time
 from typing import Any
+
+HEGEL_INF = "hegel-inf-a928fa52"
+HEGEL_NINF = "hegel-ninf-a928fa52"
+HEGEL_NAN = "hegel-nan-a928fa52"
+
+
+def convert_json(value: Any) -> Any:
+    """Convert ±inf and nan to sentinel strings for JSON serialization."""
+    if isinstance(value, dict):
+        return {k: convert_json(v) for k, v in value.items()}
+    elif isinstance(value, float):
+        if value == math.inf:
+            return HEGEL_INF
+        elif value == -math.inf:
+            return HEGEL_NINF
+        elif math.isnan(value):
+            return HEGEL_NAN
+        return value
+    elif isinstance(value, list):
+        return [convert_json(item) for item in value]
+    return value
 
 
 class HegelEncoder(json.JSONEncoder):
@@ -176,7 +198,9 @@ def run_with_callback(
 
                             conn.sendall(
                                 json.dumps(
-                                    response, ensure_ascii=True, cls=HegelEncoder
+                                    convert_json(response),
+                                    ensure_ascii=True,
+                                    cls=HegelEncoder,
                                 ).encode("utf-8")
                                 + b"\n"
                             )

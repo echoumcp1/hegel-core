@@ -13,6 +13,9 @@ from shutil import which
 from typing import Any
 
 import click
+
+from hegel.parser import from_schema
+from hegel.runner import HegelEncoder, convert_json, run_with_callback
 from hypothesis import Verbosity, settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
@@ -20,9 +23,6 @@ from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.conjecture.data import ConjectureData
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
-
-from hegel.parser import from_schema
-from hegel.runner import HegelEncoder, run_with_callback
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
@@ -263,7 +263,9 @@ def run_client_mode(
                             if verbosity == Verbosity.debug:
                                 print(f"RESPONSE: {reject_response}", file=sys.stderr)
                             sock.sendall(
-                                (json.dumps(reject_response, cls=HegelEncoder) + "\n").encode()
+                                (
+                                    json.dumps(reject_response, cls=HegelEncoder) + "\n"
+                                ).encode()
                             )
                             raise
 
@@ -271,7 +273,10 @@ def run_client_mode(
                             print(f"RESPONSE: {response}", file=sys.stderr)
 
                         sock.sendall(
-                            (json.dumps(response, cls=HegelEncoder) + "\n").encode()
+                            (
+                                json.dumps(convert_json(response), cls=HegelEncoder)
+                                + "\n"
+                            ).encode()
                         )
 
                 finally:

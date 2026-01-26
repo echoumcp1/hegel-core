@@ -13,7 +13,6 @@ INT32_MIN = -(2**31)
 INT32_MAX = 2**31 - 1
 
 
-
 @dataclass
 class ConformanceTest:
     params_strategy: st.SearchStrategy[dict[str, Any]]
