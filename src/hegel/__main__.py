@@ -241,7 +241,7 @@ def run_client_mode(
 
                         try:
                             result = handle_command(command, payload)
-                            response = {"id": request_id, "result": result}
+                            response = {"id": request_id, "result": convert_json(result)}
                         except ValueError as e:
                             # Unknown command - send error response
                             response = {"id": request_id, "error": str(e)}
@@ -274,7 +274,7 @@ def run_client_mode(
 
                         sock.sendall(
                             (
-                                json.dumps(convert_json(response), cls=HegelEncoder)
+                                json.dumps(response, cls=HegelEncoder)
                                 + "\n"
                             ).encode()
                         )

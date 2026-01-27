@@ -269,9 +269,11 @@ def test_dict():
         "values": {"type": "integer"},
     }
     v = from_schema(schema).example()
-    assert isinstance(v, dict)
-    assert all(isinstance(k, str) and len(k) >= 1 for k in v)
-    assert all(isinstance(x, int) for x in v.values())
+    # Wire format is [[key, value], ...]
+    assert isinstance(v, list)
+    assert all(isinstance(kv, tuple) and len(kv) == 2 for kv in v)
+    assert all(isinstance(k, str) and len(k) >= 1 for k, _ in v)
+    assert all(isinstance(val, int) for _, val in v)
 
 
 def test_dict_size():
@@ -289,7 +291,9 @@ def test_dict_size():
 def test_dict_default_keys():
     schema = {"type": "dict", "values": {"type": "integer"}}
     v = from_schema(schema).example()
-    assert all(isinstance(k, str) for k in v)
+    # Wire format is [[key, value], ...], keys default to strings
+    assert isinstance(v, list)
+    assert all(isinstance(k, str) for k, _ in v)
 
 
 def test_tuple():
@@ -337,8 +341,10 @@ def test_nested_dict_of_lists():
         "max_size": 2,
     }
     v = from_schema(schema).example()
+    # Wire format is [[key, value], ...]
+    assert isinstance(v, list)
     assert 1 <= len(v) <= 2
-    for key, val in v.items():
+    for key, val in v:
         assert isinstance(key, str)
         assert isinstance(val, list)
         assert len(val) <= 5

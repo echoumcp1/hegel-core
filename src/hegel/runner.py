@@ -181,11 +181,10 @@ def run_with_callback(
                             payload = request.get("payload")
 
                             try:
+                                result = callback_function(request_command, payload)
                                 response = {
                                     "id": request_id,
-                                    "result": callback_function(
-                                        request_command, payload
-                                    ),
+                                    "result": convert_json(result),
                                 }
                             except Exception:
                                 response = {
@@ -195,7 +194,7 @@ def run_with_callback(
 
                             conn.sendall(
                                 json.dumps(
-                                    convert_json(response),
+                                    response,
                                     ensure_ascii=True,
                                     cls=HegelEncoder,
                                 ).encode("utf-8")

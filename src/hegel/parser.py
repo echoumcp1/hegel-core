@@ -71,12 +71,13 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             max_size=schema.get("max_size"),
         )
     if schema_type == "dict":
+        # Convert to [[k, v], ...] format to support non-string keys
         return st.dictionaries(
             keys=from_schema(schema.get("keys", {"type": "string"})),
             values=from_schema(schema.get("values", {})),
             min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
-        )
+        ).map(lambda d: list(d.items()))
     if schema_type == "tuple":
         elements = [from_schema(s) for s in schema.get("elements", [])]
         return st.tuples(*elements)

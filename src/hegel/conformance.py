@@ -336,6 +336,85 @@ class SampledFromConformance(ConformanceTest):
             assert metrics["value"] in params["options"]
 
 
+class DictConformance(ConformanceTest):
+    def __init__(
+        self,
+        binary_path: str | Path,
+        test_cases: int | None = None,
+        *,
+        min_key: int | None = None,
+        max_key: int | None = None,
+        min_value: int | None = None,
+        max_value: int | None = None,
+    ) -> None:
+        super().__init__(binary_path, test_cases)
+        self.min_key = min_key if min_key is not None else -1000
+        self.max_key = max_key if max_key is not None else 1000
+        self.min_value = min_value if min_value is not None else -1000
+        self.max_value = max_value if max_value is not None else 1000
+
+    def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
+        min_key = self.min_key
+        max_key = self.max_key
+        min_value = self.min_value
+        max_value = self.max_value
+
+        @st.composite
+        def strategy(draw: st.DrawFn) -> dict[str, Any]:
+            min_size = draw(st.integers(0, 5))
+            max_size = draw(st.integers(min_value=min_size, max_value=10))
+            key_type = draw(st.sampled_from(["string", "integer"]))
+
+            # For integer keys, ensure the key range is at least as large as max_size
+            # to avoid "Cannot create collection with N unique elements from M distinct"
+            # Constraint: drawn_min_key + max_size - 1 <= max_key
+            max_allowed_min_key = max_key - max_size + 1
+            drawn_min_key = draw(
+                st.integers(min_value=min_key, max_value=max(min_key, max_allowed_min_key))
+            )
+            # Ensure at least max_size distinct keys are possible
+            key_range_min = drawn_min_key + max_size - 1
+            drawn_max_key = draw(
+                st.integers(min_value=key_range_min, max_value=max_key)
+            )
+
+            # For values, draw bounds within the allowed range
+            drawn_min_value = draw(st.integers(min_value=min_value, max_value=max_value))
+            drawn_max_value = draw(
+                st.integers(min_value=drawn_min_value, max_value=max_value)
+            )
+
+            return {
+                "min_size": min_size,
+                "max_size": max_size,
+                "key_type": key_type,
+                "min_key": drawn_min_key,
+                "max_key": drawn_max_key,
+                "min_value": drawn_min_value,
+                "max_value": drawn_max_value,
+            }
+
+        return strategy()
+
+    def validate(
+        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+    ) -> None:
+        for metrics in metrics_list:
+            size = metrics["size"]
+            assert size >= params["min_size"]
+            assert size <= params["max_size"]
+
+            if size > 0:
+                # Check value bounds
+                assert metrics["min_value"] >= params["min_value"]
+                assert metrics["max_value"] <= params["max_value"]
+
+                # Check key bounds for integer keys
+                if params["key_type"] == "integer":
+                    assert metrics["min_key"] >= params["min_key"]
+                    assert metrics["max_key"] <= params["max_key"]
+
+
 def run_conformance_tests(
     tests: list[ConformanceTest],
     subtests: pytest.Subtests,
