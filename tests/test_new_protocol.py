@@ -1,18 +1,20 @@
-from hypothesis import given, strategies as st, settings
 import socket
 from threading import Thread
-from hegel.protocol import write_packet, read_packet, Packet, Connection
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from hegel.hegeld import run_server_on_connection
+from hegel.protocol import Connection, Packet, read_packet, write_packet
 from hegel.sdk import (
     Client,
-    draw,
     assume,
-    note,
-    target,
-    integers,
-    text,
-    lists,
     booleans,
+    generate_from_schema as draw,
+    integers,
+    lists,
+    target,
+    text,
 )
 
 
@@ -187,15 +189,15 @@ def test_strategy_helpers():
 
         def my_test():
             # Test integers helper
-            n = integers(min_value=0, max_value=10).draw()
+            n = integers(min_value=0, max_value=10).generate()
             assert 0 <= n <= 10
 
             # Test text helper
-            s = text(min_size=1, max_size=5).draw()
+            s = text(min_size=1, max_size=5).generate()
             assert 1 <= len(s) <= 5
 
             # Test booleans helper
-            b = booleans().draw()
+            b = booleans().generate()
             assert isinstance(b, bool)
 
         result = client.run_test("test_helpers", my_test, test_cases=50)
@@ -287,7 +289,7 @@ def test_lists_of_integers():
         client = Client(client_connection)
 
         def my_test():
-            xs = lists(integers(min_value=0, max_value=10), max_size=3).draw()
+            xs = lists(integers(min_value=0, max_value=10), max_size=3).generate()
             assert isinstance(xs, list)
             assert len(xs) <= 3
             for x in xs:

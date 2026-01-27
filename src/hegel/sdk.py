@@ -2,36 +2,26 @@
 Hegel Python SDK - Reference implementation for writing property tests.
 
 This SDK provides the API for writing property-based tests using Hegel.
-Tests can run in two modes:
-- Embedded mode (default): Uses @hegel decorator, automatically spawns hegeld
-- Client mode: Manually connects to a running hegeld server
 
-Example usage with @hegel decorator:
+Example usage:
 
-    from hegel.sdk import hegel, gen
+    from hegel.sdk import hegel, integers, lists
 
     @hegel
     def test_addition_is_commutative():
-        a = gen.integers().generate()
-        b = gen.integers().generate()
+        a = integers().generate()
+        b = integers().generate()
         assert a + b == b + a
-
-Example usage with generators:
-
-    from hegel.sdk import gen
-
-    @hegel
-    def test_list_reverse():
-        xs = gen.lists(gen.integers()).generate()
-        assert list(reversed(list(reversed(xs)))) == xs
 """
 
 import functools
 import os
+import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -76,6 +66,22 @@ class Verbosity(Enum):
     DEBUG = "debug"
 
 
+# Span labels (matching Rust SDK)
+class Labels:
+    LIST = 1
+    LIST_ELEMENT = 2
+    SET = 3
+    SET_ELEMENT = 4
+    MAP = 5
+    MAP_ENTRY = 6
+    TUPLE = 7
+    ONE_OF = 8
+    OPTIONAL = 9
+    FIXED_DICT = 10
+    FLAT_MAP = 11
+    FILTER = 12
+
+
 @dataclass
 class TestResult:
     """Result of running a property test."""
@@ -105,17 +111,7 @@ class Client:
         test_fn: Callable[[], None],
         test_cases: int = 1000,
     ) -> TestResult:
-        """Run a property test.
-
-        Args:
-            name: Name of the test (used for database key)
-            test_fn: The test function to run. Should use generate(), assume(), etc.
-            test_cases: Maximum number of test cases to run
-
-        Returns:
-            TestResult with pass/fail status and statistics
-        """
-        # Send run_test request
+        """Run a property test."""
         pending = self._control.request(
             {
                 "command": "run_test",
@@ -124,7 +120,6 @@ class Client:
             }
         )
 
-        # Handle test_case events until test_done
         while True:
             req_id, payload = self._control.receive_request()
             message = cbor2.loads(payload)
@@ -135,13 +130,9 @@ class Client:
                 channel_id = message["channel"]
                 is_final = message.get("is_final", False)
 
-                # Connect to the test channel
                 test_channel = self.connection.connect_channel(channel_id)
-
-                # Run the test function
                 status, origin = self._run_test_case(test_channel, test_fn, is_final)
 
-                # Send mark_complete
                 test_channel.request(
                     {
                         "command": "mark_complete",
@@ -150,22 +141,16 @@ class Client:
                     }
                 ).get()
 
-                # Clean up
                 test_channel.close()
-
-                # Acknowledge the test_case request
                 self._control.send_response(req_id, cbor2.dumps({"result": None}))
 
             elif event == "test_done":
-                # Acknowledge and break
                 self._control.send_response(req_id, cbor2.dumps({"result": None}))
                 break
 
             else:
-                # Unknown event - acknowledge anyway
                 self._control.send_response(req_id, cbor2.dumps({"result": None}))
 
-        # Get the final result from run_test response
         result_data = pending.get()
 
         return TestResult(
@@ -182,11 +167,7 @@ class Client:
         test_fn: Callable[[], None],
         is_final: bool,
     ) -> tuple[str, dict | None]:
-        """Run a single test case.
-
-        Returns (status, origin) tuple.
-        """
-        # Set context variables
+        """Run a single test case."""
         token_channel = _current_channel.set(channel)
         token_final = _is_final.set(is_final)
 
@@ -198,11 +179,9 @@ class Client:
             return ("INVALID", None)
 
         except OverflowError:
-            # Server ran out of data - treat as invalid
             return ("INVALID", None)
 
         except Exception as e:
-            # Extract origin from exception
             tb = e.__traceback__
             origin = _extract_origin(e, tb)
             return ("INTERESTING", origin)
@@ -214,13 +193,10 @@ class Client:
 
 def _extract_origin(exc: Exception, tb: Any) -> dict:
     """Extract InterestingOrigin from an exception."""
-    # Walk the traceback to find the user's test code
-    # (skip frames from this SDK)
     filename = ""
     lineno = 0
 
     if tb is not None:
-        # Get the last frame from the traceback
         while tb.tb_next is not None:
             tb = tb.tb_next
         filename = tb.tb_frame.f_code.co_filename
@@ -249,25 +225,7 @@ def _get_channel() -> Channel:
 
 
 def generate_from_schema(schema: dict) -> Any:
-    """Generate a value from a schema.
-
-    This is the low-level generation function. Prefer using Generator classes
-    for a more ergonomic API.
-
-    Args:
-        schema: JSON-like schema describing the value to generate.
-                Examples:
-                - {"type": "integer", "minimum": 0, "maximum": 100}
-                - {"type": "string", "min_size": 1}
-                - {"type": "list", "elements": {"type": "integer"}}
-
-    Returns:
-        A generated value matching the schema.
-
-    Raises:
-        OverflowError: If the server runs out of data (test case will be rejected)
-        RuntimeError: If called outside a test context
-    """
+    """Generate a value from a schema."""
     channel = _get_channel()
     try:
         return channel.request({"command": "generate", "schema": schema}).get()
@@ -277,277 +235,185 @@ def generate_from_schema(schema: dict) -> Any:
         raise
 
 
-# Alias for backwards compatibility
-draw = generate_from_schema
-
-
 def assume(condition: bool) -> None:
-    """Reject the current test case if condition is False.
-
-    Use this to filter out invalid inputs. Hegel will generate new inputs
-    rather than counting this as a failure.
-
-    Args:
-        condition: If False, the test case is rejected.
-    """
+    """Reject the current test case if condition is False."""
     if not condition:
         raise AssumeRejected
 
 
 def note(message: str) -> None:
-    """Record a message that will be printed on the final (failing) run.
-
-    Use this to debug failing tests by printing intermediate values.
-    Notes are only printed when replaying a failure, not during normal
-    test execution.
-
-    Args:
-        message: The message to record.
-    """
+    """Record a message that will be printed on the final (failing) run."""
     if _is_final.get():
         print(message, file=sys.stderr)
 
 
 def target(value: float, label: str = "") -> None:
-    """Guide the search toward higher values.
-
-    Hegel will try to find inputs that maximize the target value.
-    This can help find edge cases more quickly.
-
-    Args:
-        value: A numeric value to maximize.
-        label: Optional label for this target (useful if targeting multiple values).
-    """
+    """Guide the search toward higher values."""
     channel = _get_channel()
     channel.request({"command": "target", "value": value, "label": label}).get()
 
 
 def start_span(label: int = 0) -> None:
-    """Start a generation span for better shrinking.
-
-    Spans help Hegel understand the structure of generated data,
-    which improves shrinking. Values generated within a span can be
-    shrunk together.
-
-    Args:
-        label: Optional label for the span.
-    """
+    """Start a generation span for better shrinking."""
     channel = _get_channel()
     channel.request({"command": "start_span", "label": label}).get()
 
 
 def stop_span(*, discard: bool = False) -> None:
-    """End the current generation span.
-
-    Args:
-        discard: If True, mark the span as discarded (e.g., because the
-                 generated values didn't pass a filter).
-    """
+    """End the current generation span."""
     channel = _get_channel()
     channel.request({"command": "stop_span", "discard": discard}).get()
 
 
 # =============================================================================
-# Generator classes (following Rust SDK naming conventions)
+# Generator base class and combinators
 # =============================================================================
 
+T = TypeVar("T")
+U = TypeVar("U")
 
-@dataclass
-class Generator:
-    """A generator for producing test values.
 
-    Generators describe how to produce random values for property tests.
-    Use the .generate() method to get a value during test execution.
+class Generator(ABC):
+    """Base class for all generators.
+
+    Generators produce values of type T and optionally carry a schema
+    that describes the values they generate. Generators with a schema
+    can be optimized into a single server request.
     """
 
-    schema: dict
+    @abstractmethod
+    def generate(self) -> Any:
+        """Generate a value."""
+        pass
+
+    def schema(self) -> dict | None:
+        """Get the schema for this generator, if available.
+
+        Schemas enable composition optimizations where a single request
+        to the server can generate complex nested structures.
+
+        Returns None for composite generators (map, filter, flat_map).
+        """
+        return None
+
+    def map(self, f: Callable[[Any], Any]) -> "MappedGenerator":
+        """Transform generated values using a function.
+
+        The resulting generator has no schema since the transformation
+        may invalidate the schema's semantics.
+        """
+        return MappedGenerator(self, f)
+
+    def flat_map(self, f: Callable[[Any], "Generator"]) -> "FlatMappedGenerator":
+        """Generate a value, then use it to create another generator.
+
+        This is useful for dependent generation where the second value
+        depends on the first.
+        """
+        return FlatMappedGenerator(self, f)
+
+    def filter(
+        self, predicate: Callable[[Any], bool], max_attempts: int = 100
+    ) -> "FilteredGenerator":
+        """Filter generated values using a predicate.
+
+        If max_attempts consecutive values fail the predicate, calls assume(false).
+        """
+        return FilteredGenerator(self, predicate, max_attempts)
+
+
+class SchemaGenerator(Generator):
+    """A generator backed by a JSON schema."""
+
+    def __init__(self, schema_dict: dict):
+        self._schema = schema_dict
 
     def generate(self) -> Any:
-        """Generate a value from this generator."""
-        return generate_from_schema(self.schema)
+        """Generate a value from the schema."""
+        return generate_from_schema(self._schema)
 
-    # Alias for backwards compatibility with Hypothesis-style naming
-    def draw(self) -> Any:
-        """Generate a value from this generator.
-
-        This is an alias for .generate() for backwards compatibility.
-        """
-        return self.generate()
+    def schema(self) -> dict | None:
+        return self._schema
 
 
-# For backwards compatibility
-Strategy = Generator
+class MappedGenerator(Generator):
+    """A generator that transforms values from another generator."""
+
+    def __init__(self, source: Generator, f: Callable[[Any], Any]):
+        self._source = source
+        self._f = f
+
+    def generate(self) -> Any:
+        start_span(Labels.MAP)
+        try:
+            value = self._source.generate()
+            return self._f(value)
+        finally:
+            stop_span(discard=False)
+
+    def schema(self) -> dict | None:
+        return None  # No schema after transformation
 
 
-class gen:
-    """Namespace for generator factories.
+class FlatMappedGenerator(Generator):
+    """A generator for dependent generation."""
 
-    All generators are accessed through this namespace, following the pattern
-    from the Rust SDK:
+    def __init__(self, source: Generator, f: Callable[[Any], Generator]):
+        self._source = source
+        self._f = f
 
-        from hegel.sdk import gen
+    def generate(self) -> Any:
+        start_span(Labels.FLAT_MAP)
+        try:
+            first = self._source.generate()
+            second_gen = self._f(first)
+            return second_gen.generate()
+        finally:
+            stop_span(discard=False)
 
-        x = gen.integers().generate()
-        s = gen.text().generate()
-        xs = gen.lists(gen.integers()).generate()
-    """
+    def schema(self) -> dict | None:
+        return None  # No schema for dependent generation
 
-    @staticmethod
-    def integers(
-        min_value: int | None = None, max_value: int | None = None
-    ) -> Generator:
-        """Generator for integers.
 
-        Args:
-            min_value: Minimum value (inclusive), or None for unbounded.
-            max_value: Maximum value (inclusive), or None for unbounded.
-        """
-        schema: dict = {"type": "integer"}
-        if min_value is not None:
-            schema["minimum"] = min_value
-        if max_value is not None:
-            schema["maximum"] = max_value
-        return Generator(schema)
+class FilteredGenerator(Generator):
+    """A generator that filters values."""
 
-    @staticmethod
-    def floats(
-        min_value: float | None = None,
-        max_value: float | None = None,
-        *,
-        allow_nan: bool = False,
-        allow_infinity: bool = False,
-    ) -> Generator:
-        """Generator for floating-point numbers.
+    def __init__(
+        self, source: Generator, predicate: Callable[[Any], bool], max_attempts: int
+    ):
+        self._source = source
+        self._predicate = predicate
+        self._max_attempts = max_attempts
 
-        Args:
-            min_value: Minimum value (inclusive), or None for unbounded.
-            max_value: Maximum value (inclusive), or None for unbounded.
-            allow_nan: Whether to allow NaN values.
-            allow_infinity: Whether to allow infinite values.
-        """
-        schema: dict = {"type": "number"}
-        if min_value is not None:
-            schema["minimum"] = min_value
-        if max_value is not None:
-            schema["maximum"] = max_value
-        schema["allow_nan"] = allow_nan
-        schema["allow_infinity"] = allow_infinity
-        return Generator(schema)
+    def generate(self) -> Any:
+        for _ in range(self._max_attempts):
+            start_span(Labels.FILTER)
+            value = self._source.generate()
+            if self._predicate(value):
+                stop_span(discard=False)
+                return value
+            stop_span(discard=True)
+        # Too many failed attempts - reject this test case
+        assume(False)
+        raise AssertionError("unreachable")
 
-    @staticmethod
-    def booleans(p: float = 0.5) -> Generator:
-        """Generator for booleans.
-
-        Args:
-            p: Probability of True.
-        """
-        return Generator({"type": "boolean", "p": p})
-
-    @staticmethod
-    def text(min_size: int = 0, max_size: int | None = None) -> Generator:
-        """Generator for text strings.
-
-        Args:
-            min_size: Minimum length.
-            max_size: Maximum length, or None for unbounded.
-        """
-        schema: dict = {"type": "string", "min_size": min_size}
-        if max_size is not None:
-            schema["max_size"] = max_size
-        return Generator(schema)
-
-    @staticmethod
-    def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
-        """Generator for binary data (returned as base64).
-
-        Args:
-            min_size: Minimum length in bytes.
-            max_size: Maximum length in bytes, or None for unbounded.
-        """
-        schema: dict = {"type": "binary", "min_size": min_size}
-        if max_size is not None:
-            schema["max_size"] = max_size
-        return Generator(schema)
-
-    @staticmethod
-    def lists(
-        elements: Generator | dict,
-        min_size: int = 0,
-        max_size: int | None = None,
-    ) -> Generator:
-        """Generator for lists.
-
-        Args:
-            elements: Generator or schema for list elements.
-            min_size: Minimum length.
-            max_size: Maximum length, or None for unbounded.
-        """
-        elem_schema = elements.schema if isinstance(elements, Generator) else elements
-        schema: dict = {"type": "list", "elements": elem_schema, "min_size": min_size}
-        if max_size is not None:
-            schema["max_size"] = max_size
-        return Generator(schema)
-
-    # Rust-style alias
-    vecs = lists
-
-    @staticmethod
-    def tuples(*elements: Generator | dict) -> Generator:
-        """Generator for tuples.
-
-        Args:
-            *elements: Generators or schemas for each tuple element.
-        """
-        elem_schemas = [e.schema if isinstance(e, Generator) else e for e in elements]
-        return Generator({"type": "tuple", "elements": elem_schemas})
-
-    @staticmethod
-    def just(value: Any) -> Generator:
-        """Generator that always returns the same value.
-
-        Args:
-            value: The constant value to return.
-        """
-        return Generator({"const": value})
-
-    @staticmethod
-    def sampled_from(values: list) -> Generator:
-        """Generator that samples from a list of values.
-
-        Args:
-            values: The values to sample from.
-        """
-        return Generator({"sampled_from": values})
-
-    @staticmethod
-    def one_of(*generators: Generator | dict) -> Generator:
-        """Generator that picks from one of several generators.
-
-        Args:
-            *generators: Generators or schemas to choose from.
-        """
-        schemas = [g.schema if isinstance(g, Generator) else g for g in generators]
-        return Generator({"one_of": schemas})
-
-    @staticmethod
-    def optional(element: Generator | dict) -> Generator:
-        """Generator for optional values (None or a value).
-
-        Args:
-            element: Generator or schema for the value when present.
-        """
-        elem_schema = element.schema if isinstance(element, Generator) else element
-        return gen.one_of(gen.just(None), Generator(elem_schema))
+    def schema(self) -> dict | None:
+        return None  # No schema after filtering
 
 
 # =============================================================================
-# Backwards-compatible function-style generators
+# Generator factory functions
 # =============================================================================
 
 
 def integers(min_value: int | None = None, max_value: int | None = None) -> Generator:
-    """Generator for integers. See gen.integers() for details."""
-    return gen.integers(min_value, max_value)
+    """Generator for integers."""
+    schema: dict = {"type": "integer"}
+    if min_value is not None:
+        schema["minimum"] = min_value
+    if max_value is not None:
+        schema["maximum"] = max_value
+    return SchemaGenerator(schema)
 
 
 def floats(
@@ -557,58 +423,159 @@ def floats(
     allow_nan: bool = False,
     allow_infinity: bool = False,
 ) -> Generator:
-    """Generator for floats. See gen.floats() for details."""
-    return gen.floats(
-        min_value, max_value, allow_nan=allow_nan, allow_infinity=allow_infinity
-    )
+    """Generator for floating-point numbers."""
+    schema: dict = {"type": "number"}
+    if min_value is not None:
+        schema["minimum"] = min_value
+    if max_value is not None:
+        schema["maximum"] = max_value
+    schema["allow_nan"] = allow_nan
+    schema["allow_infinity"] = allow_infinity
+    return SchemaGenerator(schema)
 
 
 def booleans(p: float = 0.5) -> Generator:
-    """Generator for booleans. See gen.booleans() for details."""
-    return gen.booleans(p)
+    """Generator for booleans."""
+    return SchemaGenerator({"type": "boolean", "p": p})
 
 
 def text(min_size: int = 0, max_size: int | None = None) -> Generator:
-    """Generator for text strings. See gen.text() for details."""
-    return gen.text(min_size, max_size)
+    """Generator for text strings."""
+    schema: dict = {"type": "string", "min_size": min_size}
+    if max_size is not None:
+        schema["max_size"] = max_size
+    return SchemaGenerator(schema)
 
 
 def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
-    """Generator for binary data. See gen.binary() for details."""
-    return gen.binary(min_size, max_size)
+    """Generator for binary data (returned as base64)."""
+    schema: dict = {"type": "binary", "min_size": min_size}
+    if max_size is not None:
+        schema["max_size"] = max_size
+    return SchemaGenerator(schema)
 
 
 def lists(
-    elements: Generator | dict,
+    elements: Generator,
     min_size: int = 0,
     max_size: int | None = None,
 ) -> Generator:
-    """Generator for lists. See gen.lists() for details."""
-    return gen.lists(elements, min_size, max_size)
+    """Generator for lists."""
+    elem_schema = elements.schema()
+    if elem_schema is not None:
+        # Can compose into single schema
+        schema: dict = {"type": "list", "elements": elem_schema, "min_size": min_size}
+        if max_size is not None:
+            schema["max_size"] = max_size
+        return SchemaGenerator(schema)
+    else:
+        # Composite generator - must generate element by element
+        return CompositeListGenerator(elements, min_size, max_size)
 
 
-def tuples(*elements: Generator | dict) -> Generator:
-    """Generator for tuples. See gen.tuples() for details."""
-    return gen.tuples(*elements)
+class CompositeListGenerator(Generator):
+    """A list generator for elements without a schema."""
+
+    def __init__(
+        self, elements: Generator, min_size: int, max_size: int | None
+    ):
+        self._elements = elements
+        self._min_size = min_size
+        self._max_size = max_size
+
+    def generate(self) -> list:
+        start_span(Labels.LIST)
+        try:
+            # First get the size
+            size_schema: dict = {"type": "integer", "minimum": self._min_size}
+            if self._max_size is not None:
+                size_schema["maximum"] = self._max_size
+            else:
+                size_schema["maximum"] = self._min_size + 10  # reasonable default
+
+            size = generate_from_schema(size_schema)
+            result = []
+            for _ in range(size):
+                start_span(Labels.LIST_ELEMENT)
+                result.append(self._elements.generate())
+                stop_span(discard=False)
+            return result
+        finally:
+            stop_span(discard=False)
+
+
+def tuples(*elements: Generator) -> Generator:
+    """Generator for tuples."""
+    # Check if all elements have schemas
+    schemas = [e.schema() for e in elements]
+    if all(s is not None for s in schemas):
+        return SchemaGenerator({"type": "tuple", "elements": schemas})
+    else:
+        return CompositeTupleGenerator(list(elements))
+
+
+class CompositeTupleGenerator(Generator):
+    """A tuple generator for elements without schemas."""
+
+    def __init__(self, elements: list[Generator]):
+        self._elements = elements
+
+    def generate(self) -> tuple:
+        start_span(Labels.TUPLE)
+        try:
+            result = []
+            for elem in self._elements:
+                result.append(elem.generate())
+            return tuple(result)
+        finally:
+            stop_span(discard=False)
 
 
 def just(value: Any) -> Generator:
-    """Generator for a constant value. See gen.just() for details."""
-    return gen.just(value)
+    """Generator that always returns the same value."""
+    return SchemaGenerator({"const": value})
 
 
 def sampled_from(values: list) -> Generator:
-    """Generator sampling from a list. See gen.sampled_from() for details."""
-    return gen.sampled_from(values)
+    """Generator that samples from a list of values."""
+    return SchemaGenerator({"sampled_from": values})
 
 
-def one_of(*generators: Generator | dict) -> Generator:
-    """Generator picking from alternatives. See gen.one_of() for details."""
-    return gen.one_of(*generators)
+def one_of(*generators: Generator) -> Generator:
+    """Generator that picks from one of several generators."""
+    # Check if all generators have schemas
+    schemas = [g.schema() for g in generators]
+    if all(s is not None for s in schemas):
+        return SchemaGenerator({"one_of": schemas})
+    else:
+        return CompositeOneOfGenerator(list(generators))
+
+
+class CompositeOneOfGenerator(Generator):
+    """A one_of generator for generators without schemas."""
+
+    def __init__(self, generators: list[Generator]):
+        self._generators = generators
+
+    def generate(self) -> Any:
+        start_span(Labels.ONE_OF)
+        try:
+            # Pick which generator to use
+            index = generate_from_schema(
+                {"type": "integer", "minimum": 0, "maximum": len(self._generators) - 1}
+            )
+            return self._generators[index].generate()
+        finally:
+            stop_span(discard=False)
+
+
+def optional(element: Generator) -> Generator:
+    """Generator for optional values (None or a value)."""
+    return one_of(just(None), element)
 
 
 # =============================================================================
-# @hegel decorator for embedded mode (auto-spawning hegeld)
+# @hegel decorator
 # =============================================================================
 
 
@@ -617,21 +584,15 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 def _find_hegeld() -> str:
     """Find the hegeld binary path."""
-    # First check if we're in a venv and hegel is installed there
     if sys.prefix != sys.base_prefix:
-        # We're in a venv
         venv_hegel = os.path.join(sys.prefix, "bin", "hegel")
         if os.path.exists(venv_hegel):
             return venv_hegel
-
-    # Try to find hegel in PATH
-    import shutil
 
     hegel_path = shutil.which("hegel")
     if hegel_path:
         return hegel_path
 
-    # Fall back to using python -m hegel
     return f"{sys.executable} -m hegel"
 
 
@@ -643,29 +604,18 @@ def hegel(
 ) -> Callable[[Callable[[], None]], Callable[[], None]] | Callable[[], None]:
     """Decorator for running property-based tests with Hegel.
 
-    This decorator automatically spawns a hegeld server, runs the test function
-    multiple times with different generated inputs, and reports failures.
-
     Usage:
 
         @hegel
         def test_addition_commutative():
-            a = gen.integers().generate()
-            b = gen.integers().generate()
+            a = integers().generate()
+            b = integers().generate()
             assert a + b == b + a
 
-        @hegel(test_cases=500, verbosity=Verbosity.VERBOSE)
+        @hegel(test_cases=500)
         def test_list_reverse():
-            xs = gen.lists(gen.integers()).generate()
+            xs = lists(integers()).generate()
             assert list(reversed(list(reversed(xs)))) == xs
-
-    Args:
-        test_fn: The test function to decorate.
-        test_cases: Number of test cases to run (default: 100).
-        verbosity: Output verbosity level.
-
-    Returns:
-        Decorated test function.
     """
 
     def decorator(fn: Callable[[], None]) -> Callable[[], None]:
@@ -676,10 +626,8 @@ def hegel(
         return wrapper
 
     if test_fn is not None:
-        # Used as @hegel without parentheses
         return decorator(test_fn)
 
-    # Used as @hegel() or @hegel(test_cases=N)
     return decorator
 
 
@@ -689,31 +637,14 @@ def run_hegel_test(
     test_cases: int = 100,
     verbosity: Verbosity = Verbosity.NORMAL,
 ) -> TestResult:
-    """Run a property test with automatic hegeld spawning.
-
-    This is the programmatic equivalent of the @hegel decorator.
-
-    Args:
-        test_fn: The test function to run.
-        test_cases: Number of test cases to run.
-        verbosity: Output verbosity level.
-
-    Returns:
-        TestResult with pass/fail status and statistics.
-
-    Raises:
-        AssertionError: If the test fails.
-    """
-    # Create a temp directory for the socket
+    """Run a property test with automatic hegeld spawning."""
     with tempfile.TemporaryDirectory(prefix="hegel-") as temp_dir:
         socket_path = os.path.join(temp_dir, "hegel.sock")
 
-        # Create server socket
         server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server_sock.bind(socket_path)
         server_sock.listen(1)
 
-        # Spawn hegeld in client mode
         hegel_cmd = _find_hegeld()
         cmd_args = hegel_cmd.split() + [
             "--client-mode",
@@ -734,29 +665,20 @@ def run_hegel_test(
         )
 
         try:
-            # Accept the connection from hegeld
             client_sock, _ = server_sock.accept()
 
             if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
                 print("hegeld connected", file=sys.stderr)
 
-            # Create connection and client
             connection = Connection(client_sock, name="SDK")
             client = Client(connection)
 
-            # Get the test name from the function
             test_name = test_fn.__name__ if hasattr(test_fn, "__name__") else "test"
-
-            # Run the test
             result = client.run_test(test_name, test_fn, test_cases=test_cases)
 
-            # Close connection
             connection.close()
-
-            # Wait for hegeld to exit
             process.wait(timeout=5)
 
-            # Handle result
             if not result.passed:
                 failure = result.failure or {}
                 exc_type = failure.get("exc_type", "AssertionError")
@@ -769,45 +691,9 @@ def run_hegel_test(
             return result
 
         except Exception:
-            # Make sure to clean up the process
             process.terminate()
             process.wait(timeout=5)
             raise
 
         finally:
             server_sock.close()
-
-
-# =============================================================================
-# Exports for backwards compatibility
-# =============================================================================
-
-__all__ = [
-    "AssumeRejected",
-    "Client",
-    "Generator",
-    "OverflowError",
-    "Strategy",
-    "TestResult",
-    "Verbosity",
-    "assume",
-    "binary",
-    "booleans",
-    "draw",
-    "floats",
-    "gen",
-    "generate_from_schema",
-    "hegel",
-    "integers",
-    "just",
-    "lists",
-    "note",
-    "one_of",
-    "run_hegel_test",
-    "sampled_from",
-    "start_span",
-    "stop_span",
-    "target",
-    "text",
-    "tuples",
-]
