@@ -10,27 +10,23 @@ import pytest
 from hypothesis import given, settings as Settings, strategies as st
 
 
+@st.composite
 def _integer_params_strategy(
-    min_value: int | None, max_value: int | None
-) -> st.SearchStrategy[dict[str, Any]]:
-    @st.composite
-    def strategy(draw: st.DrawFn) -> dict[str, Any]:
-        use_min = draw(st.booleans())
-        use_max = draw(st.booleans())
+    draw: st.DrawFn, min_value: int | None, max_value: int | None
+) -> dict[str, Any]:
+    drawn_min = min_value
+    drawn_max = max_value
 
-        drawn_min = None
-        drawn_max = None
+    use_min = draw(st.booleans())
+    use_max = draw(st.booleans())
 
-        if use_min:
-            drawn_min = draw(st.integers(min_value=min_value, max_value=max_value))
+    if min_value is not None and use_min:
+        drawn_min = draw(st.integers(min_value=min_value, max_value=max_value))
+    if max_value is not None and use_max:
+        lower = drawn_min if drawn_min is not None else min_value
+        drawn_max = draw(st.integers(min_value=lower, max_value=max_value))
 
-        if use_max:
-            lower = drawn_min if drawn_min is not None else min_value
-            drawn_max = draw(st.integers(min_value=lower, max_value=max_value))
-
-        return {"min_value": drawn_min, "max_value": drawn_max}
-
-    return strategy()
+    return {"min_value": drawn_min, "max_value": drawn_max}
 
 
 class ConformanceTest(ABC):
