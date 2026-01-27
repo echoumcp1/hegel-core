@@ -10,26 +10,28 @@ import pytest
 
 from hypothesis import given, settings as Settings, strategies as st
 
-INT32_MIN = -(2**31)
-INT32_MAX = 2**31 - 1
 
+def _integer_params_strategy(
+    min_value: int | None, max_value: int | None
+) -> st.SearchStrategy[dict[str, Any]]:
+    @st.composite
+    def strategy(draw: st.DrawFn) -> dict[str, Any]:
+        use_min = draw(st.booleans())
+        use_max = draw(st.booleans())
 
-@st.composite
-def _integer_params_strategy(draw: st.DrawFn) -> dict[str, Any]:
-    use_min_value = draw(st.booleans())
-    use_max_value = draw(st.booleans())
+        drawn_min = None
+        drawn_max = None
 
-    min_value = None
-    max_value = None
+        if use_min:
+            drawn_min = draw(st.integers(min_value=min_value, max_value=max_value))
 
-    if use_min_value:
-        min_value = draw(st.integers(min_value=INT32_MIN, max_value=INT32_MAX))
+        if use_max:
+            lower = drawn_min if drawn_min is not None else min_value
+            drawn_max = draw(st.integers(min_value=lower, max_value=max_value))
 
-    if use_max_value:
-        min_val = min_value if min_value is not None else INT32_MIN
-        max_value = draw(st.integers(min_value=min_val, max_value=INT32_MAX))
+        return {"min_value": drawn_min, "max_value": drawn_max}
 
-    return {"min_value": min_value, "max_value": max_value}
+    return strategy()
 
 
 class ConformanceTest(ABC):
@@ -98,8 +100,20 @@ class BooleanConformance(ConformanceTest):
 
 
 class IntegerConformance(ConformanceTest):
+    def __init__(
+        self,
+        binary_path: str | Path,
+        test_cases: int | None = None,
+        *,
+        min_value: int | None = None,
+        max_value: int | None = None,
+    ) -> None:
+        super().__init__(binary_path, test_cases)
+        self.min_value = min_value
+        self.max_value = max_value
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
-        return _integer_params_strategy()
+        return _integer_params_strategy(self.min_value, self.max_value)
 
     def validate(
         self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
@@ -257,7 +271,22 @@ class BinaryConformance(ConformanceTest):
 
 
 class ListConformance(ConformanceTest):
+    def __init__(
+        self,
+        binary_path: str | Path,
+        test_cases: int | None = None,
+        *,
+        min_value: int | None = None,
+        max_value: int | None = None,
+    ) -> None:
+        super().__init__(binary_path, test_cases)
+        self.min_value = min_value
+        self.max_value = max_value
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
+        min_value = self.min_value
+        max_value = self.max_value
+
         @st.composite
         def strategy(draw: st.DrawFn) -> dict[str, Any]:
             use_min_size = draw(st.booleans())
@@ -273,7 +302,7 @@ class ListConformance(ConformanceTest):
             return {
                 "min_size": min_size,
                 "max_size": max_size,
-                **draw(_integer_params_strategy()),
+                **draw(_integer_params_strategy(min_value, max_value)),
             }
 
         return strategy()
