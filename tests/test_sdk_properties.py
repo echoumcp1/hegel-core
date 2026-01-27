@@ -110,7 +110,7 @@ def test_division_with_assume():
 
 
 def test_finds_failing_case():
-    """Verify that the framework finds failing cases."""
+    """Verify that the framework finds failing cases and re-raises the original exception."""
 
     @hegel(test_cases=50, verbosity=Verbosity.QUIET)
     def failing_prop():
@@ -118,12 +118,13 @@ def test_finds_failing_case():
         # This fails for x > 50
         assert x <= 50
 
-    with pytest.raises(AssertionError, match="Property test failed"):
+    # The original AssertionError is re-raised directly
+    with pytest.raises(AssertionError, match=r"assert \d+ <= 50"):
         failing_prop()
 
 
 def test_finds_edge_case_in_list():
-    """Verify shrinking finds minimal failing case."""
+    """Verify shrinking finds minimal failing case - re-raises original exception."""
 
     @hegel(test_cases=50, verbosity=Verbosity.QUIET)
     def failing_prop():
@@ -133,7 +134,8 @@ def test_finds_edge_case_in_list():
         # Fails if any element > 10
         assert all(x <= 10 for x in xs)
 
-    with pytest.raises(AssertionError, match="Property test failed"):
+    # Original exception is re-raised directly
+    with pytest.raises(AssertionError):
         failing_prop()
 
 

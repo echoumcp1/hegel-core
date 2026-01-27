@@ -27,9 +27,9 @@ from collections import deque
 from threading import Thread, Lock, current_thread
 from typing import Any
 
-VERSION = "0.2"
+VERSION = "1.0"
 
-VERSION_NEGOTIATION_MESSAGE = f"Hegel Version {VERSION}".encode('utf-8')
+VERSION_NEGOTIATION_MESSAGE = b"Hegel/1.0"
 VERSION_NEGOTIATION_OK = b"Ok"
 
 # HEGL
@@ -99,9 +99,10 @@ def read_packet(sock: socket.socket) -> Packet:
     if terminator != TERMINATOR:
         raise ValueError(f"Invalid terminator: expected 0x{TERMINATOR:02X}, got 0x{terminator:02X}")
 
-    # Verify checksum (CRC32-ISO over channel + message_id + length + payload)
-    checksummed_data = header[8:] + payload
-    computed_crc = zlib.crc32(checksummed_data) & 0xFFFFFFFF
+    # Verify checksum (CRC32 over header with checksum field zeroed + payload)
+    # This matches the Rust implementation
+    header_for_check = header[:4] + b'\x00\x00\x00\x00' + header[8:]
+    computed_crc = zlib.crc32(header_for_check + payload) & 0xFFFFFFFF
     if computed_crc != checksum:
         raise ValueError(f"Checksum mismatch: expected 0x{checksum:08X}, got 0x{computed_crc:08X}")
 
@@ -117,12 +118,13 @@ def write_packet(sock: socket.socket, packet: Packet) -> None:
         message_id |= REPLY_BIT
     length = len(packet.payload)
 
-    buffer = bytearray(struct.pack('>3I', channel, message_id, length))
-    buffer.extend(packet.payload)
-    checksum = zlib.crc32(buffer) & 0xFFFFFFFF
-    buffer[:0] = struct.pack('>2I', magic, checksum)
-    buffer.append(TERMINATOR)
-    sock.send(buffer)
+    # Build header with checksum field zeroed for checksum calculation
+    header_for_check = struct.pack('>5I', magic, 0, channel, message_id, length)
+    checksum = zlib.crc32(header_for_check + packet.payload) & 0xFFFFFFFF
+
+    # Build final header with real checksum
+    header = struct.pack('>5I', magic, checksum, channel, message_id, length)
+    sock.sendall(header + packet.payload + bytes([TERMINATOR]))
 
 
 SHUTDOWN = object()
@@ -269,7 +271,7 @@ class Channel:
 
     @property
     def name(self):
-        return f"{self.__connection.name} channel {self.channel_id}"
+        return f"{self.connection.name} channel {self.channel_id}"
 
     def request(self, message: Any) -> PendingRequest:
         """Takes an arbitrary object, serializes it as CBOR, and
@@ -290,7 +292,7 @@ class Channel:
                 )
             except Exception as e:
                 self.send_response(
-                    id, cbor2.dumps({'error': e.args[0], 'args': e.args, 'type': e.type.__name__})
+                    id, cbor2.dumps({'error': str(e), 'args': e.args, 'type': type(e).__name__})
                 )
 
 

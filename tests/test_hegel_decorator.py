@@ -204,7 +204,7 @@ def test_run_hegel_test_passing():
 
 
 def test_run_hegel_test_failing():
-    """Test run_hegel_test with a failing property."""
+    """Test run_hegel_test with a failing property - re-raises original exception."""
 
     def prop():
         x = integers(min_value=0, max_value=1000).generate()
@@ -214,7 +214,8 @@ def test_run_hegel_test_failing():
         run_hegel_test(prop, test_cases=30, verbosity=Verbosity.QUIET)
         assert False, "Expected AssertionError"
     except AssertionError as e:
-        assert "Property test failed" in str(e)
+        # Original exception is re-raised - check it has the actual assertion
+        assert "50" in str(e) or "51" in str(e)
 
 
 # =============================================================================

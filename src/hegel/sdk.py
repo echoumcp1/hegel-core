@@ -51,8 +51,8 @@ class AssumeRejected(Exception):
     pass
 
 
-class OverflowError(Exception):
-    """Raised when the server runs out of data."""
+class DataExhausted(Exception):
+    """Raised when the server runs out of test data (StopTest)."""
 
     pass
 
@@ -80,6 +80,7 @@ class Labels:
     FIXED_DICT = 10
     FLAT_MAP = 11
     FILTER = 12
+    MAPPED = 13  # For .map() transformations
 
 
 @dataclass
@@ -91,6 +92,8 @@ class TestResult:
     valid_examples: int
     invalid_examples: int
     failure: dict | None = None
+    # Captured exceptions from final (minimal) test runs
+    exceptions: list[Exception] | None = None
 
 
 class Client:
@@ -120,6 +123,9 @@ class Client:
             }
         )
 
+        # Collect exceptions from final (minimal) test runs
+        final_exceptions: list[Exception] = []
+
         while True:
             req_id, payload = self._control.receive_request()
             message = cbor2.loads(payload)
@@ -131,15 +137,22 @@ class Client:
                 is_final = message.get("is_final", False)
 
                 test_channel = self.connection.connect_channel(channel_id)
-                status, origin = self._run_test_case(test_channel, test_fn, is_final)
+                status, origin, exc = self._run_test_case(test_channel, test_fn, is_final)
 
-                test_channel.request(
-                    {
-                        "command": "mark_complete",
-                        "status": status,
-                        "origin": origin,
-                    }
-                ).get()
+                # Capture exceptions from final runs
+                if is_final and exc is not None:
+                    final_exceptions.append(exc)
+
+                # Only send mark_complete if test didn't overflow
+                # (on overflow, server already closed the channel)
+                if status != "OVERFLOW":
+                    test_channel.request(
+                        {
+                            "command": "mark_complete",
+                            "status": status,
+                            "origin": origin,
+                        }
+                    ).get()
 
                 test_channel.close()
                 self._control.send_response(req_id, cbor2.dumps({"result": None}))
@@ -159,6 +172,7 @@ class Client:
             valid_examples=result_data.get("valid_examples", 0),
             invalid_examples=result_data.get("invalid_examples", 0),
             failure=result_data.get("failure"),
+            exceptions=final_exceptions if final_exceptions else None,
         )
 
     def _run_test_case(
@@ -166,25 +180,32 @@ class Client:
         channel: Channel,
         test_fn: Callable[[], None],
         is_final: bool,
-    ) -> tuple[str, dict | None]:
-        """Run a single test case."""
+    ) -> tuple[str, dict | None, Exception | None]:
+        """Run a single test case.
+
+        Returns (status, origin, exception).
+        The exception is only captured for final runs to enable proper re-raising.
+        """
         token_channel = _current_channel.set(channel)
         token_final = _is_final.set(is_final)
 
         try:
             test_fn()
-            return ("VALID", None)
+            return ("VALID", None, None)
 
         except AssumeRejected:
-            return ("INVALID", None)
+            return ("INVALID", None, None)
 
-        except OverflowError:
-            return ("INVALID", None)
+        except DataExhausted:
+            # Server ran out of data - return OVERFLOW status
+            # (different from INVALID because server already closed channel)
+            return ("OVERFLOW", None, None)
 
         except Exception as e:
             tb = e.__traceback__
             origin = _extract_origin(e, tb)
-            return ("INTERESTING", origin)
+            # Return the exception for potential re-raising
+            return ("INTERESTING", origin, e)
 
         finally:
             _current_channel.reset(token_channel)
@@ -231,7 +252,7 @@ def generate_from_schema(schema: dict) -> Any:
         return channel.request({"command": "generate", "schema": schema}).get()
     except RequestError as e:
         if e.error_type == "StopTest":
-            raise OverflowError("Server ran out of data") from e
+            raise DataExhausted("Server ran out of data") from e
         raise
 
 
@@ -344,7 +365,7 @@ class MappedGenerator(Generator):
         self._f = f
 
     def generate(self) -> Any:
-        start_span(Labels.MAP)
+        start_span(Labels.MAPPED)
         try:
             value = self._source.generate()
             return self._f(value)
@@ -575,7 +596,7 @@ def optional(element: Generator) -> Generator:
 
 
 # =============================================================================
-# @hegel decorator
+# @hegel decorator with shared hegeld process
 # =============================================================================
 
 
@@ -594,6 +615,116 @@ def _find_hegeld() -> str:
         return hegel_path
 
     return f"{sys.executable} -m hegel"
+
+
+class _HegelSession:
+    """Manages a shared hegeld subprocess for the test suite.
+
+    Spawns hegeld once on first use and keeps it running for all tests.
+    Cleans up automatically when the process exits.
+    """
+
+    def __init__(self):
+        self._process: subprocess.Popen | None = None
+        self._server_sock: socket.socket | None = None
+        self._connection: Connection | None = None
+        self._client: Client | None = None
+        self._temp_dir: tempfile.TemporaryDirectory | None = None
+        self._verbosity = Verbosity.NORMAL
+
+    def _start(self, verbosity: Verbosity) -> None:
+        """Start hegeld if not already running."""
+        if self._client is not None:
+            return
+
+        import atexit
+
+        self._verbosity = verbosity
+        self._temp_dir = tempfile.TemporaryDirectory(prefix="hegel-")
+        socket_path = os.path.join(self._temp_dir.name, "hegel.sock")
+
+        self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._server_sock.bind(socket_path)
+        self._server_sock.listen(1)
+
+        hegel_cmd = _find_hegeld()
+        cmd_args = hegel_cmd.split() + [
+            "--client-mode",
+            socket_path,
+            "--verbosity",
+            verbosity.value,
+        ]
+
+        if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
+            print(f"Starting hegeld: {' '.join(cmd_args)}", file=sys.stderr)
+
+        # Use DEVNULL for stdout/stderr to prevent buffer deadlock
+        # (if we used PIPE and didn't read from them, the process could block)
+        self._process = subprocess.Popen(
+            cmd_args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        client_sock, _ = self._server_sock.accept()
+
+        if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
+            print("hegeld connected", file=sys.stderr)
+
+        self._connection = Connection(client_sock, name="SDK")
+        self._client = Client(self._connection)
+
+        # Register cleanup on process exit
+        atexit.register(self._cleanup)
+
+    def _cleanup(self) -> None:
+        """Clean up the hegeld process."""
+        if self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._connection = None
+            self._client = None
+
+        if self._process is not None:
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=5)
+            except Exception:
+                pass
+            self._process = None
+
+        if self._server_sock is not None:
+            try:
+                self._server_sock.close()
+            except Exception:
+                pass
+            self._server_sock = None
+
+        if self._temp_dir is not None:
+            try:
+                self._temp_dir.cleanup()
+            except Exception:
+                pass
+            self._temp_dir = None
+
+    def run_test(
+        self,
+        test_fn: Callable[[], None],
+        test_cases: int,
+        verbosity: Verbosity,
+    ) -> TestResult:
+        """Run a property test using the shared hegeld process."""
+        self._start(verbosity)
+
+        assert self._client is not None
+        test_name = test_fn.__name__ if hasattr(test_fn, "__name__") else "test"
+        return self._client.run_test(test_name, test_fn, test_cases=test_cases)
+
+
+# Global session instance
+_session = _HegelSession()
 
 
 def hegel(
@@ -637,63 +768,35 @@ def run_hegel_test(
     test_cases: int = 100,
     verbosity: Verbosity = Verbosity.NORMAL,
 ) -> TestResult:
-    """Run a property test with automatic hegeld spawning."""
-    with tempfile.TemporaryDirectory(prefix="hegel-") as temp_dir:
-        socket_path = os.path.join(temp_dir, "hegel.sock")
+    """Run a property test using the shared hegeld process.
 
-        server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server_sock.bind(socket_path)
-        server_sock.listen(1)
+    If the test fails:
+    - Re-raises the original exception if there's exactly one minimal failing case
+    - Raises an ExceptionGroup if there are multiple distinct minimal failing cases
+    """
+    result = _session.run_test(test_fn, test_cases, verbosity)
 
-        hegel_cmd = _find_hegeld()
-        cmd_args = hegel_cmd.split() + [
-            "--client-mode",
-            socket_path,
-            "--test-cases",
-            str(test_cases),
-            "--verbosity",
-            verbosity.value,
-        ]
+    if not result.passed:
+        exceptions = result.exceptions or []
 
-        if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
-            print(f"Starting hegeld: {' '.join(cmd_args)}", file=sys.stderr)
-
-        process = subprocess.Popen(
-            cmd_args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-        try:
-            client_sock, _ = server_sock.accept()
-
-            if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
-                print("hegeld connected", file=sys.stderr)
-
-            connection = Connection(client_sock, name="SDK")
-            client = Client(connection)
-
+        if len(exceptions) == 1:
+            # Single exception: re-raise it directly
+            raise exceptions[0]
+        elif len(exceptions) > 1:
+            # Multiple exceptions: group them
             test_name = test_fn.__name__ if hasattr(test_fn, "__name__") else "test"
-            result = client.run_test(test_name, test_fn, test_cases=test_cases)
+            raise ExceptionGroup(
+                f"Property test '{test_name}' found {len(exceptions)} distinct failing cases",
+                exceptions,
+            )
+        else:
+            # No captured exceptions (shouldn't happen normally)
+            failure = result.failure or {}
+            exc_type = failure.get("exc_type", "AssertionError")
+            filename = failure.get("filename", "")
+            lineno = failure.get("lineno", 0)
+            raise AssertionError(
+                f"Property test failed: {exc_type} at {filename}:{lineno}"
+            )
 
-            connection.close()
-            process.wait(timeout=5)
-
-            if not result.passed:
-                failure = result.failure or {}
-                exc_type = failure.get("exc_type", "AssertionError")
-                filename = failure.get("filename", "")
-                lineno = failure.get("lineno", 0)
-                raise AssertionError(
-                    f"Property test failed: {exc_type} at {filename}:{lineno}"
-                )
-
-            return result
-
-        except Exception:
-            process.terminate()
-            process.wait(timeout=5)
-            raise
-
-        finally:
-            server_sock.close()
+    return result
