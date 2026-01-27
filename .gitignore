@@ -9,3 +9,7 @@ result
 *.egg-info
 .claude/settings.local.json
 build/
+external
+.devcontainer
+devcontainer
+.claude-reliability
