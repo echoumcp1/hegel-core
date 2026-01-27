@@ -4,10 +4,9 @@ import subprocess
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
-
 from hypothesis import given, settings as Settings, strategies as st
 
 
@@ -36,7 +35,7 @@ def _integer_params_strategy(
 
 class ConformanceTest(ABC):
     default_test_cases: int = 50
-    registered_tests: set[type["ConformanceTest"]] = set()
+    registered_tests: ClassVar[set[type["ConformanceTest"]]] = set()
 
     def __init_subclass__(cls) -> None:
         cls.registered_tests.add(cls)
