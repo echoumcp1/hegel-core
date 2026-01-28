@@ -1,10 +1,10 @@
 import json
 
 import pytest
-from hypothesis import given, settings, strategies as st
 
 from hegel.parser import from_schema
 from hegel.runner import HegelEncoder
+from hypothesis import given, settings, strategies as st
 
 
 def primitive_hashable_schemas():
