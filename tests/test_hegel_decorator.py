@@ -5,6 +5,8 @@ Tests for the @hegel decorator and generator functions.
 import socket
 from threading import Thread
 
+import pytest
+
 from hegel.hegeld import run_server_on_connection
 from hegel.protocol import Connection
 from hegel.sdk import (
@@ -212,7 +214,6 @@ def test_run_hegel_test_failing():
 
     with pytest.raises(AssertionError) as excinfo:
         run_hegel_test(prop, test_cases=30, verbosity=Verbosity.QUIET)
-        assert False, "Expected AssertionError"
 
     e = excinfo.value
     # Original exception is re-raised - check it has the actual assertion
