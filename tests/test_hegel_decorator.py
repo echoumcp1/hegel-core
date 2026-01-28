@@ -241,7 +241,9 @@ def test_filter_combinator():
 
     def prop():
         # Generate only even integers
-        even = integers(min_value=0, max_value=100).filter(lambda x: x % 2 == 0).generate()
+        even = (
+            integers(min_value=0, max_value=100).filter(lambda x: x % 2 == 0).generate()
+        )
         assert even % 2 == 0
 
     result = run_with_server(prop)
@@ -253,9 +255,11 @@ def test_flat_map_combinator():
 
     def prop():
         # Generate a size, then a list of that size
-        result = integers(min_value=1, max_value=5).flat_map(
-            lambda n: lists(integers(), min_size=n, max_size=n)
-        ).generate()
+        result = (
+            integers(min_value=1, max_value=5)
+            .flat_map(lambda n: lists(integers(), min_size=n, max_size=n))
+            .generate()
+        )
         assert isinstance(result, list)
         assert 1 <= len(result) <= 5
 
