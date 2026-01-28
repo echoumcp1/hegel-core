@@ -21,12 +21,13 @@ import socket
 import subprocess
 import sys
 import tempfile
+import types
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Union, get_args, get_origin
 
 import cbor2
 
@@ -81,6 +82,7 @@ class Labels:
     FLAT_MAP = 11
     FILTER = 12
     MAPPED = 13  # For .map() transformations
+    SAMPLED_FROM = 14
 
 
 @dataclass
@@ -137,7 +139,9 @@ class Client:
                 is_final = message.get("is_final", False)
 
                 test_channel = self.connection.connect_channel(channel_id)
-                status, origin, exc = self._run_test_case(test_channel, test_fn, is_final)
+                status, origin, exc = self._run_test_case(
+                    test_channel, test_fn, is_final
+                )
 
                 # Capture exceptions from final runs
                 if is_final and exc is not None:
@@ -497,9 +501,7 @@ def lists(
 class CompositeListGenerator(Generator):
     """A list generator for elements without a schema."""
 
-    def __init__(
-        self, elements: Generator, min_size: int, max_size: int | None
-    ):
+    def __init__(self, elements: Generator, min_size: int, max_size: int | None):
         self._elements = elements
         self._min_size = min_size
         self._max_size = max_size
@@ -557,9 +559,74 @@ def just(value: Any) -> Generator:
     return SchemaGenerator({"const": value})
 
 
+class SampledFromGenerator(Generator):
+    """Generator that samples from a list of values with identity preservation.
+
+    This generator works in two modes:
+    1. If all elements are JSON primitives (None, bool, int, float, str),
+       uses the schema-based approach for efficient generation.
+    2. Otherwise, falls back to generating an index and returning the
+       original object, preserving object identity.
+    """
+
+    def __init__(self, elements: list[Any]):
+        self._elements = list(elements)
+        self._json_values: list[Any] | None = None
+
+    def schema(self) -> dict | None:
+        """Return schema only if all elements are JSON primitives."""
+        try:
+            json_values: list[Any] = []
+            for elem in self._elements:
+                # Try to serialize - only primitives allowed
+                if elem is None:
+                    json_values.append(None)
+                elif isinstance(elem, bool):  # Must check before int!
+                    json_values.append(elem)
+                elif isinstance(elem, (int, float, str)):
+                    json_values.append(elem)
+                else:
+                    # Not a primitive - fallback mode
+                    return None
+            self._json_values = json_values
+            return {"sampled_from": json_values}
+        except (TypeError, ValueError):
+            return None
+
+    def generate(self) -> Any:
+        schema = self.schema()
+        if schema is not None:
+            # Mode 1: Use schema, find matching element
+            wire_value = generate_from_schema(schema)
+            # Find the original element with matching JSON value
+            assert self._json_values is not None  # Guaranteed after schema() succeeds
+            for i, json_val in enumerate(self._json_values):
+                if json_val == wire_value:
+                    return self._elements[i]
+            raise RuntimeError(f"Server returned {wire_value!r} not in elements")
+        else:
+            # Mode 2: Compositional fallback with index
+            start_span(Labels.SAMPLED_FROM)
+            try:
+                idx = generate_from_schema(
+                    {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": len(self._elements) - 1,
+                    }
+                )
+                return self._elements[idx]
+            finally:
+                stop_span()
+
+
 def sampled_from(values: list) -> Generator:
-    """Generator that samples from a list of values."""
-    return SchemaGenerator({"sampled_from": values})
+    """Generator that samples uniformly from a list of values.
+
+    Works with any type, including non-JSON-serializable objects.
+    For non-primitive types, returns the original objects (identity preserved).
+    """
+    return SampledFromGenerator(values)
 
 
 def one_of(*generators: Generator) -> Generator:
@@ -593,6 +660,227 @@ class CompositeOneOfGenerator(Generator):
 def optional(element: Generator) -> Generator:
     """Generator for optional values (None or a value)."""
     return one_of(just(None), element)
+
+
+def dicts(
+    keys: Generator,
+    values: Generator,
+    min_size: int = 0,
+    max_size: int | None = None,
+) -> Generator:
+    """Generator for dictionaries."""
+    key_schema = keys.schema()
+    value_schema = values.schema()
+
+    if key_schema is not None and value_schema is not None:
+        schema: dict = {
+            "type": "dict",
+            "keys": key_schema,
+            "values": value_schema,
+            "min_size": min_size,
+        }
+        if max_size is not None:
+            schema["max_size"] = max_size
+        return SchemaDictGenerator(schema)
+    else:
+        return CompositeDictGenerator(keys, values, min_size, max_size)
+
+
+class SchemaDictGenerator(Generator):
+    """A dict generator backed by a schema.
+
+    The server returns dicts as list of [key, value] pairs,
+    so we need to convert back to a dict.
+    """
+
+    def __init__(self, schema_dict: dict):
+        self._schema = schema_dict
+
+    def generate(self) -> dict:
+        # Server returns list of [key, value] pairs
+        items = generate_from_schema(self._schema)
+        return dict(items)
+
+    def schema(self) -> dict | None:
+        return self._schema
+
+
+class CompositeDictGenerator(Generator):
+    """A dict generator for elements without schemas."""
+
+    def __init__(
+        self,
+        keys: Generator,
+        values: Generator,
+        min_size: int,
+        max_size: int | None,
+    ):
+        self._keys = keys
+        self._values = values
+        self._min_size = min_size
+        self._max_size = max_size
+
+    def generate(self) -> dict:
+        start_span(Labels.MAP)
+        try:
+            max_sz = (
+                self._max_size if self._max_size is not None else self._min_size + 10
+            )
+            size = generate_from_schema(
+                {"type": "integer", "minimum": self._min_size, "maximum": max_sz}
+            )
+            result = {}
+            for _ in range(size):
+                start_span(Labels.MAP_ENTRY)
+                key = self._keys.generate()
+                value = self._values.generate()
+                result[key] = value
+                stop_span()
+            return result
+        finally:
+            stop_span()
+
+
+# =============================================================================
+# from_type() function for generating values from type hints
+# =============================================================================
+
+
+class DataclassGenerator(Generator):
+    """Generator for dataclass instances."""
+
+    def __init__(self, dataclass_type: type):
+        if not is_dataclass(dataclass_type):
+            raise TypeError(f"{dataclass_type} is not a dataclass")
+        self._type = dataclass_type
+        self._field_generators: dict[str, Generator] = {}
+
+        # Create generators for each field
+        for field in fields(dataclass_type):
+            self._field_generators[field.name] = from_type(field.type)
+
+    def with_field(self, field_name: str, gen: Generator) -> "DataclassGenerator":
+        """Override the generator for a specific field."""
+        if field_name not in self._field_generators:
+            raise ValueError(f"Unknown field: {field_name}")
+        # Create a copy with the modified generator
+        new_gen = DataclassGenerator.__new__(DataclassGenerator)
+        new_gen._type = self._type
+        new_gen._field_generators = dict(self._field_generators)
+        new_gen._field_generators[field_name] = gen
+        return new_gen
+
+    def schema(self) -> dict | None:
+        """Return schema if all fields have schemas."""
+        properties = {}
+        required = []
+
+        for field in fields(self._type):
+            gen = self._field_generators[field.name]
+            field_schema = gen.schema()
+            if field_schema is None:
+                return None  # Compositional fallback
+            properties[field.name] = field_schema
+            required.append(field.name)
+
+        return {"type": "object", "properties": properties, "required": required}
+
+    def generate(self) -> Any:
+        """Generate a dataclass instance."""
+        schema = self.schema()
+        if schema is not None:
+            # Single server request
+            data = generate_from_schema(schema)
+            return self._type(**data)
+        else:
+            # Compositional fallback
+            start_span(Labels.FIXED_DICT)
+            try:
+                kwargs = {}
+                for field in fields(self._type):
+                    kwargs[field.name] = self._field_generators[field.name].generate()
+                return self._type(**kwargs)
+            finally:
+                stop_span()
+
+
+def from_type(type_hint: Any) -> Generator:
+    """Generate values matching the given type hint.
+
+    Supports:
+    - Primitive types: int, float, str, bool, type(None)
+    - Container types: list, dict, tuple, set
+    - Optional[T] and Union[T, None]
+    - Dataclasses
+    - Enums
+    """
+    # Handle None type
+    if type_hint is type(None):
+        return just(None)
+
+    # Primitives
+    if type_hint is int:
+        return integers()
+    if type_hint is float:
+        return floats()
+    if type_hint is str:
+        return text()
+    if type_hint is bool:
+        return booleans()
+    if type_hint is bytes:
+        return binary()
+
+    # Get origin for generic types
+    origin = get_origin(type_hint)
+    args = get_args(type_hint)
+
+    # Optional[T] is Union[T, None] or T | None (types.UnionType in Python 3.10+)
+    if origin is Union or isinstance(type_hint, types.UnionType):
+        # For types.UnionType, get_args still works
+        if not args:
+            args = get_args(type_hint)
+        # Filter out NoneType
+        non_none_args = [a for a in args if a is not type(None)]
+        if len(non_none_args) == 1 and type(None) in args:
+            # This is Optional[T]
+            return optional(from_type(non_none_args[0]))
+        else:
+            # General Union
+            return one_of(*[from_type(a) for a in args])
+
+    # List[T]
+    if origin is list:
+        if args:
+            return lists(from_type(args[0]))
+        return lists(integers())  # Default to list[int]
+
+    # Dict[K, V]
+    if origin is dict:
+        if len(args) >= 2:
+            return dicts(from_type(args[0]), from_type(args[1]))
+        return dicts(text(), integers())  # Default
+
+    # Tuple[T, ...]
+    if origin is tuple:
+        if args:
+            return tuples(*[from_type(a) for a in args])
+        return tuples()
+
+    # Set[T] - generate as list, convert to set
+    if origin is set:
+        if args:
+            return lists(from_type(args[0])).map(set)
+        return lists(integers()).map(set)
+
+    # Check for Enum
+    if isinstance(type_hint, type) and issubclass(type_hint, Enum):
+        return sampled_from(list(type_hint))
+
+    # Check for dataclass
+    if is_dataclass(type_hint) and isinstance(type_hint, type):
+        return DataclassGenerator(type_hint)
+
+    raise TypeError(f"Cannot generate values for type: {type_hint}")
 
 
 # =============================================================================
