@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
-
 from hypothesis import given, settings as Settings, strategies as st
 
 

@@ -13,9 +13,6 @@ from collections.abc import Callable
 from typing import Any
 
 import cbor2
-
-from hegel.parser import from_schema
-from hegel.protocol import VERSION_NEGOTIATION_MESSAGE, Channel, Connection
 from hypothesis import Verbosity, settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
@@ -23,6 +20,9 @@ from hypothesis.errors import StopTest
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
+
+from hegel.parser import from_schema
+from hegel.protocol import VERSION_NEGOTIATION_MESSAGE, Channel, Connection
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
