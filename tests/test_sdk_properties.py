@@ -26,7 +26,6 @@ from hegel.sdk import (
     tuples,
 )
 
-
 # =============================================================================
 # Basic Property Tests
 # =============================================================================
@@ -249,3 +248,65 @@ def test_date_parsing():
     # Should be ISO format YYYY-MM-DD
     parsed = date.fromisoformat(date_str)
     assert parsed.isoformat() == date_str
+
+
+# =============================================================================
+# Verbosity enum
+# =============================================================================
+
+
+def test_verbosity_values():
+    """Test that Verbosity enum has expected values."""
+    assert Verbosity.QUIET.value == "quiet"
+    assert Verbosity.NORMAL.value == "normal"
+    assert Verbosity.VERBOSE.value == "verbose"
+    assert Verbosity.DEBUG.value == "debug"
+
+
+# =============================================================================
+# Combinators (map, filter, flat_map)
+# =============================================================================
+
+
+@hegel
+def test_map_combinator():
+    """Test the .map() combinator."""
+    # Generate integers and double them
+    doubled = integers(min_value=0, max_value=100).map(lambda x: x * 2).generate()
+    assert doubled % 2 == 0  # Should always be even
+    assert 0 <= doubled <= 200
+
+
+@hegel
+def test_filter_combinator():
+    """Test the .filter() combinator."""
+    # Generate only even integers
+    even = integers(min_value=0, max_value=100).filter(lambda x: x % 2 == 0).generate()
+    assert even % 2 == 0
+
+
+@hegel(test_cases=20)
+def test_flat_map_combinator():
+    """Test the .flat_map() combinator for dependent generation."""
+    # Generate a size, then a list of that size
+    result = (
+        integers(min_value=1, max_value=5)
+        .flat_map(lambda n: lists(integers(), min_size=n, max_size=n))
+        .generate()
+    )
+    assert isinstance(result, list)
+    assert 1 <= len(result) <= 5
+
+
+@hegel(test_cases=20)
+def test_chained_combinators():
+    """Test chaining multiple combinators."""
+    # Generate positive integers, filter for even, then double
+    result = (
+        integers(min_value=1, max_value=50)
+        .filter(lambda x: x % 2 == 0)
+        .map(lambda x: x * 2)
+        .generate()
+    )
+    assert result % 4 == 0  # Should be divisible by 4
+    assert 4 <= result <= 200

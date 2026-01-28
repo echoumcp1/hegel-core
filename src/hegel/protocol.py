@@ -15,16 +15,38 @@ Handshake for running a test:
 4. After that it sends a test_done message.
 """
 
-import cbor2
+import os
 import socket
 import struct
+import sys
+import traceback
 import zlib
+from collections import deque
 from dataclasses import dataclass
 from queue import SimpleQueue
-import traceback
-from collections import deque
-from threading import Thread, Lock, current_thread
+from threading import Lock, Thread, current_thread
 from typing import Any
+
+import cbor2
+
+# Debug flag for packet tracing
+_DEBUG = os.environ.get("HEGEL_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def _debug_packet(direction: str, name: str, packet: "Packet") -> None:
+    """Print packet info for debugging."""
+    if not _DEBUG:
+        return
+    try:
+        payload_str = cbor2.loads(packet.payload)
+    except Exception:
+        payload_str = packet.payload[:50]
+    reply = "reply" if packet.is_reply else "request"
+    print(
+        f"[{name}] {direction} ch={packet.channel} id={packet.message_id} {reply}: {payload_str}",
+        file=sys.stderr,
+    )
+
 
 VERSION = "1.0"
 
@@ -168,7 +190,11 @@ class Connection:
         try:
             while self.__running:
                 packet = read_packet(self.__socket)
-                self.channels[packet.channel].inbox.put(packet)
+                _debug_packet("RECV", self.name or "?", packet)
+                channel = self.channels.get(packet.channel)
+                if channel is not None:
+                    channel.inbox.put(packet)
+                # Silently ignore packets for closed/unknown channels
         except ConnectionError:
             pass
         except Exception:
@@ -176,11 +202,12 @@ class Connection:
         finally:
             self.close()
 
-    def send_packet(self, packet: Packet):
+    def send_packet(self, packet: Packet) -> None:
         with self.__lock:
+            _debug_packet("SEND", self.name or "?", packet)
             write_packet(self.__socket, packet)
 
-    def close(self):
+    def close(self) -> None:
         self.__running = False
         try:
             self.__socket.shutdown(socket.SHUT_RDWR)
@@ -244,6 +271,9 @@ class PendingRequest:
             return self.__value["result"]
 
 
+CHANNEL_TIMEOUT = 30
+
+
 class Channel:
     def __init__(self, connection, channel_id):
         self.channel_id = channel_id
@@ -264,7 +294,13 @@ class Channel:
         a request)"""
         if self.__closed:
             raise ConnectionError("Channel closed")
-        packet = self.inbox.get()
+        try:
+            packet = self.inbox.get(timeout=CHANNEL_TIMEOUT)
+        except Exception:
+            raise ConnectionError(
+                f"Timed out after {CHANNEL_TIMEOUT}s waiting for message "
+                f"on {self.name}"
+            ) from None
         if packet is SHUTDOWN:
             raise ConnectionError("Connection closed")
 
@@ -332,7 +368,7 @@ class Channel:
         result = self.requests.popleft()
         return (result.message_id, result.payload)
 
-    def send_response(self, id: Id, message: bytes):
+    def send_response(self, id: Id, message: bytes) -> None:
         """Sends a response to a previously received message."""
         self.connection.send_packet(
             Packet(

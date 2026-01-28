@@ -44,6 +44,7 @@ _current_channel: ContextVar[Channel | None] = ContextVar(
     "_current_channel", default=None
 )
 _is_final: ContextVar[bool] = ContextVar("_is_final", default=False)
+_test_aborted: ContextVar[bool] = ContextVar("_test_aborted", default=False)
 
 
 class AssumeRejected(Exception):
@@ -192,6 +193,7 @@ class Client:
         """
         token_channel = _current_channel.set(channel)
         token_final = _is_final.set(is_final)
+        token_aborted = _test_aborted.set(False)
 
         try:
             test_fn()
@@ -214,6 +216,7 @@ class Client:
         finally:
             _current_channel.reset(token_channel)
             _is_final.reset(token_final)
+            _test_aborted.reset(token_aborted)
 
 
 def _extract_origin(exc: Exception, tb: Any) -> dict:
@@ -256,6 +259,9 @@ def generate_from_schema(schema: dict) -> Any:
         return channel.request({"command": "generate", "schema": schema}).get()
     except RequestError as e:
         if e.error_type == "StopTest":
+            # Mark that this test case has been aborted - server won't respond
+            # to any more messages on this channel
+            _test_aborted.set(True)
             raise DataExhausted("Server ran out of data") from e
         raise
 
@@ -280,12 +286,22 @@ def target(value: float, label: str = "") -> None:
 
 def start_span(label: int = 0) -> None:
     """Start a generation span for better shrinking."""
+    # If test was aborted (StopTest), don't try to communicate with server
+    if _test_aborted.get():
+        return
     channel = _get_channel()
     channel.request({"command": "start_span", "label": label}).get()
 
 
 def stop_span(*, discard: bool = False) -> None:
-    """End the current generation span."""
+    """End the current generation span.
+
+    If the server has signaled StopTest (DataExhausted), this is a no-op
+    since the server has already abandoned this test case.
+    """
+    # If test was aborted (StopTest), don't try to communicate with server
+    if _test_aborted.get():
+        return
     channel = _get_channel()
     channel.request({"command": "stop_span", "discard": discard}).get()
 
