@@ -626,7 +626,7 @@ class _HegelSession:
 
     def __init__(self):
         self._process: subprocess.Popen | None = None
-        self._server_sock: socket.socket | None = None
+        self._sock: socket.socket | None = None
         self._connection: Connection | None = None
         self._client: Client | None = None
         self._temp_dir: tempfile.TemporaryDirectory | None = None
@@ -638,18 +638,14 @@ class _HegelSession:
             return
 
         import atexit
+        import time
 
         self._verbosity = verbosity
         self._temp_dir = tempfile.TemporaryDirectory(prefix="hegel-")
         socket_path = os.path.join(self._temp_dir.name, "hegel.sock")
 
-        self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._server_sock.bind(socket_path)
-        self._server_sock.listen(1)
-
         hegel_cmd = _find_hegeld()
         cmd_args = hegel_cmd.split() + [
-            "--client-mode",
             socket_path,
             "--verbosity",
             verbosity.value,
@@ -658,20 +654,34 @@ class _HegelSession:
         if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
             print(f"Starting hegeld: {' '.join(cmd_args)}", file=sys.stderr)
 
-        # Use DEVNULL for stdout/stderr to prevent buffer deadlock
-        # (if we used PIPE and didn't read from them, the process could block)
+        # Start hegeld - it will bind to the socket and listen
         self._process = subprocess.Popen(
             cmd_args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
-        client_sock, _ = self._server_sock.accept()
+        # Wait for hegeld to create the socket and start listening
+        for _ in range(50):
+            if os.path.exists(socket_path):
+                try:
+                    self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    self._sock.connect(socket_path)
+                    break
+                except (ConnectionRefusedError, FileNotFoundError):
+                    self._sock.close()
+                    self._sock = None
+                    time.sleep(0.1)
+            else:
+                time.sleep(0.1)
+        else:
+            self._process.kill()
+            raise RuntimeError("Timeout waiting for hegeld to start")
 
         if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
-            print("hegeld connected", file=sys.stderr)
+            print("Connected to hegeld", file=sys.stderr)
 
-        self._connection = Connection(client_sock, name="SDK")
+        self._connection = Connection(self._sock, name="SDK")
         self._client = Client(self._connection)
 
         # Register cleanup on process exit
@@ -695,12 +705,12 @@ class _HegelSession:
                 pass
             self._process = None
 
-        if self._server_sock is not None:
+        if self._sock is not None:
             try:
-                self._server_sock.close()
+                self._sock.close()
             except Exception:
                 pass
-            self._server_sock = None
+            self._sock = None
 
         if self._temp_dir is not None:
             try:
