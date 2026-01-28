@@ -210,12 +210,13 @@ def test_run_hegel_test_failing():
         x = integers(min_value=0, max_value=1000).generate()
         assert x <= 50  # Fails for x > 50
 
-    try:
+    with pytest.raises(AssertionError) as excinfo:
         run_hegel_test(prop, test_cases=30, verbosity=Verbosity.QUIET)
         assert False, "Expected AssertionError"
-    except AssertionError as e:
-        # Original exception is re-raised - check it has the actual assertion
-        assert "50" in str(e) or "51" in str(e)
+
+    e = excinfo.value
+    # Original exception is re-raised - check it has the actual assertion
+    assert "50" in str(e) or "51" in str(e)
 
 
 # =============================================================================

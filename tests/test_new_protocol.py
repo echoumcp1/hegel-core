@@ -50,7 +50,11 @@ def test_basic_connection_can_negotiate_version_without_error():
     try:
         thread.start()
         client_connection = Connection(client_socket, name="Client")
-        client = Client(client_connection)
+
+        # Creating the client does version negotiation, and will error
+        # if that doesn't work, but we don't actually test any follow
+        # on messages here.
+        Client(client_connection)
     finally:
         client_connection.close()
 
