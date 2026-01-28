@@ -12,6 +12,8 @@ from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any
 
+import cbor2
+
 from hegel.parser import from_schema
 from hegel.protocol import VERSION_NEGOTIATION_MESSAGE, Channel, Connection
 from hypothesis import Verbosity, settings
@@ -52,6 +54,137 @@ def make_settings(test_cases: int, verbosity: Verbosity) -> settings:
     )
 
 
+def make_test_function(
+    connection: Connection,
+    control_channel: Channel,
+    *,
+    is_final: bool = False,
+) -> Callable[[ConjectureData], None]:
+    """Create a test function that communicates with the SDK.
+
+    The returned function handles a single test case by:
+    1. Creating a channel for communication
+    2. Sending a test_case event to the SDK
+    3. Handling generate/span/target requests until mark_complete
+    4. Applying the final status to the ConjectureData
+    """
+
+    def test_function(data: ConjectureData) -> None:
+        with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
+            # Create a channel for this test case
+            test_channel = connection.new_channel()
+
+            # Send test_case message to SDK on control channel
+            request_id = control_channel.send_request(
+                cbor2.dumps(
+                    {
+                        "event": "test_case",
+                        "channel": test_channel.channel_id,
+                        "is_final": is_final,
+                    }
+                )
+            )
+
+            # Now handle requests from SDK on the test channel
+            complete = [False]
+            result_status = [Status.VALID]
+            interesting_origin = [None]
+
+            def handle_sdk_request(message: dict) -> Any:
+                command = message.get("command")
+
+                if command == "generate":
+                    schema = message.get("schema", {})
+                    try:
+                        strategy = cached_from_schema(schema)
+                        return data.draw(strategy)
+                    except StopTest:
+                        raise
+
+                elif command == "start_span":
+                    label = message.get("label", 0)
+                    data.start_span(label)
+                    return None
+
+                elif command == "stop_span":
+                    discard = message.get("discard", False)
+                    data.stop_span(discard=discard)
+                    return None
+
+                elif command == "target":
+                    value = message.get("value", 0.0)
+                    label = message.get("label", "")
+                    data.target_observations[label] = value
+                    return None
+
+                elif command == "mark_complete":
+                    status = message.get("status", "VALID")
+                    origin = message.get("origin")
+
+                    complete[0] = True
+
+                    if status == "VALID":
+                        result_status[0] = Status.VALID
+                    elif status == "INVALID":
+                        result_status[0] = Status.INVALID
+                    elif status == "INTERESTING":
+                        result_status[0] = Status.INTERESTING
+                        interesting_origin[0] = origin
+
+                    return None
+
+                else:
+                    raise ValueError(f"Unknown command: {command}")
+
+            try:
+                # Handle requests until mark_complete
+                while not complete[0]:
+                    req_id, req_payload = test_channel.receive_request()
+                    try:
+                        msg = cbor2.loads(req_payload)
+                        result = handle_sdk_request(msg)
+                        test_channel.send_response(
+                            req_id, cbor2.dumps({"result": result})
+                        )
+                    except StopTest:
+                        # Hypothesis wants to stop - send overflow response
+                        test_channel.send_response(
+                            req_id,
+                            cbor2.dumps({"error": "overflow", "type": "StopTest"}),
+                        )
+                        raise
+                    except Exception as e:
+                        test_channel.send_response(
+                            req_id,
+                            cbor2.dumps({"error": str(e), "type": type(e).__name__}),
+                        )
+
+                # Apply the result status
+                if result_status[0] == Status.INVALID:
+                    data.mark_invalid()
+                elif result_status[0] == Status.INTERESTING:
+                    # Convert origin dict to a hashable tuple for Hypothesis
+                    origin_dict = interesting_origin[0]
+                    if origin_dict is not None:
+                        origin = (
+                            origin_dict.get("exc_type", "Unknown"),
+                            origin_dict.get("filename", ""),
+                            origin_dict.get("lineno", 0),
+                        )
+                    else:
+                        origin = ("Unknown", "", 0)
+                    data.mark_interesting(origin)  # type: ignore[arg-type]
+
+            finally:
+                # Clean up test channel
+                test_channel.close()
+                # Always wait for control response to maintain synchronization.
+                # The SDK will always send a response, even after StopTest.
+                control_channel.receive_response(request_id)
+
+    return test_function
+
+
 def run_server_on_connection(connection: Connection) -> None:
     """Handle a single client connection."""
     try:
@@ -70,8 +203,6 @@ def run_server_on_connection(connection: Connection) -> None:
         # Main request loop - handle run_test requests
         while True:
             id, payload = control.receive_request()
-            import cbor2
-
             message = cbor2.loads(payload)
 
             command = message.get("command")
@@ -110,134 +241,10 @@ def handle_run_test(
     - invalid_examples: int
     - failure: optional dict with failure details
     """
-    import cbor2
-
     db_key = test_name.encode("utf-8")
-    next_channel_id = [1]  # Start from 1, 0 is control channel
-
-    def make_test_function(
-        *, is_final: bool = False
-    ) -> Callable[[ConjectureData], None]:
-        def test_function(data: ConjectureData) -> None:
-            with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
-                # Create a channel for this test case
-                next_channel_id[0] += 1
-                test_channel = connection.new_channel()
-
-                # Send test_case message to SDK on control channel
-                request_id = control_channel.send_request(
-                    cbor2.dumps(
-                        {
-                            "event": "test_case",
-                            "channel": test_channel.channel_id,
-                            "is_final": is_final,
-                        }
-                    )
-                )
-
-                # Now handle requests from SDK on the test channel
-                complete = [False]
-                result_status = [Status.VALID]
-                interesting_origin = [None]
-
-                def handle_sdk_request(message):
-                    command = message.get("command")
-
-                    if command == "generate":
-                        schema = message.get("schema", {})
-                        try:
-                            strategy = cached_from_schema(schema)
-                            return data.draw(strategy)
-                        except StopTest:
-                            raise
-
-                    elif command == "start_span":
-                        label = message.get("label", 0)
-                        data.start_span(label)
-                        return None
-
-                    elif command == "stop_span":
-                        discard = message.get("discard", False)
-                        data.stop_span(discard=discard)
-                        return None
-
-                    elif command == "target":
-                        value = message.get("value", 0.0)
-                        label = message.get("label", "")
-                        data.target_observations[label] = value
-                        return None
-
-                    elif command == "mark_complete":
-                        status = message.get("status", "VALID")
-                        origin = message.get("origin")
-
-                        complete[0] = True
-
-                        if status == "VALID":
-                            result_status[0] = Status.VALID
-                        elif status == "INVALID":
-                            result_status[0] = Status.INVALID
-                        elif status == "INTERESTING":
-                            result_status[0] = Status.INTERESTING
-                            interesting_origin[0] = origin
-
-                        return None
-
-                    else:
-                        raise ValueError(f"Unknown command: {command}")
-
-                try:
-                    # Handle requests until mark_complete
-                    while not complete[0]:
-                        req_id, req_payload = test_channel.receive_request()
-                        try:
-                            msg = cbor2.loads(req_payload)
-                            result = handle_sdk_request(msg)
-                            test_channel.send_response(
-                                req_id, cbor2.dumps({"result": result})
-                            )
-                        except StopTest:
-                            # Hypothesis wants to stop - send overflow response
-                            test_channel.send_response(
-                                req_id,
-                                cbor2.dumps({"error": "overflow", "type": "StopTest"}),
-                            )
-                            raise
-                        except Exception as e:
-                            test_channel.send_response(
-                                req_id,
-                                cbor2.dumps(
-                                    {"error": str(e), "type": type(e).__name__}
-                                ),
-                            )
-
-                    # Apply the result status
-                    if result_status[0] == Status.INVALID:
-                        data.mark_invalid()
-                    elif result_status[0] == Status.INTERESTING:
-                        # Convert origin dict to a hashable tuple for Hypothesis
-                        origin_dict = interesting_origin[0]
-                        if origin_dict is not None:
-                            origin = (
-                                origin_dict.get("exc_type", "Unknown"),
-                                origin_dict.get("filename", ""),
-                                origin_dict.get("lineno", 0),
-                            )
-                        else:
-                            origin = ("Unknown", "", 0)
-                        data.mark_interesting(origin)  # type: ignore[arg-type]
-
-                finally:
-                    # Clean up test channel
-                    test_channel.close()
-                    # Always wait for control response to maintain synchronization.
-                    # The SDK will always send a response, even after StopTest.
-                    control_channel.receive_response(request_id)
-
-        return test_function
 
     # Create and run the ConjectureRunner
-    test_function = make_test_function(is_final=False)
+    test_function = make_test_function(connection, control_channel, is_final=False)
 
     runner = ConjectureRunner(
         test_function,
@@ -261,7 +268,7 @@ def handle_run_test(
         )
 
         # Replay with is_final=True
-        final_test = make_test_function(is_final=True)
+        final_test = make_test_function(connection, control_channel, is_final=True)
         final_data = runner.new_conjecture_data(minimal.choices)
         try:
             final_test(final_data)
