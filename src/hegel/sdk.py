@@ -953,12 +953,12 @@ class _HegelSession:
         for _ in range(50):
             if os.path.exists(socket_path):
                 try:
-                    self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    self._sock.connect(socket_path)
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    sock.connect(socket_path)
+                    self._sock = sock
                     break
                 except (ConnectionRefusedError, FileNotFoundError):
-                    self._sock.close()
-                    self._sock = None
+                    sock.close()
                     time.sleep(0.1)
             else:
                 time.sleep(0.1)
