@@ -16,6 +16,7 @@ from hegel.sdk import (
     booleans,
     generate_from_schema,
     hegel,
+    floats,
     integers,
     just,
     lists,
@@ -148,16 +149,18 @@ def test_target_guides_toward_larger_values():
     """Use target() to guide search toward edge cases."""
     max_seen = [0]
 
-    @hegel(test_cases=30, verbosity=Verbosity.QUIET)
+    @hegel(test_cases=100, verbosity=Verbosity.QUIET)
     def prop():
-        x = integers(min_value=0, max_value=10000).generate()
-        target(float(x), "maximize_x")
-        max_seen[0] = max(max_seen[0], x)
+        x = floats(min_value=0, max_value=10000).generate()
+        score = 1 - (float(x) - 101) ** 2
+        print(score)
+        target(score, "maximize_x")
+        max_seen[0] = max(max_seen[0], score)
         assert x >= 0  # Always passes
 
     prop()
-    # With targeting, we should see some large values
-    assert max_seen[0] > 100
+    # With targeting, we should see very close to the target maximum
+    assert max_seen[0] > 0.99
 
 
 # =============================================================================
