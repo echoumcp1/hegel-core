@@ -15,7 +15,6 @@ Handshake for running a test:
 4. After that it sends a test_done message.
 """
 
-
 import cbor2
 import socket
 import struct
@@ -33,18 +32,19 @@ VERSION_NEGOTIATION_MESSAGE = b"Hegel/1.0"
 VERSION_NEGOTIATION_OK = b"Ok"
 
 # HEGL
-MAGIC = 0x4845474c
+MAGIC = 0x4845474C
 
 # 5 unsigned 32-bit integers, big-endian:
 # magic cookie, checksum, channel, message ID, payload length
 HEADER_FORMAT = ">5I"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
-TERMINATOR = 0x0A # '\n'
+TERMINATOR = 0x0A  # '\n'
 
 # If this is set in the ID, this is a reply to a previous message
 REPLY_BIT = 1 << 31
 
 Id = int
+
 
 @dataclass(frozen=True, slots=True)
 class Packet:
@@ -58,12 +58,11 @@ class PartialPacket(ConnectionError):
     pass
 
 
-
 def recv_exact(sock: socket.socket, n: int) -> bytes:
     """Receive exactly n bytes from socket."""
     assert n >= 0
     if n == 0:
-        return b''
+        return b""
     data = bytearray()
     while len(data) < n:
         chunk = sock.recv(n - len(data))
@@ -89,7 +88,9 @@ def read_packet(sock: socket.socket) -> Packet:
 
     # Validate magic number
     if magic != MAGIC:
-        raise ValueError(f"Invalid magic number: expected 0x{MAGIC:08X}, got 0x{magic:08X}")
+        raise ValueError(
+            f"Invalid magic number: expected 0x{MAGIC:08X}, got 0x{magic:08X}"
+        )
 
     # Read payload
     payload = recv_exact(sock, length)
@@ -97,16 +98,22 @@ def read_packet(sock: socket.socket) -> Packet:
     # Read terminator
     terminator = recv_exact(sock, 1)[0]
     if terminator != TERMINATOR:
-        raise ValueError(f"Invalid terminator: expected 0x{TERMINATOR:02X}, got 0x{terminator:02X}")
+        raise ValueError(
+            f"Invalid terminator: expected 0x{TERMINATOR:02X}, got 0x{terminator:02X}"
+        )
 
     # Verify checksum (CRC32 over header with checksum field zeroed + payload)
     # This matches the Rust implementation
-    header_for_check = header[:4] + b'\x00\x00\x00\x00' + header[8:]
+    header_for_check = header[:4] + b"\x00\x00\x00\x00" + header[8:]
     computed_crc = zlib.crc32(header_for_check + payload) & 0xFFFFFFFF
     if computed_crc != checksum:
-        raise ValueError(f"Checksum mismatch: expected 0x{checksum:08X}, got 0x{computed_crc:08X}")
+        raise ValueError(
+            f"Checksum mismatch: expected 0x{checksum:08X}, got 0x{computed_crc:08X}"
+        )
 
-    return Packet(channel=channel, message_id=message_id, payload=payload, is_reply=is_reply)
+    return Packet(
+        channel=channel, message_id=message_id, payload=payload, is_reply=is_reply
+    )
 
 
 def write_packet(sock: socket.socket, packet: Packet) -> None:
@@ -119,11 +126,11 @@ def write_packet(sock: socket.socket, packet: Packet) -> None:
     length = len(packet.payload)
 
     # Build header with checksum field zeroed for checksum calculation
-    header_for_check = struct.pack('>5I', magic, 0, channel, message_id, length)
+    header_for_check = struct.pack(">5I", magic, 0, channel, message_id, length)
     checksum = zlib.crc32(header_for_check + packet.payload) & 0xFFFFFFFF
 
     # Build final header with real checksum
-    header = struct.pack('>5I', magic, checksum, channel, message_id, length)
+    header = struct.pack(">5I", magic, checksum, channel, message_id, length)
     sock.sendall(header + packet.payload + bytes([TERMINATOR]))
 
 
@@ -135,7 +142,7 @@ class Connection:
     the Hegel server. It is designed to be thread safe. In
     order to actually interact with the server, you will need
     to use a *Channel*, which is a non-thread-safe logical
-      connection supporting sending and receiving objects."""\
+      connection supporting sending and receiving objects."""
 
     def __init__(self, socket, name=None):
         """Connect to a given endpoint running the Hegel protocol
@@ -145,14 +152,13 @@ class Connection:
         self.__next_channel_id = 0
         self.channels = {}
         self.__control_channel = self.new_channel()
-        self.__running = True 
+        self.__running = True
         self.__lock = Lock()
         self.__threads = [
             Thread(target=self.run_reader, daemon=True),
         ]
         for t in self.__threads:
             t.start()
-
 
     @classmethod
     def create_server(cls, address, **kwargs):
@@ -172,7 +178,7 @@ class Connection:
 
     def send_packet(self, packet: Packet):
         with self.__lock:
-            write_packet(self.__socket, packet) 
+            write_packet(self.__socket, packet)
 
     def close(self):
         self.__running = False
@@ -215,10 +221,11 @@ class Connection:
 
 NOT_SET = object()
 
+
 class RequestError(Exception):
     def __init__(self, data):
-        super().__init__(data.pop('error'))
-        self.error_type = data.pop('type')
+        super().__init__(data.pop("error"))
+        self.error_type = data.pop("type")
         self.data = data
 
 
@@ -231,10 +238,10 @@ class PendingRequest:
     def get(self):
         if self.__value is NOT_SET:
             self.__value = cbor2.loads(self.__channel.receive_response(self.__id))
-        if 'error' in self.__value:
+        if "error" in self.__value:
             raise RequestError(self.__value)
         else:
-            return self.__value['result']
+            return self.__value["result"]
 
 
 class Channel:
@@ -260,7 +267,7 @@ class Channel:
         packet = self.inbox.get()
         if packet is SHUTDOWN:
             raise ConnectionError("Connection closed")
-        
+
         if packet.is_reply:
             if packet.message_id in self.responses:
                 raise ValueError(f"Got two responses for message ID {id}")
@@ -287,26 +294,28 @@ class Channel:
             try:
                 message = cbor2.loads(payload)
                 result = handler(message)
-                self.send_response(
-                    id, cbor2.dumps({'result': result})
-                )
+                self.send_response(id, cbor2.dumps({"result": result}))
             except Exception as e:
                 self.send_response(
-                    id, cbor2.dumps({'error': str(e), 'args': e.args, 'type': type(e).__name__})
+                    id,
+                    cbor2.dumps(
+                        {"error": str(e), "args": e.args, "type": type(e).__name__}
+                    ),
                 )
-
 
     def send_request(self, message: bytes) -> Id:
         """Sends a message and returns an Id that can be used
         too wait for a response."""
         id = self.next_message_id
         self.next_message_id += 1
-        self.connection.send_packet(Packet(
-            payload=message,
-            channel=self.channel_id,
-            is_reply=False,
-            message_id=id,
-        ))
+        self.connection.send_packet(
+            Packet(
+                payload=message,
+                channel=self.channel_id,
+                is_reply=False,
+                message_id=id,
+            )
+        )
         return id
 
     def receive_response(self, id: Id) -> bytes:
@@ -325,9 +334,11 @@ class Channel:
 
     def send_response(self, id: Id, message: bytes):
         """Sends a response to a previously received message."""
-        self.connection.send_packet(Packet(
-            payload=message,
-            channel=self.channel_id,
-            is_reply=True,
-            message_id=id,
-        ))
+        self.connection.send_packet(
+            Packet(
+                payload=message,
+                channel=self.channel_id,
+                is_reply=True,
+                message_id=id,
+            )
+        )

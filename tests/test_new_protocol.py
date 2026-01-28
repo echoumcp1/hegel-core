@@ -19,13 +19,15 @@ from hegel.sdk import (
 
 
 @settings(max_examples=1000)
-@given(st.builds(
-    Packet,
-    message_id=st.integers(0, 1 << 31 - 1),
-    channel=st.integers(0, 1 << 32 - 1),
-    is_reply=st.booleans(),
-    payload=st.binary(),
-))
+@given(
+    st.builds(
+        Packet,
+        message_id=st.integers(0, 1 << 31 - 1),
+        channel=st.integers(0, 1 << 32 - 1),
+        is_reply=st.booleans(),
+        payload=st.binary(),
+    )
+)
 def test_roundtrip_packets(packet):
     reader, writer = socket.socketpair()
     try:
@@ -41,7 +43,8 @@ def test_roundtrip_packets(packet):
 def test_basic_connection_can_negotiate_version_without_error():
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
-        target=run_server_on_connection, args=(Connection(server_socket, name="Server"),),
+        target=run_server_on_connection,
+        args=(Connection(server_socket, name="Server"),),
         daemon=True,
     )
     try:
@@ -57,6 +60,7 @@ def test_basic_connection_can_negotiate_version_without_error():
 def test_request_handling():
     def add_server(connection):
         handler_channel = connection.connect_channel(1)
+
         @handler_channel.handle_requests
         def _(message):
             x, y = message
@@ -64,7 +68,8 @@ def test_request_handling():
 
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
-        target=add_server, args=(Connection(server_socket, name="Server"),),
+        target=add_server,
+        args=(Connection(server_socket, name="Server"),),
         daemon=True,
     )
     try:
@@ -132,7 +137,7 @@ def test_failing_test_with_shrinking():
 
         assert not result.passed
         assert result.failure is not None
-        assert result.failure['exc_type'] == 'AssertionError'
+        assert result.failure["exc_type"] == "AssertionError"
 
     finally:
         client_connection.close()
