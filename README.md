@@ -1,3 +1,10 @@
 # hegel
 
-hegel is a prototype universal property-based testing tool. It is designed to allow property-based tests to be written from any language, with access to a rich library of generators and all the built in powerful functionality you get from Hypothesis.
+Universal property-based testing, backed by Hypothesis.
+
+Current SDKs:
+
+* [Rust](https://github.com/antithesishq/hegel-rust)
+* [Go](https://github.com/antithesishq/hegel-go)
+* [TypeScript](https://github.com/antithesishq/hegel-typescript)
+* [cpp](https://github.com/antithesishq/hegel-cpp)
