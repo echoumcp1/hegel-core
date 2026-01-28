@@ -20,17 +20,16 @@ This is the Python core of Hegel - the CLI and server that powers property-based
 
 ### Module Overview
 
-- `__main__.py` - CLI entry point (`hegel` command), Hypothesis ConjectureRunner integration, socket server for external mode, client mode for embedded SDKs
-- `runner.py` - Subprocess management, Unix socket server creation, request/response handling
+- `__main__.py` - CLI entry point (`hegel` command), connects to SDK-created socket
+- `hegeld.py` - Server that drives test execution via Hypothesis ConjectureRunner
+- `sdk.py` - Python SDK for writing property tests
+- `protocol.py` - Binary protocol with CBOR encoding for communication
 - `parser.py` - Converts JSON schemas from SDKs into Hypothesis strategies
 - `conformance.py` - Framework for testing SDK implementations against specification
-- `tui.py` - Textual-based terminal UI for real-time test visualization
 
-### Two Operating Modes
+### How It Works
 
-**External mode** (default): Hegel spawns the test binary as a subprocess, creates a Unix socket, and the SDK connects to it. The socket path is passed via `HEGEL_SOCKET` environment variable.
-
-**Client mode** (`--client-mode`): The SDK creates the socket server, and Hegel connects as a client. Used for embedded/in-process testing where the SDK controls the test lifecycle.
+The SDK creates a socket path and spawns the `hegel` CLI with that path. Hegeld binds to the socket and listens for connections. The SDK then connects as a client. Each program run maintains a single persistent connection through which multiple tests can be executed. The SDK sends `run_test` requests and hegeld drives test execution using Hypothesis's ConjectureRunner.
 
 ### Generation Flow
 
