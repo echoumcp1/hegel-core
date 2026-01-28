@@ -186,7 +186,6 @@ def handle_run_test(
                     else:
                         raise ValueError(f"Unknown command: {command}")
 
-                stop_test_raised = False
                 try:
                     # Handle requests until mark_complete
                     while not complete[0]:
@@ -199,8 +198,6 @@ def handle_run_test(
                             )
                         except StopTest:
                             # Hypothesis wants to stop - send overflow response
-                            # and mark that we need to skip the cleanup wait
-                            stop_test_raised = True
                             test_channel.send_response(
                                 req_id,
                                 cbor2.dumps({"error": "overflow", "type": "StopTest"}),
@@ -233,10 +230,9 @@ def handle_run_test(
                 finally:
                     # Clean up test channel
                     test_channel.close()
-                    # Only wait for control response if test completed normally
-                    # (not if StopTest was raised - client will handle it)
-                    if not stop_test_raised:
-                        control_channel.receive_response(request_id)
+                    # Always wait for control response to maintain synchronization.
+                    # The SDK will always send a response, even after StopTest.
+                    control_channel.receive_response(request_id)
 
         return test_function
 
