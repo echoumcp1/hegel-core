@@ -1,9 +1,6 @@
 import socket
 from threading import Thread
 
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
 from hegel.hegeld import run_server_on_connection
 from hegel.protocol import Connection, Packet, read_packet, write_packet
 from hegel.sdk import (
@@ -16,6 +13,7 @@ from hegel.sdk import (
     target,
     text,
 )
+from hypothesis import given, settings, strategies as st
 
 
 @settings(max_examples=1000)
