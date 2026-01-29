@@ -5,12 +5,15 @@ The server accepts a single client connection and handles test execution
 requests. Each test runs through ConjectureRunner which generates test
 cases and manages shrinking.
 """
+import os
 
 import hashlib
 import json
 from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+import traceback
 
 import cbor2
 from hypothesis import Verbosity, settings
@@ -56,7 +59,7 @@ def make_settings(test_cases: int, verbosity: Verbosity) -> settings:
 
 def make_test_function(
     connection: Connection,
-    control_channel: Channel,
+    channel: Channel,
     *,
     is_final: bool = False,
 ) -> Callable[[ConjectureData], None]:
@@ -72,162 +75,117 @@ def make_test_function(
     def test_function(data: ConjectureData) -> None:
         with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
             # Create a channel for this test case
-            test_channel = connection.new_channel()
+            test_case_channel = connection.new_channel(role="Test Case")
 
-            # Send test_case message to SDK on control channel
-            request_id = control_channel.send_request(
-                cbor2.dumps(
-                    {
-                        "event": "test_case",
-                        "channel": test_channel.channel_id,
-                        "is_final": is_final,
-                    }
-                )
-            )
+            # Send test_case message to SDK on test case channel
+            channel.request(
+                {
+                    "event": "test_case",
+                    "channel": test_case_channel.channel_id,
+                    "is_final": is_final,
+                }
+            ).get()
+
+            done = False
 
             # Now handle requests from SDK on the test channel
-            complete = [False]
-            result_status = [Status.VALID]
-            interesting_origin = [None]
-
             def handle_sdk_request(message: dict) -> Any:
-                command = message.get("command")
+                nonlocal done
+                try:
+                    command = message.get("command")
 
-                if command == "generate":
-                    schema = message.get("schema", {})
-                    try:
+                    if command == "generate":
+                        schema = message.get("schema", {})
                         strategy = cached_from_schema(schema)
                         return data.draw(strategy)
-                    except StopTest:
-                        raise
 
-                elif command == "start_span":
-                    label = message.get("label", 0)
-                    data.start_span(label)
-                    return None
-
-                elif command == "stop_span":
-                    discard = message.get("discard", False)
-                    data.stop_span(discard=discard)
-                    return None
-
-                elif command == "target":
-                    value = message.get("value", 0.0)
-                    label = message.get("label", "")
-                    data.target_observations[label] = value
-                    return None
-
-                elif command == "mark_complete":
-                    status = message.get("status", "VALID")
-                    origin = message.get("origin")
-
-                    complete[0] = True
-
-                    if status == "VALID":
-                        result_status[0] = Status.VALID
-                    elif status == "INVALID":
-                        result_status[0] = Status.INVALID
-                    elif status == "INTERESTING":
-                        result_status[0] = Status.INTERESTING
-                        interesting_origin[0] = origin
-
-                    return None
-
-                else:
-                    raise ValueError(f"Unknown command: {command}")
+                    elif command == "start_span":
+                        label = message.get("label", 0)
+                        data.start_span(label)
+                        return None
+                    elif command == "stop_span":
+                        discard = message.get("discard", False)
+                        data.stop_span(discard=discard)
+                        return None
+                    elif command == "target":
+                        value = message.get("value", 0.0)
+                        label = message.get("label", "")
+                        data.target_observations[label] = value
+                        return None
+                    elif command == "mark_complete":
+                        status = message.get("status", "VALID")
+                        origin = message.get("origin")
+                        if status == "VALID":
+                            data.conclude_test(Status.VALID)
+                        elif status == "INVALID":
+                            data.mark_invalid()
+                        elif status == "INTERESTING":
+                            data.mark_interesting(origin)
+                    else:
+                        raise ValueError(f"Unknown command: {command}")
+                except:
+                    done = True
+                    raise
 
             try:
-                # Handle requests until mark_complete
-                while not complete[0]:
-                    req_id, req_payload = test_channel.receive_request()
-                    try:
-                        msg = cbor2.loads(req_payload)
-                        result = handle_sdk_request(msg)
-                        test_channel.send_response(
-                            req_id, cbor2.dumps({"result": result})
-                        )
-                    except StopTest:
-                        # Hypothesis wants to stop - send overflow response
-                        test_channel.send_response(
-                            req_id,
-                            cbor2.dumps({"error": "overflow", "type": "StopTest"}),
-                        )
-                        raise
-                    except Exception as e:
-                        test_channel.send_response(
-                            req_id,
-                            cbor2.dumps({"error": str(e), "type": type(e).__name__}),
-                        )
-
-                # Apply the result status
-                if result_status[0] == Status.INVALID:
-                    data.mark_invalid()
-                elif result_status[0] == Status.INTERESTING:
-                    # Convert origin dict to a hashable tuple for Hypothesis
-                    origin_dict = interesting_origin[0]
-                    if origin_dict is not None:
-                        origin = (
-                            origin_dict.get("exc_type", "Unknown"),
-                            origin_dict.get("filename", ""),
-                            origin_dict.get("lineno", 0),
-                        )
-                    else:
-                        origin = ("Unknown", "", 0)
-                    data.mark_interesting(origin)  # type: ignore[arg-type]
-
+                test_case_channel.handle_requests(handle_sdk_request, until=lambda: done)
             finally:
-                # Clean up test channel
-                test_channel.close()
-                # Always wait for control response to maintain synchronization.
-                # The SDK will always send a response, even after StopTest.
-                control_channel.receive_response(request_id)
+                test_case_channel.close()
 
     return test_function
 
 
 def run_server_on_connection(connection: Connection) -> None:
     """Handle a single client connection."""
+    connection.receive_handshake()
+
+    pending_futures = []
     try:
-        control = connection.control_channel
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as thread_pool:
+            # Main request loop - handle run_test requests
+            test_count = 0
+            while True:
+                test_count += 1
+                print("Boop")
+                id, message = connection.control_channel.receive_request(timeout=None)
+                print("Beep")
 
-        # Version negotiation
-        id, payload = control.receive_request()
-        if payload == VERSION_NEGOTIATION_MESSAGE:
-            control.send_response(id, b"Ok")
-        else:
-            control.send_response(
-                id, f"Error: Unrecognised negotiation string {payload!r}".encode()
-            )
-            return
+                command = message.get("command")
+                if command == "run_test":
+                    test_name = message.get("name", f"test {test_count}")
+                    channel = connection.connect_channel(
+                        message['channel'], role="Test channel for {test_name}"
+                    )
 
-        # Main request loop - handle run_test requests
-        while True:
-            id, payload = control.receive_request()
-            message = cbor2.loads(payload)
-
-            command = message.get("command")
-            if command == "run_test":
-                result = handle_run_test(
-                    connection,
-                    control,
-                    test_name=message.get("name", "test"),
-                    test_cases=message.get("test_cases", 1000),
-                    verbosity=Verbosity(message.get("verbosity", "normal")),
-                )
-                control.send_response(id, cbor2.dumps({"result": result}))
-            else:
-                control.send_response(
-                    id, cbor2.dumps({"error": f"Unknown command: {command}"})
-                )
+                    pending_futures.append(thread_pool.submit(
+                        handle_run_test,
+                        connection,
+                        channel,
+                        test_name=test_name,
+                        test_cases=message.get("test_cases", 1000),
+                        verbosity=Verbosity(message.get("verbosity", "normal")),
+                    ))
+                    connection.control_channel.send_response_value(id, True)
+                else:
+                    control.send_response_error(
+                        id, error=f"Unknown command: {command}", type="UnknownCommand"
+                    )
     except ConnectionError:
         pass
+    except BaseException:
+        traceback.print_exc()
     finally:
         connection.close()
+    for f in pending_futures:
+        try:
+            f.result(timeout=0.5)
+        except (ConnectionError, TimeoutError):
+            f.cancel()
 
 
 def handle_run_test(
     connection: Connection,
-    control_channel: Channel,
+    channel: Channel,
     test_name: str,
     test_cases: int = 1000,
     verbosity: Verbosity = Verbosity.normal,
@@ -241,58 +199,52 @@ def handle_run_test(
     - invalid_examples: int
     - failure: optional dict with failure details
     """
-    db_key = test_name.encode("utf-8")
+    try:
+        db_key = test_name.encode("utf-8")
 
-    # Create and run the ConjectureRunner
-    test_function = make_test_function(connection, control_channel, is_final=False)
+        # Create and run the ConjectureRunner
+        test_function = make_test_function(connection, channel, is_final=False)
 
-    runner = ConjectureRunner(
-        test_function,
-        settings=make_settings(test_cases, verbosity),
-        database_key=db_key,
-    )
-    runner.run()
-
-    result: dict[str, Any] = {
-        "passed": len(runner.interesting_examples) == 0,
-        "examples_run": runner.call_count,
-        "valid_examples": runner.valid_examples,
-        "invalid_examples": runner.invalid_examples,
-    }
-
-    # If there were failures, replay the minimal one
-    if runner.interesting_examples:
-        minimal = min(
-            runner.interesting_examples.values(),
-            key=lambda d: sort_key(d.nodes),
+        runner = ConjectureRunner(
+            test_function,
+            settings=make_settings(test_cases, verbosity),
+            database_key=db_key,
         )
+        runner.run()
 
-        # Replay with is_final=True
-        final_test = make_test_function(connection, control_channel, is_final=True)
-        final_data = runner.new_conjecture_data(minimal.choices)
-        try:
-            final_test(final_data)
-        except StopTest:
-            pass
+        result: dict[str, Any] = {
+            "passed": len(runner.interesting_examples) == 0,
+            "examples_run": runner.call_count,
+            "valid_examples": runner.valid_examples,
+            "invalid_examples": runner.invalid_examples,
+            "interesting_examples": len(runner.interesting_examples)
+        }
 
-        origin = minimal.interesting_origin
-        if isinstance(origin, tuple):
-            result["failure"] = {
-                "exc_type": origin[0],
-                "filename": origin[1],
-                "lineno": origin[2],
-            }
-        else:
-            result["failure"] = {"origin": origin}
+        final_test_function = make_test_function(connection, channel, is_final=True)
 
-    # Send test_done event
-    control_channel.send_request(
-        cbor2.dumps(
+        for v in sorted(runner.interesting_examples.values(), key=lambda d: sort_key(d.nodes)):
+            try:
+                final_test_function(ConjectureData(
+                    prefix=v.nodes,
+                    max_choices=len(v.nodes),
+                    random=None,
+                ))
+            except StopTest:
+                pass
+
+        channel.request(
             {
                 "event": "test_done",
                 "results": result,
             }
-        )
-    )
+        ).get()
 
-    return result
+        assert False
+
+        return result
+    except:
+        # We don't actually await the futures and just sortof run them fire and
+        # forget in the background, so we won't see any exceptions that are
+        # thrown unless we print them here.
+        traceback.print_exc()
+        raise
