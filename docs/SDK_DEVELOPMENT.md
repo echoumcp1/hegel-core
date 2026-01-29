@@ -59,7 +59,7 @@ Test binaries receive these environment variables from Hegel:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Standalone Mode                          │
+│                    External Mode                          │
 ├─────────────────────────────────────────────────────────────┤
 │  1. First generate() or start_span() opens connection       │
 │  2. Connection persisted across multiple generate() calls   │
@@ -97,10 +97,10 @@ When all child generators have JSON schemas, compose them into a single schema a
 ```
 Schema Request:
 {
-  "type": "array",
-  "items": {"type": "integer", "minimum": 0, "maximum": 100},
-  "minItems": 1,
-  "maxItems": 10
+  "type": "list",
+  "elements": {"type": "integer", "minimum": 0, "maximum": 100},
+  "min_size": 1,
+  "max_size": 10
 }
 
 Single Response:
@@ -252,46 +252,54 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 | Function | Schema | Notes |
 |----------|--------|-------|
 | `nulls()` | `{"type": "null"}` | Generates null/nil/None |
-| `booleans()` | `{"type": "boolean"}` | Generates true/false |
+| `booleans()` | `{"type": "boolean", "p": 0.5}` | Generates true/false; `p` is probability of true (default 0.5) |
 | `just(value)` | `{"const": value}` | Always returns the same value |
+| `binary()` | `{"type": "binary", "min_size": 0, "max_size": N}` | Generates byte sequences (see note below) |
+
+**Binary encoding:** Since JSON cannot represent raw bytes, binary data is transmitted as base64-encoded strings. The server returns a base64 string, and SDKs decode it to the native byte type (`Vec<u8>`, `[]byte`, `Uint8Array`, etc.).
 
 #### Numeric
 
 | Function | Parameters | Schema |
 |----------|------------|--------|
 | `integers<T>()` | `min_value`, `max_value` | `{"type": "integer", "minimum": N, "maximum": M}` |
-| `floats<T>()` | `min_value`, `max_value`, `exclude_min`, `exclude_max` | `{"type": "number", ...}` |
+| `floats<T>()` | `min_value`, `max_value`, `exclude_min`, `exclude_max`, `allow_nan`, `allow_infinity` | `{"type": "number", ...}` |
 
 **Static language notes:**
 - Template/generic on return type: `integers<uint8_t>()` auto-derives bounds 0-255
 - Use language's numeric limits as defaults
 
-**Float exclusions:**
-- `exclude_min: true` → `"exclusiveMinimum": min_value`
-- `exclude_max: true` → `"exclusiveMaximum": max_value`
+**Float exclusions and special values:**
+- `exclude_min: true` → `"exclude_minimum": true`
+- `exclude_max: true` → `"exclude_maximum": true`
+- `allow_nan: true` → `"allow_nan": true`
+- `allow_infinity: true` → `"allow_infinity": true`
 
 #### Strings
 
 | Function | Parameters | Schema |
 |----------|------------|--------|
-| `text()` | `min_size`, `max_size` | `{"type": "string", "minLength": N, "maxLength": M}` |
-| `from_regex(pattern)` | pattern string | `{"type": "string", "pattern": "^...$"}` |
+| `text()` | `min_size`, `max_size` | `{"type": "string", "min_size": N, "max_size": M}` |
+| `from_regex(pattern)` | pattern string, `fullmatch` | `{"type": "regex", "pattern": "...", "fullmatch": bool}` |
 
 **from_regex notes:**
-- Auto-anchor: if pattern doesn't start with `^`, prepend it; if doesn't end with `$`, append it
-- Pattern must be valid JSON Schema regex (subset of ECMA-262)
+- By default generates strings that *contain* a match for the pattern
+- Use `fullmatch` to require the entire string to match the pattern
+- Pattern uses Python regex syntax (via Hypothesis)
 
 #### Format Strings
 
-| Function | Parameters | Schema Format |
-|----------|------------|---------------|
-| `emails()` | none | `"format": "email"` |
-| `urls()` | none | `"format": "uri"` |
-| `domains()` | `max_length` | `"format": "hostname"` |
-| `ip_addresses()` | `v=4\|6\|None` | `"format": "ipv4"` or `"ipv6"` |
-| `dates()` | none | `"format": "date"` |
-| `times()` | none | `"format": "time"` |
-| `datetimes()` | none | `"format": "date-time"` |
+Hegel uses direct type names for format strings (not JSON Schema format property):
+
+| Function | Parameters | Schema |
+|----------|------------|--------|
+| `emails()` | none | `{"type": "email"}` |
+| `urls()` | none | `{"type": "url"}` |
+| `domains()` | `max_length` | `{"type": "domain", "max_length": 255}` |
+| `ip_addresses()` | `v=4\|6\|None` | `{"type": "ipv4"}` or `{"type": "ipv6"}` |
+| `dates()` | none | `{"type": "date"}` |
+| `times()` | none | `{"type": "time"}` |
+| `datetimes()` | none | `{"type": "datetime"}` |
 
 **Not supported:** uuid, duration (Hypothesis doesn't support these formats)
 
@@ -300,38 +308,44 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 | Function | Parameters | Notes |
 |----------|------------|-------|
 | `lists(elements)` | `min_size`, `max_size`, `unique` | Name idiomatically: `vectors`, `arrays`, `vecs` |
-| `sets(elements)` | `min_size`, `max_size` | Generate as unique list, convert to set |
-| `dictionaries(keys, values)` | `min_size`, `max_size` | **Keys must be strings** (JSON limitation) |
-| `tuples(gen1, gen2, ...)` | generators | Fixed-length heterogeneous; use `prefixItems` schema |
+| `sets(elements)` | `min_size`, `max_size` | Uses `type: "set"` schema |
+| `dictionaries(keys, values)` | `min_size`, `max_size` | **Keys default to strings** (can override with `keys` schema) |
+| `tuples(gen1, gen2, ...)` | generators | Fixed-length heterogeneous |
 
 **Collection schema composition:**
 
 ```json
 // lists(integers().with_min(0), min_size=1, max_size=5)
 {
-  "type": "array",
-  "items": {"type": "integer", "minimum": 0},
-  "minItems": 1,
-  "maxItems": 5
+  "type": "list",
+  "elements": {"type": "integer", "minimum": 0},
+  "min_size": 1,
+  "max_size": 5
 }
 
-// lists(..., unique=true)
+// lists(..., unique=true) or sets(...)
 {
-  "type": "array",
-  "items": {...},
-  "uniqueItems": true
+  "type": "set",
+  "elements": {...},
+  "min_size": 0,
+  "max_size": 10
+}
+
+// dictionaries(values=integers())
+{
+  "type": "dict",
+  "values": {"type": "integer"},
+  "min_size": 0,
+  "max_size": 10
 }
 
 // tuples(integers(), text())
 {
-  "type": "array",
-  "prefixItems": [
+  "type": "tuple",
+  "elements": [
     {"type": "integer"},
     {"type": "string"}
-  ],
-  "items": false,
-  "minItems": 2,
-  "maxItems": 2
+  ]
 }
 ```
 
@@ -339,9 +353,9 @@ All generator functions live in a `strategies` (or `st`, `gen`) namespace.
 
 | Function | Description | Schema |
 |----------|-------------|--------|
-| `sampled_from(elements)` | Uniform selection from fixed collection | `{"enum": [...]}` |
-| `one_of(generators...)` | Choose from homogeneous generators | `{"anyOf": [...]}` |
-| `optional(generator)` | None/null or a value | `{"anyOf": [{"type": "null"}, ...]}` |
+| `sampled_from(elements)` | Uniform selection from fixed collection | `{"sampled_from": [...]}` |
+| `one_of(generators...)` | Choose from homogeneous generators | `{"one_of": [...]}` |
+| `optional(generator)` | None/null or a value | `{"one_of": [{"type": "null"}, ...]}` |
 | `builds(type, generators...)` | Construct objects from generated values | Compose field schemas |
 
 #### Dynamic Language Only
@@ -378,26 +392,34 @@ let p: Person = gen.generate();
 
 Use `fixed_dictionaries`:
 ```python
-person_gen = fixed_dictionaries({
-    "name": text(max_size=50),
-    "age": integers(min_value=0, max_value=120)
-})
+person_gen = fixed_dictionaries(
+    {"name": text(max_size=50), "age": integers(min_value=0, max_value=120)}
+)
 ```
 
 ### Schema for Objects
 
+**Option 1: Use tuples (recommended for schema composition)**
+
+Generate fields as a tuple and convert to object in generate():
+
 ```json
 {
-  "type": "object",
-  "properties": {
-    "name": {"type": "string", "maxLength": 50},
-    "age": {"type": "integer", "minimum": 0, "maximum": 120}
-  },
-  "required": ["name", "age"]
+  "type": "tuple",
+  "elements": [
+    {"type": "string", "max_size": 50},
+    {"type": "integer", "minimum": 0, "maximum": 120}
+  ]
 }
 ```
 
-**Note:** Server adds `"additionalProperties": false` automatically.
+Then convert the tuple `[name, age]` back to an object `{name: ..., age: ...}`.
+
+**Option 2: Compositional fallback**
+
+When schemas aren't composable, generate each field separately within a labeled group.
+
+**Note:** The Rust derive macro generates `type: "object"` schemas with `properties` and `required` fields. This format is planned for future parser support.
 
 ---
 
@@ -492,14 +514,16 @@ This means 1-10 codepoints. If your language counts bytes by default (e.g., C), 
 
 ## Error Handling
 
-### The reject() Function
+### The assume() Function
 
-Every SDK must implement `reject(message)`:
+Every SDK must implement `assume(condition)`:
 
 ```
-reject(message: string) -> never
-├── Standalone mode: print to stderr, exit with HEGEL_REJECT_CODE
-└── Embedded mode: throw exception / panic with special marker
+assume(condition: bool) -> void
+├── If condition is true: returns normally
+├── If condition is false:
+│   ├── External mode: exit with HEGEL_REJECT_CODE
+│   └── Embedded mode: throw exception / panic with special marker
 ```
 
 **Purpose:** Signal that the current test case is invalid (not a failure). Hegel will try different inputs.
@@ -515,9 +539,9 @@ reject(message: string) -> never
 |------------|--------|
 | Socket connection failure | Exit with SOCKET_ERROR (134) |
 | Socket I/O error | Exit with SOCKET_ERROR (134) |
-| JSON parse error | `reject()` |
-| Server returns error | `reject()` with server message |
-| Filter exhaustion | `reject()` |
+| JSON parse error | `assume(false)` |
+| Server returns error | `assume(false)` |
+| Filter exhaustion | `assume(false)` |
 | Test assertion failure | Exit with code 1 |
 
 ### Filter Implementation
@@ -529,7 +553,8 @@ def filter(self, predicate, max_attempts=3):
             value = self.generate()
             if predicate(value):
                 return value
-        reject(f"Filter failed after {max_attempts} attempts")
+        assume(False)
+
     return Generator(generate)
 ```
 
@@ -548,43 +573,44 @@ fn generate(&self) -> T {
             return value;
         }
     }
-    reject("Filter failed");
+    assume(false);
+    unreachable!()
 }
 ```
 
 ### Embedded Mode Exceptions
 
-When running embedded (SDK provides the Hegel server), rejection uses exceptions:
+When running embedded (SDK provides the Hegel server), assume(false) uses exceptions:
 
 ```cpp
 // C++
 class HegelReject : public std::exception {
-    std::string message_;
 public:
-    explicit HegelReject(const std::string& msg);
-    const char* what() const noexcept override;
+    const char* what() const noexcept override { return "assume failed"; }
 };
 
-void reject(const std::string& message) {
-    if (current_mode == Mode::Embedded) {
-        throw HegelReject(message);
-    } else {
-        std::cerr << message << "\n";
-        std::exit(get_reject_code());
+void assume(bool condition) {
+    if (!condition) {
+        if (current_mode == Mode::Embedded) {
+            throw HegelReject();
+        } else {
+            std::exit(get_reject_code());
+        }
     }
 }
 ```
 
 ```rust
-// Rust - use panic with special prefix
-const REJECT_PREFIX: &str = "HEGEL_REJECT: ";
+// Rust - use panic with special marker
+const REJECT_MARKER: &str = "HEGEL_REJECT";
 
-pub fn reject(message: &str) -> ! {
-    match current_mode() {
-        HegelMode::Embedded => panic!("{}{}", REJECT_PREFIX, message),
-        HegelMode::Standalone => {
-            eprintln!("REJECT: {}", message);
-            std::process::exit(get_reject_code());
+pub fn assume(condition: bool) {
+    if !condition {
+        match current_mode() {
+            HegelMode::Embedded => panic!("{}", REJECT_MARKER),
+            HegelMode::External => {
+                std::process::exit(get_reject_code());
+            }
         }
     }
 }
@@ -662,7 +688,7 @@ fn test_sorting() {
 - [ ] Socket connection management (thread-local)
 - [ ] Request/response JSON serialization
 - [ ] Request ID counter (atomic)
-- [ ] `reject()` function
+- [ ] `assume()` function
 - [ ] Environment variable reading (`HEGEL_SOCKET`, `HEGEL_REJECT_CODE`)
 - [ ] Basic `Generator<T>` type with `generate()` and `schema()`
 
@@ -674,6 +700,7 @@ fn test_sorting() {
 - [ ] `integers()` with min/max
 - [ ] `floats()` with min/max and exclusions
 - [ ] `text()` with length bounds
+- [ ] `binary()` with min/max size (base64 decoding)
 - [ ] `from_regex(pattern)` with auto-anchoring
 
 ### Phase 3: Format Strings
@@ -716,8 +743,8 @@ fn test_sorting() {
 
 ### Phase 7: Embedded Mode (Optional)
 
-- [ ] Mode detection (standalone vs embedded)
-- [ ] Exception-based rejection
+- [ ] Mode detection (external vs embedded)
+- [ ] Exception-based assume(false) handling
 - [ ] Provided file descriptor support
 - [ ] Test runner integration
 
@@ -740,22 +767,6 @@ fn test_sorting() {
 - [ ] Add the recipe to the main `test` recipe in `Justfile`
 - [ ] Update `clean` recipe in `Justfile` to remove SDK build artifacts
 - [ ] Verify `just test` passes with the new SDK
-
-**Example Justfile recipe:**
-```just
-# Internal: Run <Language> SDK property tests
-_<language>-sdk-tests:
-    #!/usr/bin/env bash
-    set -e
-    echo ""
-    echo "=== <Language> SDK Property Tests ==="
-    SDK_DIR="{{justfile_directory()}}/sdks/<language>"
-    cd "$SDK_DIR"
-    # Build if needed
-    <build commands>
-    # Run the workout through hegel
-    uv run hegel --no-tui "<test binary or command>"
-```
 
 ---
 

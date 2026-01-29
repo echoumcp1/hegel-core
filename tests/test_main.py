@@ -2,8 +2,16 @@ import subprocess
 from pathlib import Path
 
 from conftest import CppTestBinaries
-from hegel.__main__ import cached_from_schema, CACHE_SIZE, FROM_SCHEMA_CACHE
+from hypothesis import Verbosity
+from hypothesis.internal.conjecture.engine import ConjectureRunner
 
+from hegel.__main__ import (
+    CACHE_SIZE,
+    FROM_SCHEMA_CACHE,
+    cached_from_schema,
+    make_settings,
+    make_test_function,
+)
 
 UNKNOWN_COMMAND_SCRIPT = """
 #!/usr/bin/env python
@@ -72,7 +80,7 @@ def test_will_run_a_script_to_completion(cpp_binaries: CppTestBinaries):
     result = subprocess.run(
         ["hegel", "--no-tui", cpp_binaries.hfear],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     assert result.stdout.strip() == "Oh no, an h!"
     # The observe() call prints "s: <value>" where value contains 'h'
@@ -85,7 +93,7 @@ def test_will_read_spec_from_stdin(cpp_binaries: CppTestBinaries):
     result = subprocess.run(
         ["hegel", "--no-tui", cpp_binaries.const42],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     assert result.returncode == 0
 
@@ -94,14 +102,14 @@ def test_will_run_a_multi_part_command(cpp_binaries: CppTestBinaries):
     result = subprocess.run(
         ["hegel", "--no-tui", f"bash -c '{cpp_binaries.const42}'"],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     assert result.returncode == 0
 
 
 def test_will_fail_on_a_non_existent_command():
     result = subprocess.run(
-        ["hegel", "--no-tui", "fwofa"], capture_output=True, universal_newlines=True
+        ["hegel", "--no-tui", "fwofa"], capture_output=True, text=True
     )
     assert result.returncode != 0
     # The argument is now optional (for --client-mode), so it shows as '[TEST]'
@@ -109,9 +117,7 @@ def test_will_fail_on_a_non_existent_command():
 
 
 def test_will_fail_on_empty_command():
-    result = subprocess.run(
-        ["hegel", "--no-tui", ""], capture_output=True, universal_newlines=True
-    )
+    result = subprocess.run(["hegel", "--no-tui", ""], capture_output=True, text=True)
     assert result.returncode != 0
     assert "command cannot be empty" in result.stderr
 
@@ -120,7 +126,7 @@ def test_handles_rejected_test_cases(cpp_binaries: CppTestBinaries):
     result = subprocess.run(
         ["hegel", "--no-tui", "--test-cases", "100", cpp_binaries.reject],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     # Should complete without finding a failure (all rejected)
     assert result.returncode == 0
@@ -132,7 +138,7 @@ def test_can_run_command_via_path_lookup(cpp_binaries: CppTestBinaries):
     result = subprocess.run(
         ["hegel", "--no-tui", f"env {cpp_binaries.const42}"],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     assert result.returncode == 0
 
@@ -146,7 +152,7 @@ def test_unknown_command_error(tmp_path: Path):
     result = subprocess.run(
         ["hegel", "--no-tui", "--test-cases", "1", f"python {script}"],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     # Should fail because the client sends an unknown command
     assert result.returncode != 0
@@ -162,30 +168,33 @@ def test_span_commands(tmp_path: Path):
     result = subprocess.run(
         ["hegel", "--no-tui", "--test-cases", "1", f"python {script}"],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     # Just verify it runs successfully - span commands are handled without error
     assert result.returncode == 0
 
 
-def test_debug_flag_shows_output(cpp_binaries: CppTestBinaries):
-    """Test that --debug flag causes output to be shown."""
+def test_debug_verbosity_shows_output(cpp_binaries: CppTestBinaries):
+    """Test that --verbosity debug causes output to be shown."""
     result = subprocess.run(
-        ["hegel", "--no-tui", "--debug", "--test-cases", "1", cpp_binaries.const42],
+        [
+            "hegel",
+            "--no-tui",
+            "--verbosity",
+            "debug",
+            "--test-cases",
+            "1",
+            cpp_binaries.const42,
+        ],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
-    # Debug mode should complete successfully
+    # Debug verbosity should complete successfully
     assert result.returncode == 0
 
 
 def test_on_result_callback_is_called(cpp_binaries: CppTestBinaries):
     """Test that on_result callback is invoked when provided."""
-    from hypothesis.internal.conjecture.engine import ConjectureRunner
-    from hypothesis import Verbosity
-
-    from hegel.__main__ import make_test_function, make_settings
-
     results_received = []
 
     def capture_result(result):

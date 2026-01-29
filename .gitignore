@@ -6,3 +6,6 @@ __pycache__/
 .vscode/
 .venv/
 result
+*.egg-info
+.claude/settings.local.json
+build/

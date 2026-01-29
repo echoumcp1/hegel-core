@@ -57,7 +57,7 @@ def run_simple_test_server(socket_path: str, responses: list[tuple[str, Any]]):
             conn.sendall((json.dumps(result_msg) + "\n").encode())
 
             conn.close()
-        except socket.timeout:
+        except TimeoutError:
             break
 
     server.close()
@@ -84,7 +84,7 @@ def test_client_mode_connects_and_handshakes():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -151,7 +151,7 @@ def test_client_mode_handles_test_failure():
                     # Stop after handling the final replay connection
                     if is_last_run:
                         break
-                except socket.timeout:
+                except TimeoutError:
                     break
 
             server.close()
@@ -166,7 +166,7 @@ def test_client_mode_handles_test_failure():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=30,
         )
 
@@ -204,7 +204,7 @@ def test_client_mode_handles_rejection():
                 conn.sendall(b'{"type": "handshake_ack"}\n')
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass  # Expected if hegel finishes early
 
             server.close()
@@ -219,7 +219,7 @@ def test_client_mode_handles_rejection():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "2", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -234,7 +234,7 @@ def test_client_mode_requires_socket_path():
     result = subprocess.run(
         ["hegel", "--no-tui"],
         capture_output=True,
-        universal_newlines=True,
+        text=True,
     )
     assert result.returncode != 0
     assert "Either TEST argument or --client-mode is required" in result.stderr
@@ -281,7 +281,7 @@ def test_client_mode_handles_span_commands():
                 # Send pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -296,7 +296,7 @@ def test_client_mode_handles_span_commands():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -304,8 +304,8 @@ def test_client_mode_handles_span_commands():
         assert result.returncode == 0
 
 
-def test_client_mode_with_debug():
-    """Test that client mode works with --debug flag."""
+def test_client_mode_with_debug_verbosity():
+    """Test that client mode works with --verbosity debug."""
     with tempfile.TemporaryDirectory() as tmpdir:
         socket_path = os.path.join(tmpdir, "test.sock")
 
@@ -327,16 +327,17 @@ def test_client_mode_with_debug():
                 "--test-cases",
                 "1",
                 "--no-tui",
-                "--debug",
+                "--verbosity",
+                "debug",
             ],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
         server_thread.join(timeout=5)
         assert result.returncode == 0
-        # Debug mode should show handshake message
+        # Debug verbosity should show handshake message
         assert "Handshake complete" in result.stderr
 
 
@@ -363,7 +364,7 @@ def test_client_mode_handles_invalid_json():
                 # Then send valid pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -378,7 +379,7 @@ def test_client_mode_handles_invalid_json():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -401,7 +402,7 @@ def test_client_mode_handles_connection_error():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -440,7 +441,7 @@ def test_client_mode_handles_unknown_command():
                 # Send pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -455,7 +456,7 @@ def test_client_mode_handles_unknown_command():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -480,7 +481,7 @@ def test_client_mode_handles_no_handshake_ack():
                 reader.readline()
                 # Close connection without sending handshake_ack
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -495,7 +496,7 @@ def test_client_mode_handles_no_handshake_ack():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -522,7 +523,7 @@ def test_client_mode_handles_invalid_handshake_ack():
                 # Send invalid JSON as handshake_ack
                 conn.sendall(b"not valid json\n")
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -537,7 +538,7 @@ def test_client_mode_handles_invalid_handshake_ack():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -565,7 +566,7 @@ def test_client_mode_handles_connection_closed_during_requests():
 
                 # Close connection unexpectedly without sending test_result
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -580,7 +581,7 @@ def test_client_mode_handles_connection_closed_during_requests():
         result = subprocess.run(
             ["hegel", "--client-mode", socket_path, "--test-cases", "1", "--no-tui"],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
@@ -607,7 +608,7 @@ def test_client_mode_handles_hypothesis_stoptest():
 
             # We need to make many generate requests in a single test case
             # to trigger hypothesis's internal data exhaustion (StopTest)
-            for conn_num in range(100):
+            for _ in range(100):
                 try:
                     conn, _ = server.accept()
                     conn.settimeout(10.0)
@@ -626,20 +627,19 @@ def test_client_mode_handles_hypothesis_stoptest():
 
                     # Make many generate requests in one test case
                     # to exhaust hypothesis's data buffer.
-                    # Request very large arrays to quickly use up the buffer.
-                    request_id = 0
+                    # Request very large lists to quickly use up the buffer.
                     got_reject = False
-                    for i in range(500):  # Many requests to trigger StopTest
-                        request_id += 1
-                        # Request large arrays that use more of hypothesis's buffer
+                    # Many requests to trigger StopTest
+                    for request_id in range(1, 501):
+                        # Request large lists that use more of hypothesis's buffer
                         request = {
                             "id": request_id,
                             "command": "generate",
                             "payload": {
-                                "type": "array",
-                                "items": {"type": "integer"},
-                                "minItems": 50,
-                                "maxItems": 100,
+                                "type": "list",
+                                "elements": {"type": "integer"},
+                                "min_size": 50,
+                                "max_size": 100,
                             },
                         }
                         conn.sendall((json.dumps(request) + "\n").encode())
@@ -664,7 +664,7 @@ def test_client_mode_handles_hypothesis_stoptest():
                     # Send test result
                     conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                     conn.close()
-                except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                except (TimeoutError, ConnectionResetError, BrokenPipeError):
                     break
 
             server.close()
@@ -676,7 +676,7 @@ def test_client_mode_handles_hypothesis_stoptest():
 
         time.sleep(0.1)
 
-        # Run with debug to see reject responses
+        # Run with debug verbosity to see reject responses
         result = subprocess.run(
             [
                 "hegel",
@@ -685,10 +685,11 @@ def test_client_mode_handles_hypothesis_stoptest():
                 "--test-cases",
                 "100",
                 "--no-tui",
-                "--debug",
+                "--verbosity",
+                "debug",
             ],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=60,
         )
 
@@ -699,8 +700,8 @@ def test_client_mode_handles_hypothesis_stoptest():
         assert len(reject_seen) > 0 or "reject" in result.stderr
 
 
-def test_client_mode_handles_hypothesis_stoptest_without_debug():
-    """Test StopTest handling without debug flag (for branch coverage)."""
+def test_client_mode_handles_hypothesis_stoptest_without_debug_verbosity():
+    """Test StopTest handling without debug verbosity (for branch coverage)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         socket_path = os.path.join(tmpdir, "test.sock")
 
@@ -710,7 +711,7 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug():
             server = create_server_socket(socket_path)
             server.settimeout(15.0)
 
-            for conn_num in range(100):
+            for _ in range(100):
                 try:
                     conn, _ = server.accept()
                     conn.settimeout(10.0)
@@ -723,18 +724,16 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug():
                     json.loads(handshake_line.decode())
                     conn.sendall(b'{"type": "handshake_ack"}\n')
 
-                    request_id = 0
                     got_reject = False
-                    for i in range(500):
-                        request_id += 1
+                    for request_id in range(1, 501):
                         request = {
                             "id": request_id,
                             "command": "generate",
                             "payload": {
-                                "type": "array",
-                                "items": {"type": "integer"},
-                                "minItems": 50,
-                                "maxItems": 100,
+                                "type": "list",
+                                "elements": {"type": "integer"},
+                                "min_size": 50,
+                                "max_size": 100,
                             },
                         }
                         conn.sendall((json.dumps(request) + "\n").encode())
@@ -755,7 +754,7 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug():
 
                     conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                     conn.close()
-                except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                except (TimeoutError, ConnectionResetError, BrokenPipeError):
                     break
 
             server.close()
@@ -778,7 +777,7 @@ def test_client_mode_handles_hypothesis_stoptest_without_debug():
                 "--no-tui",
             ],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=60,
         )
 
@@ -822,7 +821,7 @@ def test_client_mode_handles_unknown_command_with_debug():
                 # Send pass result
                 conn.sendall(b'{"type": "test_result", "result": "pass"}\n')
                 conn.close()
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             server.close()
@@ -842,14 +841,15 @@ def test_client_mode_handles_unknown_command_with_debug():
                 "--test-cases",
                 "1",
                 "--no-tui",
-                "--debug",
+                "--verbosity",
+                "debug",
             ],
             capture_output=True,
-            universal_newlines=True,
+            text=True,
             timeout=10,
         )
 
         server_thread.join(timeout=5)
         assert result.returncode == 0
-        # Debug mode should print the error response
+        # Debug verbosity should print the error response
         assert "Unknown command" in result.stderr

@@ -1,14 +1,41 @@
 import json
+import math
 import os
 import random
 import signal
 import socket
 import subprocess
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from tempfile import TemporaryDirectory
 from time import sleep, time
-from typing import Any, Callable
+from typing import Any
+
+
+def convert_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: convert_json(v) for k, v in value.items()}
+    elif isinstance(value, float):
+        if value == math.inf:
+            return {"$float": "inf"}
+        elif value == -math.inf:
+            return {"$float": "-inf"}
+        elif math.isnan(value):
+            return {"$float": "nan"}
+        return value
+    elif isinstance(value, int) and not isinstance(value, bool) and abs(value) >= 2**63:
+        return {"$integer": str(value)}
+    elif isinstance(value, list):
+        return [convert_json(item) for item in value]
+    return value
+
+
+class HegelEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, (set, frozenset)):
+            return list(obj)
+        return super().default(obj)
 
 
 def signal_group(sp: subprocess.Popen, signal: int) -> None:
@@ -65,10 +92,10 @@ class Result:
 def run_with_callback(
     command: list[str],
     *,
-    timeout=300,
-    capture_output=True,
+    timeout: float = 300,
+    capture_output: bool = True,
     on_stdout_file: Callable[[str], None] | None = None,
-):
+) -> Callable[[Callable[[Any, Any], Any]], Result]:
     """Run a command with a callback mechanism via Unix socket.
 
     Args:
@@ -78,7 +105,7 @@ def run_with_callback(
         on_stdout_file: Callback invoked with the stdout file path when it's created
     """
 
-    def accept(callback_function: Callable[[Any], Any]):
+    def accept(callback_function: Callable[[Any, Any], Any]) -> Result:
         with TemporaryDirectory() as d:
             socket_path = os.path.join(d, f"callback.{callback_function.__name__}.sock")
             cwd = os.path.join(d, "cwd")
@@ -113,19 +140,18 @@ def run_with_callback(
                     env=env,
                     cwd=cwd,
                     universal_newlines=False,
-                    preexec_fn=os.setsid,
+                    start_new_session=True,
                 )
-                if capture_output:
+                if out is not None:
                     out.close()
                 start = time()
                 while time() <= start + timeout:
                     try:
                         conn, _ = server_socket.accept()
-                    except socket.timeout:
+                    except TimeoutError:
                         if sp.poll() is not None:
                             break
-                        else:
-                            continue
+                        continue
 
                     # Handle multiple requests on this connection until client closes
                     conn.settimeout(0.1)
@@ -142,9 +168,9 @@ def run_with_callback(
                             except json.JSONDecodeError as e:
                                 response = {"id": None, "error": f"Invalid JSON: {e}"}
                                 conn.sendall(
-                                    json.dumps(response, ensure_ascii=True).encode(
-                                        "utf-8"
-                                    )
+                                    json.dumps(
+                                        response, ensure_ascii=True, cls=HegelEncoder
+                                    ).encode("utf-8")
                                     + b"\n"
                                 )
                                 continue
@@ -155,11 +181,10 @@ def run_with_callback(
                             payload = request.get("payload")
 
                             try:
+                                result = callback_function(request_command, payload)
                                 response = {
                                     "id": request_id,
-                                    "result": callback_function(
-                                        request_command, payload
-                                    ),
+                                    "result": convert_json(result),
                                 }
                             except Exception:
                                 response = {
@@ -168,7 +193,11 @@ def run_with_callback(
                                 }
 
                             conn.sendall(
-                                json.dumps(response, ensure_ascii=True).encode("utf-8")
+                                json.dumps(
+                                    response,
+                                    ensure_ascii=True,
+                                    cls=HegelEncoder,
+                                ).encode("utf-8")
                                 + b"\n"
                             )
 
@@ -184,15 +213,17 @@ def run_with_callback(
                                         "error": "Invalid JSON: incomplete request (no newline)",
                                     }
                                     conn.sendall(
-                                        json.dumps(response, ensure_ascii=True).encode(
-                                            "utf-8"
-                                        )
+                                        json.dumps(
+                                            response,
+                                            ensure_ascii=True,
+                                            cls=HegelEncoder,
+                                        ).encode("utf-8")
                                         + b"\n"
                                     )
                                 connection_open = False
                             else:
                                 buffer.extend(chunk)
-                        except socket.timeout:
+                        except TimeoutError:
                             # No data available, check if subprocess exited.
                             # This is a race condition: we only reach here if recv() times out
                             # (socket still open, no data) AND the subprocess has exited.
@@ -214,10 +245,11 @@ def run_with_callback(
                 server_socket.close()
 
             if capture_output:
-                with open(stdout_path) as out:
+                assert stdout_path is not None
+                with open(stdout_path) as f:
                     return Result(
                         exit_code=sp.returncode,
-                        output=out.read(),
+                        output=f.read(),
                     )
             else:
                 return Result(exit_code=sp.returncode, output=None)

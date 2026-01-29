@@ -1,86 +1,30 @@
+import hashlib
 import json
 import os
+import shlex
 import socket
 import sys
+import threading
 import time
-import click
-from dataclasses import dataclass
-from typing import Any, Callable
-import shlex
-from shutil import which
-import hashlib
 from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass
+from shutil import which
+from typing import Any
 
-from hypothesis import settings, Verbosity
+import click
+from hypothesis import Verbosity, settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.conjecture.data import ConjectureData
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
-from hypothesis_jsonschema import from_schema
 
-from hegel.runner import run_with_callback
-
+from hegel.parser import from_schema
+from hegel.runner import HegelEncoder, convert_json, run_with_callback
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
-
-
-def add_additional_properties_false(schema: dict) -> dict:
-    """Recursively add additionalProperties: false to object schemas.
-
-    This prevents hegel from generating unexpected fields in objects,
-    ensuring generated data matches the expected structure exactly.
-    """
-    if not isinstance(schema, dict):
-        return schema
-
-    # Add additionalProperties: false to object types
-    if schema.get("type") == "object" and "additionalProperties" not in schema:
-        schema["additionalProperties"] = False
-
-    # Recurse into properties
-    if "properties" in schema and isinstance(schema["properties"], dict):
-        for value in schema["properties"].values():
-            add_additional_properties_false(value)
-
-    # Recurse into definitions
-    for key in ("$defs", "definitions"):
-        if key in schema and isinstance(schema[key], dict):
-            for value in schema[key].values():
-                add_additional_properties_false(value)
-
-    # Recurse into items (arrays)
-    if "items" in schema:
-        if isinstance(schema["items"], dict):
-            add_additional_properties_false(schema["items"])
-        elif isinstance(schema["items"], list):
-            for item in schema["items"]:
-                add_additional_properties_false(item)
-
-    # Recurse into prefixItems (tuple schemas)
-    if "prefixItems" in schema and isinstance(schema["prefixItems"], list):
-        for item in schema["prefixItems"]:
-            add_additional_properties_false(item)
-
-    # Recurse into allOf, anyOf, oneOf
-    for key in ("allOf", "anyOf", "oneOf"):
-        if key in schema and isinstance(schema[key], list):
-            for subschema in schema[key]:
-                add_additional_properties_false(subschema)
-
-    # Recurse into if/then/else/not conditionals
-    for key in ("if", "then", "else", "not"):
-        if key in schema and isinstance(schema[key], dict):
-            add_additional_properties_false(schema[key])
-
-    # Recurse into additionalProperties if it's a schema
-    if "additionalProperties" in schema and isinstance(
-        schema["additionalProperties"], dict
-    ):
-        add_additional_properties_false(schema["additionalProperties"])
-
-    return schema
 
 
 def validate_command(ctx: Any, param: Any, value: str | None) -> list[str] | None:
@@ -112,7 +56,7 @@ def make_settings(test_cases: int, verbosity: Verbosity) -> settings:
     )
 
 
-FROM_SCHEMA_CACHE = OrderedDict()
+FROM_SCHEMA_CACHE: dict[bytes, Any] = OrderedDict()
 CACHE_SIZE = 1024
 
 
@@ -133,17 +77,17 @@ def cached_from_schema(schema):
 def make_test_function(
     test: list[str],
     rejected: int,
+    *,
     on_result: Callable[[Any], None] | None = None,
-    capture_output=True,
+    capture_output: bool = True,
     on_stdout_file: Callable[[str], None] | None = None,
 ) -> Callable[[ConjectureData], None]:
-    def test_function(data: ConjectureData):
-        with BuildContext(data, is_final=False, wrapped_test=None):
+    def test_function(data: ConjectureData) -> None:
+        with BuildContext(data, is_final=False, wrapped_test=None):  # type: ignore
 
             def handle_command(command: str, payload: Any) -> Any:
                 if command == "generate":
-                    schema = add_additional_properties_false(payload)
-                    return data.draw(cached_from_schema(schema))
+                    return data.draw(cached_from_schema(payload))
                 elif command == "start_span":
                     label = payload.get("label", 0)
                     data.start_span(label)
@@ -168,7 +112,7 @@ def make_test_function(
                 if result.exit_code == rejected:
                     data.mark_invalid()
                 else:
-                    data.mark_interesting(result.exit_code)
+                    data.mark_interesting(result.exit_code)  # type: ignore
 
     return test_function
 
@@ -180,7 +124,7 @@ class HegelData:
 
 
 def replay_failure(
-    test: list[str], rejected: int, runner: ConjectureRunner, choices
+    test: list[str], rejected: int, runner: ConjectureRunner, choices: Any
 ) -> int:
     test_function = make_test_function(test, rejected, capture_output=False)
     final_data = runner.new_conjecture_data(choices)
@@ -195,9 +139,8 @@ def replay_failure(
 
 def run_client_mode(
     socket_path: str,
-    rejected: int,
     test_cases: int,
-    debug: bool,
+    verbosity: Verbosity,
 ) -> None:
     """Run hegel as a client, connecting to an SDK's server socket.
 
@@ -215,15 +158,15 @@ def run_client_mode(
     db_key = b"client_mode"
 
     def make_client_test_function(
+        *,
         is_final_run: bool = False,
     ) -> Callable[[ConjectureData], None]:
         def test_function(data: ConjectureData) -> None:
-            with BuildContext(data, is_final=is_final_run, wrapped_test=None):
+            with BuildContext(data, is_final=is_final_run, wrapped_test=None):  # type: ignore
 
                 def handle_command(command: str, payload: Any) -> Any:
                     if command == "generate":
-                        schema = add_additional_properties_false(payload)
-                        return data.draw(cached_from_schema(schema))
+                        return data.draw(cached_from_schema(payload))
                     elif command == "start_span":
                         label = payload.get("label", 0)
                         data.start_span(label)
@@ -264,7 +207,7 @@ def run_client_mode(
                         print("Invalid handshake_ack", file=sys.stderr)
                         data.mark_invalid()
 
-                    if debug:
+                    if verbosity == Verbosity.debug:
                         print(f"Handshake complete: {ack}", file=sys.stderr)
 
                     while True:
@@ -278,7 +221,7 @@ def run_client_mode(
                             # Skip invalid JSON lines and continue reading
                             continue
 
-                        if debug:
+                        if verbosity == Verbosity.debug:
                             print(f"REQUEST: {request}", file=sys.stderr)
 
                         # Check for test_result message (end of test)
@@ -287,10 +230,7 @@ def run_client_mode(
                             if result == "reject":
                                 data.mark_invalid()
                             elif result == "fail":
-                                message = request.get("message", "Test failed")
-                                if is_final_run:
-                                    print(f"Test failed: {message}", file=sys.stderr)
-                                data.mark_interesting(1)
+                                data.mark_interesting(1)  # type: ignore
                             # result == "pass" means test passed, nothing to do
                             break
 
@@ -301,13 +241,15 @@ def run_client_mode(
 
                         try:
                             result = handle_command(command, payload)
-                            response = {"id": request_id, "result": result}
+                            response = {"id": request_id, "result": convert_json(result)}
                         except ValueError as e:
                             # Unknown command - send error response
                             response = {"id": request_id, "error": str(e)}
-                            if debug:  # pragma: no branch
+                            if verbosity == Verbosity.debug:  # pragma: no branch
                                 print(f"RESPONSE: {response}", file=sys.stderr)
-                            sock.sendall((json.dumps(response) + "\n").encode())
+                            sock.sendall(
+                                (json.dumps(response, cls=HegelEncoder) + "\n").encode()
+                            )
                             continue
                         except (StopTest, UnsatisfiedAssumption):
                             # StopTest means hypothesis wants to stop this test case
@@ -318,15 +260,24 @@ def run_client_mode(
                                 "reject": True,
                                 "reason": "Test case stopped by hypothesis",
                             }
-                            if debug:
+                            if verbosity == Verbosity.debug:
                                 print(f"RESPONSE: {reject_response}", file=sys.stderr)
-                            sock.sendall((json.dumps(reject_response) + "\n").encode())
+                            sock.sendall(
+                                (
+                                    json.dumps(reject_response, cls=HegelEncoder) + "\n"
+                                ).encode()
+                            )
                             raise
 
-                        if debug:
+                        if verbosity == Verbosity.debug:
                             print(f"RESPONSE: {response}", file=sys.stderr)
 
-                        sock.sendall((json.dumps(response) + "\n").encode())
+                        sock.sendall(
+                            (
+                                json.dumps(response, cls=HegelEncoder)
+                                + "\n"
+                            ).encode()
+                        )
 
                 finally:
                     sock.close()
@@ -337,10 +288,7 @@ def run_client_mode(
 
     runner = ConjectureRunner(
         test_function,
-        settings=make_settings(
-            test_cases,
-            Verbosity.verbose if debug else Verbosity.normal,
-        ),
+        settings=make_settings(test_cases, verbosity),
         database_key=db_key,
     )
     runner.run()
@@ -363,7 +311,12 @@ def run_client_mode(
 @click.command()
 @click.argument("test", callback=validate_command, required=False)
 @click.option("--rejected", default=137)
-@click.option("--debug/--no-debug", default=False)
+@click.option(
+    "--verbosity",
+    type=click.Choice(["quiet", "normal", "verbose", "debug"]),
+    default="normal",
+    help="Verbosity level: quiet, normal, verbose, or debug",
+)
 @click.option("--test-cases", default=1000)
 @click.option("--tui/--no-tui", default=True, help="Run with terminal UI")
 @click.option(
@@ -371,34 +324,37 @@ def run_client_mode(
     default=None,
     help="Connect to this socket path as client (embedded mode)",
 )
-def main(test, rejected, debug, test_cases, tui, client_mode):
+def main(test, rejected, verbosity, test_cases, tui, client_mode):
     os.environ["HEGEL_REJECT_CODE"] = str(rejected)
-    if debug:
+    if verbosity == "debug":
         os.environ["HEGEL_DEBUG"] = "true"
+
+    hypothesis_verbosity = Verbosity(verbosity)
 
     if client_mode:
         # Run in client mode - connect to an SDK's server socket
-        run_client_mode(client_mode, rejected, test_cases, debug)
+        run_client_mode(client_mode, test_cases, hypothesis_verbosity)
     elif test:
         # Run in normal mode - spawn test binary as subprocess
         db_key = json.dumps(test).encode("utf-8")
         if tui:
             _run_with_tui(test, rejected, test_cases, db_key)
         else:
-            _run_without_tui(test, rejected, debug, test_cases, db_key)
+            _run_without_tui(test, rejected, hypothesis_verbosity, test_cases, db_key)
     else:
         raise click.UsageError("Either TEST argument or --client-mode is required")
 
 
-def _run_without_tui(test, rejected, debug, test_cases, db_key):
-    test_function = make_test_function(test, rejected, capture_output=not debug)
+def _run_without_tui(
+    test: list[str], rejected: int, verbosity: Verbosity, test_cases: int, db_key: bytes
+) -> None:
+    # Show output immediately for verbose/debug, capture for quiet/normal
+    capture_output = verbosity in (Verbosity.quiet, Verbosity.normal)
+    test_function = make_test_function(test, rejected, capture_output=capture_output)
 
     runner = ConjectureRunner(
         test_function,
-        settings=make_settings(
-            test_cases,
-            Verbosity.verbose if debug else Verbosity.normal,
-        ),
+        settings=make_settings(test_cases, verbosity),
         database_key=db_key,
     )
     runner.run()
@@ -412,8 +368,6 @@ def _run_without_tui(test, rejected, debug, test_cases, db_key):
 
 
 def _run_with_tui(test, rejected, test_cases, db_key):
-    import threading
-
     from hegel.tui import HegelApp, Stats
 
     exit_code = [0]
@@ -432,8 +386,8 @@ def _run_with_tui(test, rejected, test_cases, db_key):
         "running": True,  # Whether tests are still running
     }
 
-    def run_tests(app: HegelApp):
-        def on_stdout_file(path):
+    def run_tests(app: HegelApp) -> None:
+        def on_stdout_file(path: str) -> None:
             """Called by runner when stdout file is created."""
             stdout_file_ref[0] = path
 
@@ -464,9 +418,9 @@ def _run_with_tui(test, rejected, test_cases, db_key):
 
         old_test_function = runner.test_function
 
-        def test_function(data):
+        def wrapped_test_function(data: ConjectureData) -> None:
             try:
-                return old_test_function(data)
+                old_test_function(data)
             finally:
                 app.update_stats(
                     Stats(
@@ -478,7 +432,7 @@ def _run_with_tui(test, rejected, test_cases, db_key):
                     )
                 )
 
-        runner.test_function = test_function
+        runner.test_function = wrapped_test_function  # type: ignore
 
         app.update_stats(Stats(phase="running"))
         runner.run()
@@ -532,9 +486,9 @@ def _run_with_tui(test, rejected, test_cases, db_key):
 
             # Try to read current file content
             try:
-                with open(stdout_file, "r") as f:
+                with open(stdout_file) as f:
                     current_content = f.read()
-            except (FileNotFoundError, IOError):
+            except (FileNotFoundError, OSError):
                 current_content = ""
 
             if state["display_switched"]:

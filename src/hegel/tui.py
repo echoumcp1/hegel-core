@@ -1,8 +1,10 @@
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
+
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
+from textual.timer import Timer
 from textual.widgets import Static
 from textual.worker import Worker
 
@@ -58,8 +60,8 @@ class HegelApp(App):
         self._poll_interval = poll_interval
         self._stats = Stats()
         self._output = "Waiting for test output..."
-        self._worker: Worker | None = None
-        self._poll_timer = None
+        self._worker: Worker[None] | None = None
+        self._poll_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal():

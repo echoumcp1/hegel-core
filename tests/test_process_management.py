@@ -2,7 +2,6 @@ import signal
 import subprocess
 import sys
 
-
 from hegel.runner import interrupt_wait_and_kill
 
 
