@@ -25,6 +25,9 @@ from hegel.sdk import (
     text,
     tuples,
 )
+from concurrent.futures import ThreadPoolExecutor
+from time import time
+
 
 # =============================================================================
 # Basic Property Tests
@@ -38,6 +41,9 @@ def test_addition_is_commutative():
     b = integers().generate()
     assert a + b == b + a
 
+def test_can_run_passing_test_twice():
+    test_addition_is_commutative()
+    test_addition_is_commutative()
 
 @hegel
 def test_multiplication_distributes_over_addition():
@@ -310,3 +316,22 @@ def test_chained_combinators():
     )
     assert result % 4 == 0  # Should be divisible by 4
     assert 4 <= result <= 200
+
+ALL_SEQ_TESTS = [v for k, v in globals().items() if k.startswith('test_') and 'concurrently' not in k]
+
+def test_tests_can_be_correctly_run_concurrently():
+    def run_test(test_function):
+        start = time()
+        test_function()
+        end = time()
+        return [start, end]
+
+    executor = ThreadPoolExecutor(max_workers=len(ALL_SEQ_TESTS))
+
+    results = list(executor.map(run_test, ALL_SEQ_TESTS))
+    results.sort()
+
+    assert any(
+        v1 > u2
+        for (_, v1), (u2, _) in zip(results, results[1:])
+    )

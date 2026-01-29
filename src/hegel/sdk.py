@@ -15,6 +15,9 @@ Example usage:
 """
 
 import functools
+import atexit
+import time
+
 import os
 import shutil
 import socket
@@ -28,7 +31,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from typing import Any, TypeVar, Union, get_args, get_origin
-
+import threading
 import cbor2
 
 from hegel.protocol import (
@@ -103,13 +106,11 @@ class Client:
     """Client for connecting to a Hegel server."""
 
     def __init__(self, connection: Connection):
-        id = connection.control_channel.send_request(VERSION_NEGOTIATION_MESSAGE)
-        response = connection.control_channel.receive_response(id)
-        if response != VERSION_NEGOTIATION_OK:
-            raise ConnectionError(f"Bad handshake result {response!r}")
+        connection.send_handshake()
 
         self.connection = connection
         self._control = connection.control_channel
+        self.__lock = threading.Lock()
 
     def run_test(
         self,
@@ -118,58 +119,45 @@ class Client:
         test_cases: int = 1000,
     ) -> TestResult:
         """Run a property test."""
-        pending = self._control.request(
-            {
-                "command": "run_test",
-                "name": name,
-                "test_cases": test_cases,
-            }
-        )
 
-        # Collect exceptions from final (minimal) test runs
-        final_exceptions: list[Exception] = []
+        test_channel = self.connection.new_channel(role=f"Test")
 
+        # Channels aren't thread safe, so we've got to request starting a thread
+        # under a lock.
+        with self.__lock:
+            self._control.request(
+                {
+                    "command": "run_test",
+                    "name": name,
+                    "test_cases": test_cases,
+                    "channel": test_channel.channel_id,
+                }
+            ).get()
+
+        result_data = None
+
+        test_case_count = 0
         while True:
-            req_id, payload = self._control.receive_request()
-            message = cbor2.loads(payload)
-
+            message_id, message = test_channel.receive_request()
+            test_case_count += 1
             event = message.get("event")
 
             if event == "test_case":
                 channel_id = message["channel"]
-                is_final = message.get("is_final", False)
-
-                test_channel = self.connection.connect_channel(channel_id)
-                status, origin, exc = self._run_test_case(
-                    test_channel, test_fn, is_final
+                assert not message["is_final"]
+                test_channel.send_response_value(message_id, None)
+                test_case_channel = self.connection.connect_channel(channel_id, role=f"Test Case")
+                self._run_test_case(
+                    test_case_channel, test_fn, is_final=False
                 )
-
-                # Capture exceptions from final runs
-                if is_final and exc is not None:
-                    final_exceptions.append(exc)
-
-                # Only send mark_complete if test didn't overflow
-                # (on overflow, server already closed the channel)
-                if status != "OVERFLOW":
-                    test_channel.request(
-                        {
-                            "command": "mark_complete",
-                            "status": status,
-                            "origin": origin,
-                        }
-                    ).get()
-
-                test_channel.close()
-                self._control.send_response(req_id, cbor2.dumps({"result": None}))
-
             elif event == "test_done":
-                self._control.send_response(req_id, cbor2.dumps({"result": None}))
+                test_channel.send_response_value(message_id, True)
+                result_data = message["results"]
                 break
-
             else:
-                self._control.send_response(req_id, cbor2.dumps({"result": None}))
+                test_channel.send_response_raw(message_id, cbor2.dumps({"error": f"Unrecognised event {event}", "type": "InvalidMessage"}))
 
-        result_data = pending.get()
+        assert result_data is not None
 
         return TestResult(
             passed=result_data.get("passed", True),
@@ -177,7 +165,6 @@ class Client:
             valid_examples=result_data.get("valid_examples", 0),
             invalid_examples=result_data.get("invalid_examples", 0),
             failure=result_data.get("failure"),
-            exceptions=final_exceptions if final_exceptions else None,
         )
 
     def _run_test_case(
@@ -185,38 +172,37 @@ class Client:
         channel: Channel,
         test_fn: Callable[[], None],
         is_final: bool,
-    ) -> tuple[str, dict | None, Exception | None]:
+    ) -> None:
         """Run a single test case.
-
-        Returns (status, origin, exception).
-        The exception is only captured for final runs to enable proper re-raising.
         """
         token_channel = _current_channel.set(channel)
         token_final = _is_final.set(is_final)
         token_aborted = _test_aborted.set(False)
-
+        already_complete = False
+        status = "VALID"
+        origin = None
         try:
             test_fn()
-            return ("VALID", None, None)
-
         except AssumeRejected:
-            return ("INVALID", None, None)
-
+            status = "INVALID"
         except DataExhausted:
-            # Server ran out of data - return OVERFLOW status
-            # (different from INVALID because server already closed channel)
-            return ("OVERFLOW", None, None)
-
+            # Server ran out of data - already marked complete server side.
+            already_complete = True
         except Exception as e:
+            status = "INTERESTING"
             tb = e.__traceback__
             origin = _extract_origin(e, tb)
-            # Return the exception for potential re-raising
-            return ("INTERESTING", origin, e)
-
         finally:
             _current_channel.reset(token_channel)
             _is_final.reset(token_final)
             _test_aborted.reset(token_aborted)
+            if not already_complete:
+                channel.send_request({
+                    "command": "mark_complete",
+                    "status": status,
+                    "origin": origin,
+                })
+            channel.close()
 
 
 def _extract_origin(exc: Exception, tb: Any) -> dict:
@@ -230,11 +216,7 @@ def _extract_origin(exc: Exception, tb: Any) -> dict:
         filename = tb.tb_frame.f_code.co_filename
         lineno = tb.tb_lineno
 
-    return {
-        "exc_type": type(exc).__name__,
-        "filename": filename,
-        "lineno": lineno,
-    }
+    return f"{type(exc).__name__} at {filename}:{lineno}"
 
 
 def _get_channel() -> Channel:
@@ -935,61 +917,62 @@ class _HegelSession:
         self._client: Client | None = None
         self._temp_dir: tempfile.TemporaryDirectory | None = None
         self._verbosity = Verbosity.NORMAL
+        self.__lock = threading.Lock()
 
     def _start(self, verbosity: Verbosity) -> None:
         """Start hegeld if not already running."""
         if self._client is not None:
             return
 
-        import atexit
-        import time
+        with self.__lock:
+            if self._client is not None:
+                return
+            self._verbosity = verbosity
+            self._temp_dir = tempfile.TemporaryDirectory(prefix="hegel-")
+            socket_path = os.path.join(self._temp_dir.name, "hegel.sock")
 
-        self._verbosity = verbosity
-        self._temp_dir = tempfile.TemporaryDirectory(prefix="hegel-")
-        socket_path = os.path.join(self._temp_dir.name, "hegel.sock")
+            hegel_cmd = _find_hegeld()
+            cmd_args = hegel_cmd.split() + [
+                socket_path,
+                "--verbosity",
+                verbosity.value,
+            ]
 
-        hegel_cmd = _find_hegeld()
-        cmd_args = hegel_cmd.split() + [
-            socket_path,
-            "--verbosity",
-            verbosity.value,
-        ]
+            if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
+                print(f"Starting hegeld: {' '.join(cmd_args)}", file=sys.stderr)
 
-        if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
-            print(f"Starting hegeld: {' '.join(cmd_args)}", file=sys.stderr)
+            # Start hegeld - it will bind to the socket and listen
+            self._process = subprocess.Popen(
+                cmd_args,
+                stdout=sys.stderr,
+                stderr=sys.stderr,
+            )
 
-        # Start hegeld - it will bind to the socket and listen
-        self._process = subprocess.Popen(
-            cmd_args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        # Wait for hegeld to create the socket and start listening
-        for _ in range(50):
-            if os.path.exists(socket_path):
-                try:
-                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    sock.connect(socket_path)
-                    self._sock = sock
-                    break
-                except (ConnectionRefusedError, FileNotFoundError):
-                    sock.close()
+            # Wait for hegeld to create the socket and start listening
+            for _ in range(50):
+                if os.path.exists(socket_path):
+                    try:
+                        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        sock.connect(socket_path)
+                        self._sock = sock
+                        break
+                    except (ConnectionRefusedError, FileNotFoundError):
+                        sock.close()
+                        time.sleep(0.1)
+                else:
                     time.sleep(0.1)
             else:
-                time.sleep(0.1)
-        else:
-            self._process.kill()
-            raise RuntimeError("Timeout waiting for hegeld to start")
+                self._process.kill()
+                raise RuntimeError("Timeout waiting for hegeld to start")
 
-        if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
-            print("Connected to hegeld", file=sys.stderr)
+            if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
+                print("Connected to hegeld", file=sys.stderr)
 
-        self._connection = Connection(self._sock, name="SDK")
-        self._client = Client(self._connection)
+            self._connection = Connection(self._sock, name="SDK")
+            self._client = Client(self._connection)
 
-        # Register cleanup on process exit
-        atexit.register(self._cleanup)
+            # Register cleanup on process exit
+            atexit.register(self._cleanup)
 
     def _cleanup(self) -> None:
         """Clean up the hegeld process."""
