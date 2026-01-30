@@ -239,7 +239,7 @@ Generator<T>
 ├── schema() -> Option<JSON>  // JSON Schema if available
 ├── map(f: T -> U) -> Generator<U>
 ├── flatmap(f: T -> Generator<U>) -> Generator<U>  // or flat_map
-├── filter(pred: T -> bool, max_attempts=3) -> Generator<T>
+├── filter(pred: T -> bool) -> Generator<T>
 └── boxed() -> BoxedGenerator<T>  // Type erasure (if needed)
 ```
 
@@ -547,9 +547,9 @@ assume(condition: bool) -> void
 ### Filter Implementation
 
 ```python
-def filter(self, predicate, max_attempts=3):
+def filter(self, predicate):
     def generate():
-        for _ in range(max_attempts):
+        for _ in range(3):
             value = self.generate()
             if predicate(value):
                 return value
@@ -561,7 +561,7 @@ def filter(self, predicate, max_attempts=3):
 With spans for proper shrinking:
 ```rust
 fn generate(&self) -> T {
-    for _ in 0..self.max_attempts {
+    for _ in 0..3 {
         if let Some(value) = discardable_group(labels::FILTER, || {
             let value = self.source.generate();
             if (self.predicate)(&value) {
@@ -730,7 +730,7 @@ fn test_sorting() {
 - [ ] `builds(type, generators...)`
 - [ ] `map(f)` on Generator
 - [ ] `flatmap(f)` / `flat_map(f)` on Generator
-- [ ] `filter(predicate, max_attempts)` on Generator
+- [ ] `filter(predicate)` on Generator
 
 ### Phase 6: Advanced Features
 
