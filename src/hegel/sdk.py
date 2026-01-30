@@ -144,28 +144,56 @@ class Client:
 
             if event == "test_case":
                 channel_id = message["channel"]
-                assert not message["is_final"]
                 test_channel.send_response_value(message_id, None)
-                test_case_channel = self.connection.connect_channel(channel_id, role=f"Test Case")
-                self._run_test_case(
-                    test_case_channel, test_fn, is_final=False
+                test_case_channel = self.connection.connect_channel(
+                    channel_id, role=f"Test Case"
                 )
+                self._run_test_case(test_case_channel, test_fn, is_final=False)
             elif event == "test_done":
                 test_channel.send_response_value(message_id, True)
                 result_data = message["results"]
                 break
             else:
-                test_channel.send_response_raw(message_id, cbor2.dumps({"error": f"Unrecognised event {event}", "type": "InvalidMessage"}))
+                test_channel.send_response_raw(
+                    message_id,
+                    cbor2.dumps(
+                        {
+                            "error": f"Unrecognised event {event}",
+                            "type": "InvalidMessage",
+                        }
+                    ),
+                )
 
         assert result_data is not None
 
-        return TestResult(
-            passed=result_data.get("passed", True),
-            examples_run=result_data.get("examples_run", 0),
-            valid_examples=result_data.get("valid_examples", 0),
-            invalid_examples=result_data.get("invalid_examples", 0),
-            failure=result_data.get("failure"),
-        )
+        n_interesting = result_data["interesting_test_cases"]
+
+        if n_interesting == 0:
+            return
+        exceptions = []
+        for i in range(n_interesting):
+            try:
+                message_id, message = test_channel.receive_request()
+                test_case_count += 1
+                assert message["event"] == "test_case"
+
+                channel_id = message["channel"]
+                test_channel.send_response_value(message_id, None)
+                test_case_channel = self.connection.connect_channel(
+                    channel_id, role=f"Test Case"
+                )
+                self._run_test_case(test_case_channel, test_fn, is_final=True)
+                if n_interesting > 1:
+                    raise AssertionError(
+                        f"Expected test case {i} to fail but it didn't"
+                    )
+                else:
+                    raise AssertionError("Expected test case to fail but it didn't")
+            except Exception as e:
+                if n_interesting == 1:
+                    raise
+                exceptions.append(e)
+        raise ExceptionGroup(exceptions)
 
     def _run_test_case(
         self,
@@ -173,8 +201,7 @@ class Client:
         test_fn: Callable[[], None],
         is_final: bool,
     ) -> None:
-        """Run a single test case.
-        """
+        """Run a single test case."""
         token_channel = _current_channel.set(channel)
         token_final = _is_final.set(is_final)
         token_aborted = _test_aborted.set(False)
@@ -188,20 +215,26 @@ class Client:
         except DataExhausted:
             # Server ran out of data - already marked complete server side.
             already_complete = True
+        except ConnectionError:
+            raise
         except Exception as e:
             status = "INTERESTING"
             tb = e.__traceback__
             origin = _extract_origin(e, tb)
+            if is_final:
+                raise
         finally:
             _current_channel.reset(token_channel)
             _is_final.reset(token_final)
             _test_aborted.reset(token_aborted)
             if not already_complete:
-                channel.send_request({
-                    "command": "mark_complete",
-                    "status": status,
-                    "origin": origin,
-                })
+                channel.send_request(
+                    {
+                        "command": "mark_complete",
+                        "status": status,
+                        "origin": origin,
+                    }
+                )
             channel.close()
 
 
@@ -919,13 +952,16 @@ class _HegelSession:
         self._verbosity = Verbosity.NORMAL
         self.__lock = threading.Lock()
 
+    def __has_working_client(self):
+        return self._client is not None and self._connection.live
+
     def _start(self, verbosity: Verbosity) -> None:
         """Start hegeld if not already running."""
-        if self._client is not None:
+        if self.__has_working_client():
             return
 
         with self.__lock:
-            if self._client is not None:
+            if self.__has_working_client():
                 return
             self._verbosity = verbosity
             self._temp_dir = tempfile.TemporaryDirectory(prefix="hegel-")
@@ -1071,29 +1107,4 @@ def run_hegel_test(
     - Re-raises the original exception if there's exactly one minimal failing case
     - Raises an ExceptionGroup if there are multiple distinct minimal failing cases
     """
-    result = _session.run_test(test_fn, test_cases, verbosity)
-
-    if not result.passed:
-        exceptions = result.exceptions or []
-
-        if len(exceptions) == 1:
-            # Single exception: re-raise it directly
-            raise exceptions[0]
-        elif len(exceptions) > 1:
-            # Multiple exceptions: group them
-            test_name = test_fn.__name__ if hasattr(test_fn, "__name__") else "test"
-            raise ExceptionGroup(
-                f"Property test '{test_name}' found {len(exceptions)} distinct failing cases",
-                exceptions,
-            )
-        else:
-            # No captured exceptions (shouldn't happen normally)
-            failure = result.failure or {}
-            exc_type = failure.get("exc_type", "AssertionError")
-            filename = failure.get("filename", "")
-            lineno = failure.get("lineno", 0)
-            raise AssertionError(
-                f"Property test failed: {exc_type} at {filename}:{lineno}"
-            )
-
-    return result
+    _session.run_test(test_fn, test_cases, verbosity)
