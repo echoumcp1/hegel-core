@@ -370,7 +370,9 @@ class DictConformance(ConformanceTest):
             # Constraint: drawn_min_key + max_size - 1 <= max_key
             max_allowed_min_key = max_key - max_size + 1
             drawn_min_key = draw(
-                st.integers(min_value=min_key, max_value=max(min_key, max_allowed_min_key))
+                st.integers(
+                    min_value=min_key, max_value=max(min_key, max_allowed_min_key)
+                )
             )
             # Ensure at least max_size distinct keys are possible
             key_range_min = drawn_min_key + max_size - 1
@@ -379,7 +381,9 @@ class DictConformance(ConformanceTest):
             )
 
             # For values, draw bounds within the allowed range
-            drawn_min_value = draw(st.integers(min_value=min_value, max_value=max_value))
+            drawn_min_value = draw(
+                st.integers(min_value=min_value, max_value=max_value)
+            )
             drawn_max_value = draw(
                 st.integers(min_value=drawn_min_value, max_value=max_value)
             )
