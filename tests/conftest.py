@@ -55,5 +55,5 @@ def cpp_binaries() -> CppTestBinaries:
     pytest.skip(
         "C++ test binaries not found. These tests require special test fixtures "
         "from hegel-cpp. Run independent tests with: pytest tests/test_client_mode.py "
-        "tests/test_process_management.py tests/test_schema_processing.py"
+        "tests/test_process_management.py tests/test_schema_processing.py",
     )

@@ -5,8 +5,11 @@ These tests show the SDK being used with the @hegel decorator.
 """
 
 import base64
+import itertools
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from time import time
 
 import pytest
 
@@ -25,9 +28,6 @@ from hegel.sdk import (
     text,
     tuples,
 )
-from concurrent.futures import ThreadPoolExecutor
-from time import time
-
 
 # =============================================================================
 # Basic Property Tests
@@ -118,7 +118,7 @@ def test_division_with_assume():
 
 
 def test_finds_failing_case():
-    """Verify that the framework finds failing cases and re-raises the original exception."""
+    """Verify that the framework finds failing cases and re-raises."""
 
     @hegel(test_cases=50, verbosity=Verbosity.QUIET)
     def failing_prop():
@@ -137,7 +137,9 @@ def test_finds_edge_case_in_list():
     @hegel(test_cases=50, verbosity=Verbosity.QUIET)
     def failing_prop():
         xs = lists(
-            integers(min_value=0, max_value=100), min_size=1, max_size=5
+            integers(min_value=0, max_value=100),
+            min_size=1,
+            max_size=5,
         ).generate()
         # Fails if any element > 10
         assert all(x <= 10 for x in xs)
@@ -336,4 +338,4 @@ def test_tests_can_be_correctly_run_concurrently():
     results = list(executor.map(run_test, ALL_SEQ_TESTS))
     results.sort()
 
-    assert any(v1 > u2 for (_, v1), (u2, _) in zip(results, results[1:]))
+    assert any(v1 > u2 for (_, v1), (u2, _) in itertools.pairwise(results))

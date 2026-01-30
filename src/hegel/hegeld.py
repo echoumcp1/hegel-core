@@ -6,17 +6,16 @@ requests. Each test runs through ConjectureRunner which generates test
 cases and manages shrinking.
 """
 
-import os
-
+import contextlib
 import hashlib
 import json
+import os
+import traceback
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any
 from concurrent.futures import ThreadPoolExecutor
-import traceback
+from typing import Any
 
-import cbor2
 from hypothesis import Verbosity, settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
@@ -26,7 +25,7 @@ from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 
 from hegel.parser import from_schema
-from hegel.protocol import VERSION_NEGOTIATION_MESSAGE, Channel, Connection
+from hegel.protocol import Channel, Connection
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
@@ -84,7 +83,7 @@ def make_test_function(
                     "event": "test_case",
                     "channel": test_case_channel.channel_id,
                     "is_final": is_final,
-                }
+                },
             ).get()
 
             done = False
@@ -98,8 +97,7 @@ def make_test_function(
                     if command == "generate":
                         schema = message.get("schema", {})
                         strategy = cached_from_schema(schema)
-                        result = data.draw(strategy)
-                        return result
+                        return data.draw(strategy)
 
                     elif command == "start_span":
                         label = message.get("label", 0)
@@ -122,10 +120,12 @@ def make_test_function(
                         elif status == "INVALID":
                             data.mark_invalid()
                         elif status == "INTERESTING":
-                            data.mark_interesting(origin)
+                            data.mark_interesting(
+                                origin,  # type: ignore[arg-type]
+                            )
                     else:
                         raise ValueError(f"Unknown command: {command}")
-                except:
+                except BaseException:
                     done = True
                     raise
 
@@ -151,7 +151,8 @@ def run_server_on_connection(connection: Connection) -> None:
                 if command == "run_test":
                     test_name = message.get("name", f"test {test_count}")
                     channel = connection.connect_channel(
-                        message["channel"], role=f"Test channel for {test_name}"
+                        message["channel"],
+                        role=f"Test channel for {test_name}",
                     )
 
                     pending_futures.append(
@@ -162,11 +163,14 @@ def run_server_on_connection(connection: Connection) -> None:
                             test_name=test_name,
                             test_cases=message.get("test_cases", 1000),
                             verbosity=Verbosity(message.get("verbosity", "normal")),
-                        )
+                        ),
                     )
-                    connection.control_channel.send_response_value(id, True)
+                    connection.control_channel.send_response_value(
+                        id,
+                        message=True,
+                    )
                 else:
-                    control.send_response_error(
+                    connection.control_channel.send_response_error(
                         id,
                         error=f"Unknown command: {command}",
                         error_type="UnknownCommand",
@@ -225,27 +229,26 @@ def handle_run_test(
             {
                 "event": "test_done",
                 "results": result,
-            }
+            },
         ).get()
 
         final_test_function = make_test_function(connection, channel, is_final=True)
 
         for v in sorted(
-            runner.interesting_examples.values(), key=lambda d: sort_key(d.nodes)
+            runner.interesting_examples.values(),
+            key=lambda d: sort_key(d.nodes),
         ):
-            try:
+            with contextlib.suppress(StopTest):
                 final_test_function(
                     ConjectureData(
                         prefix=v.choices,
                         max_choices=len(v.choices),
                         random=None,
-                    )
+                    ),
                 )
-            except StopTest:
-                pass
 
         return result
-    except:
+    except Exception:
         # We don't actually await the futures and just sortof run them fire and
         # forget in the background, so we won't see any exceptions that are
         # thrown unless we print them here.

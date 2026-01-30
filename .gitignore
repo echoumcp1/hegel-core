@@ -13,6 +13,8 @@ external
 .devcontainer
 devcontainer
 .claude-reliability
+.coverage
+error.log
 
 # claude-reliability managed
 .claude/bin/

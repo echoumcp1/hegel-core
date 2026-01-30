@@ -62,7 +62,10 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             max_size=schema.get("max_size"),
         ).map(lambda b: base64.b64encode(b).decode("ascii"))
     if schema_type == "regex":
-        return st.from_regex(schema["pattern"], fullmatch=schema["fullmatch"])
+        return st.from_regex(
+            schema["pattern"],
+            fullmatch=schema["fullmatch"],
+        )
     if schema_type == "list":
         return st.lists(
             from_schema(schema["elements"]),
@@ -89,7 +92,10 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if schema_type == "object":
         properties = schema.get("properties", {})
         return st.fixed_dictionaries(
-            {name: from_schema(prop_schema) for name, prop_schema in properties.items()}
+            {
+                name: from_schema(prop_schema)
+                for name, prop_schema in properties.items()
+            },
         )
     if schema_type == "email":
         return st.emails()

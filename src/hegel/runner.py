@@ -1,3 +1,4 @@
+import contextlib
 import json
 import math
 import os
@@ -70,16 +71,15 @@ def interrupt_wait_and_kill(sp: subprocess.Popen, delay: float = 0.1) -> None:
         # the last sleep, which is impossible to test reliably (without the
         # determinator anyway)
         if sp.returncode is None:  # pragma: no branch
-            try:
+            with contextlib.suppress(ProcessLookupError):  # pragma: no cover
                 signal_group(sp, signal.SIGKILL)
-            except ProcessLookupError:  # pragma: no cover
-                pass
 
         _ = sp.wait(timeout=delay)
 
         if sp.returncode is None:
             raise AssertionError(
-                f"Could not kill subprocess with pid {sp.pid}. Something has gone seriously wrong."
+                f"Could not kill subprocess with pid {sp.pid}."
+                " Something has gone seriously wrong.",
             )
 
 
@@ -124,7 +124,7 @@ def run_with_callback(
                 stdout_path = os.path.join(d, "stdout")
                 if on_stdout_file is not None:
                     on_stdout_file(stdout_path)
-                out = open(stdout_path, "wb")
+                out = open(stdout_path, "wb")  # noqa: SIM115
                 err = out
             else:
                 stdout_path = None
@@ -169,9 +169,11 @@ def run_with_callback(
                                 response = {"id": None, "error": f"Invalid JSON: {e}"}
                                 conn.sendall(
                                     json.dumps(
-                                        response, ensure_ascii=True, cls=HegelEncoder
+                                        response,
+                                        ensure_ascii=True,
+                                        cls=HegelEncoder,
                                     ).encode("utf-8")
-                                    + b"\n"
+                                    + b"\n",
                                 )
                                 continue
 
@@ -198,7 +200,7 @@ def run_with_callback(
                                     ensure_ascii=True,
                                     cls=HegelEncoder,
                                 ).encode("utf-8")
-                                + b"\n"
+                                + b"\n",
                             )
 
                         # Try to read more data
@@ -206,38 +208,47 @@ def run_with_callback(
                             chunk = conn.recv(4096)
                             if not chunk:
                                 # Client closed connection
-                                # If there's leftover data without newline, treat as invalid
+                                # If there's leftover data without
+                                # newline, treat as invalid
                                 if buffer:
                                     response = {
                                         "id": None,
-                                        "error": "Invalid JSON: incomplete request (no newline)",
+                                        "error": (
+                                            "Invalid JSON: incomplete"
+                                            " request (no newline)"
+                                        ),
                                     }
-                                    conn.sendall(
-                                        json.dumps(
-                                            response,
-                                            ensure_ascii=True,
-                                            cls=HegelEncoder,
-                                        ).encode("utf-8")
-                                        + b"\n"
-                                    )
+                                    with contextlib.suppress(BrokenPipeError):
+                                        conn.sendall(
+                                            json.dumps(
+                                                response,
+                                                ensure_ascii=True,
+                                                cls=HegelEncoder,
+                                            ).encode("utf-8")
+                                            + b"\n",
+                                        )
                                 connection_open = False
                             else:
                                 buffer.extend(chunk)
                         except TimeoutError:
-                            # No data available, check if subprocess exited.
-                            # This is a race condition: we only reach here if recv() times out
-                            # (socket still open, no data) AND the subprocess has exited.
-                            # Normally when a subprocess exits, the OS closes its sockets,
-                            # causing recv() to return empty bytes rather than timing out.
-                            # This path handles the narrow window where the timeout fires
-                            # just as the process is exiting but before socket cleanup.
+                            # No data available, check if subprocess
+                            # exited. This is a race condition: we
+                            # only reach here if recv() times out
+                            # (socket still open, no data) AND the
+                            # subprocess has exited. Normally when a
+                            # subprocess exits, the OS closes its
+                            # sockets, causing recv() to return empty
+                            # bytes rather than timing out. This path
+                            # handles the narrow window where the
+                            # timeout fires just as the process is
+                            # exiting but before socket cleanup.
                             if sp.poll() is not None:
                                 connection_open = False  # pragma: no cover
 
                     conn.close()
                 else:
                     raise SubprocessTimedOut(
-                        f"Command {command} exceeded timeout of {timeout}"
+                        f"Command {command} exceeded timeout of {timeout}",
                     )
             finally:
                 if sp is not None:

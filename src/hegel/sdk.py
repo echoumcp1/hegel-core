@@ -14,29 +14,28 @@ Example usage:
         assert a + b == b + a
 """
 
-import functools
 import atexit
-import time
-
+import contextlib
+import functools
 import os
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import types
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextvars import ContextVar
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 from enum import Enum
 from typing import Any, TypeVar, Union, get_args, get_origin
-import threading
+
 import cbor2
 
 from hegel.protocol import (
-    VERSION_NEGOTIATION_MESSAGE,
-    VERSION_NEGOTIATION_OK,
     Channel,
     Connection,
     RequestError,
@@ -44,7 +43,8 @@ from hegel.protocol import (
 
 # Context variables for the current test case
 _current_channel: ContextVar[Channel | None] = ContextVar(
-    "_current_channel", default=None
+    "_current_channel",
+    default=None,
 )
 _is_final: ContextVar[bool] = ContextVar("_is_final", default=False)
 _test_aborted: ContextVar[bool] = ContextVar("_test_aborted", default=False)
@@ -53,13 +53,9 @@ _test_aborted: ContextVar[bool] = ContextVar("_test_aborted", default=False)
 class AssumeRejected(Exception):
     """Raised when assume() condition is False."""
 
-    pass
-
 
 class DataExhausted(Exception):
     """Raised when the server runs out of test data (StopTest)."""
-
-    pass
 
 
 class Verbosity(Enum):
@@ -89,19 +85,6 @@ class Labels:
     SAMPLED_FROM = 14
 
 
-@dataclass
-class TestResult:
-    """Result of running a property test."""
-
-    passed: bool
-    examples_run: int
-    valid_examples: int
-    invalid_examples: int
-    failure: dict | None = None
-    # Captured exceptions from final (minimal) test runs
-    exceptions: list[Exception] | None = None
-
-
 class Client:
     """Client for connecting to a Hegel server."""
 
@@ -117,10 +100,10 @@ class Client:
         name: str,
         test_fn: Callable[[], None],
         test_cases: int = 1000,
-    ) -> TestResult:
+    ) -> None:
         """Run a property test."""
 
-        test_channel = self.connection.new_channel(role=f"Test")
+        test_channel = self.connection.new_channel(role="Test")
 
         # Channels aren't thread safe, so we've got to request starting a thread
         # under a lock.
@@ -131,7 +114,7 @@ class Client:
                     "name": name,
                     "test_cases": test_cases,
                     "channel": test_channel.channel_id,
-                }
+                },
             ).get()
 
         result_data = None
@@ -146,11 +129,12 @@ class Client:
                 channel_id = message["channel"]
                 test_channel.send_response_value(message_id, None)
                 test_case_channel = self.connection.connect_channel(
-                    channel_id, role=f"Test Case"
+                    channel_id,
+                    role="Test Case",
                 )
                 self._run_test_case(test_case_channel, test_fn, is_final=False)
             elif event == "test_done":
-                test_channel.send_response_value(message_id, True)
+                test_channel.send_response_value(message_id, message=True)
                 result_data = message["results"]
                 break
             else:
@@ -160,7 +144,7 @@ class Client:
                         {
                             "error": f"Unrecognised event {event}",
                             "type": "InvalidMessage",
-                        }
+                        },
                     ),
                 )
 
@@ -170,7 +154,7 @@ class Client:
 
         if n_interesting == 0:
             return
-        exceptions = []
+        exceptions: list[Exception] = []
         for i in range(n_interesting):
             try:
                 message_id, message = test_channel.receive_request()
@@ -180,12 +164,13 @@ class Client:
                 channel_id = message["channel"]
                 test_channel.send_response_value(message_id, None)
                 test_case_channel = self.connection.connect_channel(
-                    channel_id, role=f"Test Case"
+                    channel_id,
+                    role="Test Case",
                 )
                 self._run_test_case(test_case_channel, test_fn, is_final=True)
                 if n_interesting > 1:
                     raise AssertionError(
-                        f"Expected test case {i} to fail but it didn't"
+                        f"Expected test case {i} to fail but it didn't",
                     )
                 else:
                     raise AssertionError("Expected test case to fail but it didn't")
@@ -193,12 +178,13 @@ class Client:
                 if n_interesting == 1:
                     raise
                 exceptions.append(e)
-        raise ExceptionGroup(exceptions)
+        raise ExceptionGroup("multiple failures", exceptions)
 
     def _run_test_case(
         self,
         channel: Channel,
         test_fn: Callable[[], None],
+        *,
         is_final: bool,
     ) -> None:
         """Run a single test case."""
@@ -233,12 +219,12 @@ class Client:
                         "command": "mark_complete",
                         "status": status,
                         "origin": origin,
-                    }
+                    },
                 )
             channel.close()
 
 
-def _extract_origin(exc: Exception, tb: Any) -> dict:
+def _extract_origin(exc: Exception, tb: Any) -> str:
     """Extract InterestingOrigin from an exception."""
     filename = ""
     lineno = 0
@@ -257,7 +243,7 @@ def _get_channel() -> Channel:
     channel = _current_channel.get()
     if channel is None:
         raise RuntimeError(
-            "Not in a test context - must be called from within a test function"
+            "Not in a test context - must be called from within a test function",
         )
     return channel
 
@@ -281,7 +267,7 @@ def generate_from_schema(schema: dict) -> Any:
         raise
 
 
-def assume(condition: bool) -> None:
+def assume(condition: bool) -> None:  # noqa: FBT001
     """Reject the current test case if condition is False."""
     if not condition:
         raise AssumeRejected
@@ -340,7 +326,6 @@ class Generator(ABC):
     @abstractmethod
     def generate(self) -> Any:
         """Generate a value."""
-        pass
 
     def schema(self) -> dict | None:
         """Get the schema for this generator, if available.
@@ -369,7 +354,9 @@ class Generator(ABC):
         return FlatMappedGenerator(self, f)
 
     def filter(
-        self, predicate: Callable[[Any], bool], max_attempts: int = 100
+        self,
+        predicate: Callable[[Any], bool],
+        max_attempts: int = 100,
     ) -> "FilteredGenerator":
         """Filter generated values using a predicate.
 
@@ -435,7 +422,10 @@ class FilteredGenerator(Generator):
     """A generator that filters values."""
 
     def __init__(
-        self, source: Generator, predicate: Callable[[Any], bool], max_attempts: int
+        self,
+        source: Generator,
+        predicate: Callable[[Any], bool],
+        max_attempts: int,
     ):
         self._source = source
         self._predicate = predicate
@@ -450,7 +440,7 @@ class FilteredGenerator(Generator):
                 return value
             stop_span(discard=True)
         # Too many failed attempts - reject this test case
-        assume(False)
+        assume(condition=False)
         raise AssertionError("unreachable")
 
     def schema(self) -> dict | None:
@@ -612,9 +602,7 @@ class SampledFromGenerator(Generator):
                 # Try to serialize - only primitives allowed
                 if elem is None:
                     json_values.append(None)
-                elif isinstance(elem, bool):  # Must check before int!
-                    json_values.append(elem)
-                elif isinstance(elem, (int, float, str)):
+                elif isinstance(elem, (bool, int, float, str)):
                     json_values.append(elem)
                 else:
                     # Not a primitive - fallback mode
@@ -644,7 +632,7 @@ class SampledFromGenerator(Generator):
                         "type": "integer",
                         "minimum": 0,
                         "maximum": len(self._elements) - 1,
-                    }
+                    },
                 )
                 return self._elements[idx]
             finally:
@@ -681,7 +669,7 @@ class CompositeOneOfGenerator(Generator):
         try:
             # Pick which generator to use
             index = generate_from_schema(
-                {"type": "integer", "minimum": 0, "maximum": len(self._generators) - 1}
+                {"type": "integer", "minimum": 0, "maximum": len(self._generators) - 1},
             )
             return self._generators[index].generate()
         finally:
@@ -758,7 +746,7 @@ class CompositeDictGenerator(Generator):
                 self._max_size if self._max_size is not None else self._min_size + 10
             )
             size = generate_from_schema(
-                {"type": "integer", "minimum": self._min_size, "maximum": max_sz}
+                {"type": "integer", "minimum": self._min_size, "maximum": max_sz},
             )
             result = {}
             for _ in range(size):
@@ -867,9 +855,6 @@ def from_type(type_hint: Any) -> Generator:
 
     # Optional[T] is Union[T, None] or T | None (types.UnionType in Python 3.10+)
     if origin is Union or isinstance(type_hint, types.UnionType):
-        # For types.UnionType, get_args still works
-        if not args:
-            args = get_args(type_hint)
         # Filter out NoneType
         non_none_args = [a for a in args if a is not type(None)]
         if len(non_none_args) == 1 and type(None) in args:
@@ -968,7 +953,8 @@ class _HegelSession:
             socket_path = os.path.join(self._temp_dir.name, "hegel.sock")
 
             hegel_cmd = _find_hegeld()
-            cmd_args = hegel_cmd.split() + [
+            cmd_args = [
+                *hegel_cmd.split(),
                 socket_path,
                 "--verbosity",
                 verbosity.value,
@@ -1013,33 +999,25 @@ class _HegelSession:
     def _cleanup(self) -> None:
         """Clean up the hegeld process."""
         if self._connection is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._connection.close()
-            except Exception:
-                pass
             self._connection = None
             self._client = None
 
         if self._process is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._process.terminate()
                 self._process.wait(timeout=5)
-            except Exception:
-                pass
             self._process = None
 
         if self._sock is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._sock.close()
-            except Exception:
-                pass
             self._sock = None
 
         if self._temp_dir is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._temp_dir.cleanup()
-            except Exception:
-                pass
             self._temp_dir = None
 
     def run_test(
@@ -1047,13 +1025,13 @@ class _HegelSession:
         test_fn: Callable[[], None],
         test_cases: int,
         verbosity: Verbosity,
-    ) -> TestResult:
+    ) -> None:
         """Run a property test using the shared hegeld process."""
         self._start(verbosity)
 
         assert self._client is not None
         test_name = test_fn.__name__ if hasattr(test_fn, "__name__") else "test"
-        return self._client.run_test(test_name, test_fn, test_cases=test_cases)
+        self._client.run_test(test_name, test_fn, test_cases=test_cases)
 
 
 # Global session instance
@@ -1100,7 +1078,7 @@ def run_hegel_test(
     *,
     test_cases: int = 100,
     verbosity: Verbosity = Verbosity.NORMAL,
-) -> TestResult:
+) -> None:
     """Run a property test using the shared hegeld process.
 
     If the test fails:

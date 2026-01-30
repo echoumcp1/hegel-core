@@ -297,13 +297,9 @@ def test_sampled_from_returns_exact_type():
     value = gen.generate()
 
     # Verify exact type matching
-    if value is True:
+    if value is True or value is False:
         assert type(value) is bool
-    elif value is False:
-        assert type(value) is bool
-    elif value == 0 and not isinstance(value, bool):
-        assert type(value) is int
-    elif value == 1 and not isinstance(value, bool):
+    elif value in (0, 1) and not isinstance(value, bool):
         assert type(value) is int
 
 

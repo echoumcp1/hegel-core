@@ -179,7 +179,7 @@ def test_number_exclusive():
             "allow_nan": False,
             "allow_infinity": False,
             "width": 64,
-        }
+        },
     ).example()
     assert 0.0 < v < 1.0
 
@@ -192,7 +192,7 @@ def test_string():
 
 def test_string_pattern():
     v = from_schema(
-        {"type": "regex", "pattern": r"^[a-z]+$", "fullmatch": True}
+        {"type": "regex", "pattern": r"^[a-z]+$", "fullmatch": True},
     ).example()
     assert v.isalpha()
     assert v.islower()
