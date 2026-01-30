@@ -53,7 +53,7 @@ REPLY_BIT = 1 << 31
 
 
 # Special payload that is sent on a channel when it is shut down. The shutdown
-# is not acked and is handled specifically 
+# is not acked and is handled specifically
 # Chosen to be invalid CBOR as per https://www.rfc-editor.org/rfc/rfc8949.html
 # It is currently also not the prefix of any valid CBOR (this is a reserved)
 # tag byte) but even if it became valid in future this would not be a problem.
@@ -76,6 +76,7 @@ class Packet:
             value = getattr(self, field.name)
             if not isinstance(value, field.type):
                 raise TypeError(f"{field.name} must be {field.type.__name__}")
+
 
 class PartialPacket(ConnectionError):
     pass
@@ -159,11 +160,13 @@ def write_packet(sock: socket.socket, packet: Packet) -> None:
 
 SHUTDOWN = object()
 
+
 @dataclass(frozen=True, slots=True)
 class DeadChannel:
     channel_id: Id
     name: str
     died: float
+
 
 class Connection:
     """A connection is a single real socket connection to
@@ -190,6 +193,10 @@ class Connection:
         self.__control_channel = self.new_channel(role="Control")
         self.__is_client = None
 
+    @property
+    def live(self):
+        return self.__running and all(t.is_alive() for t in self.__threads)
+
     @classmethod
     def create_server(cls, address, **kwargs):
         return cls(socket.create_server(address, **kwargs))
@@ -207,7 +214,7 @@ class Connection:
         if not self.__debug:
             return
         try:
-            payload_str = packet.payload.decode('ascii')
+            payload_str = packet.payload.decode("ascii")
         except UnicodeDecodeError:
             try:
                 payload_str = cbor2.loads(packet.payload)
@@ -223,7 +230,7 @@ class Connection:
                 ch = channel.name
             except KeyError:
                 ch = f"Unknown channel {packet.channel}"
-        name = self.name or "?" 
+        name = self.name or "?"
         self._debug_print(
             f"[{name}] {direction} ch={ch} message_id={packet.message_id} {reply}: {payload_str}",
         )
@@ -234,19 +241,26 @@ class Connection:
             while self.__running:
                 packet = read_packet(self.__socket)
                 channel = self.channels.get(packet.channel)
-                channel_name = f"channel {packet.channel}" if channel is None else channel.name
+                channel_name = (
+                    f"channel {packet.channel}" if channel is None else channel.name
+                )
                 self._debug_packet("RECV", packet)
                 if packet.payload == CLOSE_CHANNEL_PAYLOAD:
                     assert packet.message_id == CLOSE_CHANNEL_MESSAGE_ID
                     self._debug_print(f"Received close for {channel_name}")
                     self.channels[packet.channel] = DeadChannel(
-                        channel_id=packet.channel, name=self.channels[packet.channel].name,
+                        channel_id=packet.channel,
+                        name=self.channels[packet.channel].name,
                         died=time(),
                     )
                     if len(self.channels) > reap_at:
                         now = time()
                         with self.__lock:
-                            to_reap = [k for k, v in self.channels.items() if isinstance(v, DeadChannel) and v.died < now - 30]
+                            to_reap = [
+                                k
+                                for k, v in self.channels.items()
+                                if isinstance(v, DeadChannel) and v.died < now - 30
+                            ]
                         if to_reap:
                             for k in to_reap:
                                 with self.__lock:
@@ -259,13 +273,14 @@ class Connection:
 
                         self._debug_print(error)
                         if not packet.is_reply:
-                            self.send_packet(Packet(
-                                channel=packet.channel, message_id=packet.message_id,
-                                is_reply=True,
-                                payload=cbor2.dumps({
-                                    "error": error
-                                })
-                            ))
+                            self.send_packet(
+                                Packet(
+                                    channel=packet.channel,
+                                    message_id=packet.message_id,
+                                    is_reply=True,
+                                    payload=cbor2.dumps({"error": error}),
+                                )
+                            )
                     else:
                         channel.inbox.put(packet)
         except ConnectionError:
@@ -333,7 +348,9 @@ class Connection:
         if not self.channels:
             channel_id = 0
         elif self.__is_client is None:
-            raise ValueError("Cannot create a new channel before handshake has been performed.")
+            raise ValueError(
+                "Cannot create a new channel before handshake has been performed."
+            )
         else:
             channel_id = (self.__next_channel_id << 1) | int(self.__is_client)
             self.__next_channel_id += 1
@@ -348,7 +365,9 @@ class Connection:
         if the other side does not exist or has already been connected
         to."""
         if self.__is_client is None:
-            raise ValueError("Cannot create a new channel before handshake has been performed.")
+            raise ValueError(
+                "Cannot create a new channel before handshake has been performed."
+            )
         if id in self.channels:
             raise ValueError(f"Channel already connected as {self.channels[id]}.")
         assert id & 1 != int(self.__is_client)
@@ -390,7 +409,7 @@ class PendingRequest:
         return result_or_error(self.__value)
 
 
-CHANNEL_TIMEOUT = float(os.getenv('HEGEL_CHANNEL_TIMEOUT', 30))
+CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
 
 
 class Channel:
@@ -429,8 +448,9 @@ class Channel:
         elif self.role is None:
             return f"{self.connection.name} channel [id={self.channel_id}]"
         else:
-            return f"{self.connection.name} channel [id={self.channel_id}] ({self.role})"
-            
+            return (
+                f"{self.connection.name} channel [id={self.channel_id}] ({self.role})"
+            )
 
     def __process_one_message(self, timeout=CHANNEL_TIMEOUT):
         """Process one message that has been sent to us, and put it in the
@@ -475,7 +495,7 @@ class Channel:
             try:
                 result = handler(message)
                 self.send_response_value(id, result)
-            except Exception as e:
+            except BaseException as e:
                 traceback.print_exc()
                 self.send_response_error(id, e)
 
@@ -499,7 +519,9 @@ class Channel:
         return id
 
     def receive_response(self, id: Id, timeout=CHANNEL_TIMEOUT) -> Any:
-        return result_or_error(cbor2.loads(self.receive_response_raw(id, timeout=timeout)))
+        return result_or_error(
+            cbor2.loads(self.receive_response_raw(id, timeout=timeout))
+        )
 
     def receive_response_raw(self, id: Id, timeout=CHANNEL_TIMEOUT) -> bytes:
         """Waits for a response to a previously sent message."""
@@ -529,20 +551,18 @@ class Channel:
                 message_id=id,
             )
         )
-    def send_response_value(self, id: Id, message: Any) -> None:
-        self.send_response_raw(
-            id,
-            cbor2.dumps({"result": message})
-        )
 
-    def send_response_error(self, id: Id, message: Exception | None = None, *, error=None, type=None) -> None:
+    def send_response_value(self, id: Id, message: Any) -> None:
+        self.send_response_raw(id, cbor2.dumps({"result": message}))
+
+    def send_response_error(
+        self, id: Id, message: Exception | None = None, *, error=None, error_type=None
+    ) -> None:
         assert message is not None or (error is not None and type is not None)
-        error = error or message.args[0]
-        type = type or type(message).__name__
+        error = str(error or message.args[0])
+        error_type = error_type or type(message).__name__
         args = message.args if message else []
         self.send_response_raw(
             id,
-            cbor2.dumps(
-            {"error": error, "args": args, "type": type}
-        ),
-    )
+            cbor2.dumps({"error": error, "type": error_type}),
+        )

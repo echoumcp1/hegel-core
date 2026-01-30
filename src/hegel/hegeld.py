@@ -5,6 +5,7 @@ The server accepts a single client connection and handles test execution
 requests. Each test runs through ConjectureRunner which generates test
 cases and manages shrinking.
 """
+
 import os
 
 import hashlib
@@ -96,8 +97,13 @@ def make_test_function(
 
                     if command == "generate":
                         schema = message.get("schema", {})
-                        strategy = cached_from_schema(schema)
-                        return data.draw(strategy)
+                        try:
+                            strategy = cached_from_schema(schema)
+                            result = data.draw(strategy)
+                        except:
+                            traceback.print_exc()
+                            raise
+                        return result
 
                     elif command == "start_span":
                         label = message.get("label", 0)
@@ -127,10 +133,7 @@ def make_test_function(
                     done = True
                     raise
 
-            try:
-                test_case_channel.handle_requests(handle_sdk_request, until=lambda: done)
-            finally:
-                test_case_channel.close()
+            test_case_channel.handle_requests(handle_sdk_request, until=lambda: done)
 
     return test_function
 
@@ -146,29 +149,31 @@ def run_server_on_connection(connection: Connection) -> None:
             test_count = 0
             while True:
                 test_count += 1
-                print("Boop")
                 id, message = connection.control_channel.receive_request(timeout=None)
-                print("Beep")
 
                 command = message.get("command")
                 if command == "run_test":
                     test_name = message.get("name", f"test {test_count}")
                     channel = connection.connect_channel(
-                        message['channel'], role="Test channel for {test_name}"
+                        message["channel"], role=f"Test channel for {test_name}"
                     )
 
-                    pending_futures.append(thread_pool.submit(
-                        handle_run_test,
-                        connection,
-                        channel,
-                        test_name=test_name,
-                        test_cases=message.get("test_cases", 1000),
-                        verbosity=Verbosity(message.get("verbosity", "normal")),
-                    ))
+                    pending_futures.append(
+                        thread_pool.submit(
+                            handle_run_test,
+                            connection,
+                            channel,
+                            test_name=test_name,
+                            test_cases=message.get("test_cases", 1000),
+                            verbosity=Verbosity(message.get("verbosity", "normal")),
+                        )
+                    )
                     connection.control_channel.send_response_value(id, True)
                 else:
                     control.send_response_error(
-                        id, error=f"Unknown command: {command}", type="UnknownCommand"
+                        id,
+                        error=f"Unknown command: {command}",
+                        error_type="UnknownCommand",
                     )
     except ConnectionError:
         pass
@@ -187,7 +192,7 @@ def handle_run_test(
     connection: Connection,
     channel: Channel,
     test_name: str,
-    test_cases: int = 1000,
+    test_cases: int = 100,
     verbosity: Verbosity = Verbosity.normal,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
@@ -215,22 +220,10 @@ def handle_run_test(
         result: dict[str, Any] = {
             "passed": len(runner.interesting_examples) == 0,
             "examples_run": runner.call_count,
-            "valid_examples": runner.valid_examples,
-            "invalid_examples": runner.invalid_examples,
-            "interesting_examples": len(runner.interesting_examples)
+            "valid_test_cases": runner.valid_examples,
+            "invalid_test_cases": runner.invalid_examples,
+            "interesting_test_cases": len(runner.interesting_examples),
         }
-
-        final_test_function = make_test_function(connection, channel, is_final=True)
-
-        for v in sorted(runner.interesting_examples.values(), key=lambda d: sort_key(d.nodes)):
-            try:
-                final_test_function(ConjectureData(
-                    prefix=v.nodes,
-                    max_choices=len(v.nodes),
-                    random=None,
-                ))
-            except StopTest:
-                pass
 
         channel.request(
             {
@@ -239,7 +232,21 @@ def handle_run_test(
             }
         ).get()
 
-        assert False
+        final_test_function = make_test_function(connection, channel, is_final=True)
+
+        for v in sorted(
+            runner.interesting_examples.values(), key=lambda d: sort_key(d.nodes)
+        ):
+            try:
+                final_test_function(
+                    ConjectureData(
+                        prefix=v.choices,
+                        max_choices=len(v.choices),
+                        random=None,
+                    )
+                )
+            except StopTest:
+                pass
 
         return result
     except:
