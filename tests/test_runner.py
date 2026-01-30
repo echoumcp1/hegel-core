@@ -70,7 +70,8 @@ import json, os, socket, sys
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 sock.connect(os.environ["HEGEL_SOCKET"])
-sock.sendall((json.dumps({"id": 1, "command": "unknown", "payload": {}}) + "\\n").encode())
+msg = json.dumps({"id": 1, "command": "unknown", "payload": {}})
+sock.sendall((msg + "\\n").encode())
 
 response = b""
 while b"\\n" not in response:

@@ -8,6 +8,7 @@ The SDK creates a socket path and spawns hegeld with that path. Hegeld binds to
 the socket and serves requests. The SDK then connects to the socket as a client.
 """
 
+import contextlib
 import os
 import socket
 import sys
@@ -51,10 +52,8 @@ def main(socket_path, test_cases, verbosity):
 def run_server(socket_path, verbosity):
     """Bind to the socket and serve test execution requests."""
     # Clean up any existing socket
-    try:
+    with contextlib.suppress(FileNotFoundError):
         os.unlink(socket_path)
-    except FileNotFoundError:
-        pass
 
     # Create and bind server socket
     server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -80,11 +79,9 @@ def run_server(socket_path, verbosity):
 
     finally:
         server_sock.close()
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(socket_path)
-        except FileNotFoundError:
-            pass
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

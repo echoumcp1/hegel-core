@@ -1,6 +1,7 @@
 import socket
 from threading import Thread
 
+import pytest
 from hypothesis import given, settings, strategies as st
 
 from hegel.hegeld import run_server_on_connection
@@ -25,7 +26,7 @@ from hegel.sdk import (
         channel=st.integers(0, 1 << 32 - 1),
         is_reply=st.booleans(),
         payload=st.binary(),
-    )
+    ),
 )
 def test_roundtrip_packets(packet):
     reader, writer = socket.socketpair()
@@ -62,12 +63,13 @@ def test_basic_connection_can_negotiate_version_without_error():
 
 def test_request_handling():
     def add_server(connection):
-        handler_channel = connection.connect_channel(1)
+        connection.receive_handshake()
+        # Server creates a channel (even id since server is not client)
+        handler_channel = connection.new_channel(role="Handler")
 
         @handler_channel.handle_requests
         def _(message):
-            x, y = message
-            return x + y
+            return {"sum": message["x"] + message["y"]}
 
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
@@ -78,9 +80,12 @@ def test_request_handling():
     try:
         thread.start()
         client_connection = Connection(client_socket, name="Client")
+        client_connection.send_handshake()
 
-        send_channel = client_connection.connect_channel(1)
-        assert send_channel.request([2, 3]).get() == 5
+        # Server creates channel with id=2 (first non-control,
+        # __next_channel_id=1, id = (1 << 1) | 0 = 2)
+        send_channel = client_connection.connect_channel(2)
+        assert send_channel.request({"x": 2, "y": 3}).get() == {"sum": 5}
     finally:
         client_connection.close()
 
@@ -104,12 +109,8 @@ def test_simple_passing_test():
             assert x >= 0
             assert x <= 100
 
-        result = client.run_test("test_simple", my_test, test_cases=50)
-
-        assert result.passed
-        assert result.examples_run > 0
-        assert result.valid_examples > 0
-        assert result.failure is None
+        # Passing test completes without error
+        client.run_test("test_simple", my_test, test_cases=50)
 
     finally:
         client_connection.close()
@@ -118,7 +119,7 @@ def test_simple_passing_test():
 
 
 def test_failing_test_with_shrinking():
-    """Test that a failing test is detected and shrunk."""
+    """Test that a failing test is detected and raises."""
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
         target=run_server_on_connection,
@@ -136,11 +137,8 @@ def test_failing_test_with_shrinking():
             # This will fail for x > 10
             assert x <= 10
 
-        result = client.run_test("test_fail", my_test, test_cases=100)
-
-        assert not result.passed
-        assert result.failure is not None
-        assert result.failure["exc_type"] == "AssertionError"
+        with pytest.raises(AssertionError):
+            client.run_test("test_fail", my_test, test_cases=100)
 
     finally:
         client_connection.close()
@@ -169,11 +167,8 @@ def test_assume_causes_invalid():
             # Only even numbers should get here
             assert x % 2 == 0
 
-        result = client.run_test("test_assume", my_test, test_cases=100)
-
-        assert result.passed
-        # Some test cases should have been marked invalid
-        assert result.invalid_examples > 0
+        # Should pass - assume filters invalid cases
+        client.run_test("test_assume", my_test, test_cases=100)
 
     finally:
         client_connection.close()
@@ -208,9 +203,7 @@ def test_strategy_helpers():
             b = booleans().generate()
             assert isinstance(b, bool)
 
-        result = client.run_test("test_helpers", my_test, test_cases=50)
-
-        assert result.passed
+        client.run_test("test_helpers", my_test, test_cases=50)
 
     finally:
         client_connection.close()
@@ -240,11 +233,8 @@ def test_multiple_tests_same_connection():
             s = draw({"type": "string", "max_size": 10})
             assert isinstance(s, str)
 
-        result1 = client.run_test("test1", test1, test_cases=20)
-        result2 = client.run_test("test2", test2, test_cases=20)
-
-        assert result1.passed
-        assert result2.passed
+        client.run_test("test1", test1, test_cases=20)
+        client.run_test("test2", test2, test_cases=20)
 
     finally:
         client_connection.close()
@@ -272,9 +262,7 @@ def test_target_observations():
             target(float(x), "size")
             assert x >= 0
 
-        result = client.run_test("test_target", my_test, test_cases=50)
-
-        assert result.passed
+        client.run_test("test_target", my_test, test_cases=50)
 
     finally:
         client_connection.close()
@@ -303,9 +291,7 @@ def test_lists_of_integers():
             for x in xs:
                 assert 0 <= x <= 10
 
-        result = client.run_test("test_lists", my_test, test_cases=10)
-
-        assert result.passed
+        client.run_test("test_lists", my_test, test_cases=10)
 
     finally:
         client_connection.close()
