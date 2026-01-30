@@ -64,52 +64,7 @@ select = [
     "YTT",    # flake8-2020
     "RUF",    # Ruff-specific rules
 ]
-ignore = [
-    "B008",
-    "B018",
-    "B023",
-    "C408",
-    "C420",
-    "COM812",
-    "DJ007",
-    "DJ008",
-    # "line too long". ruff uses tool.ruff.line-length both for this rule, and for `ruff format`.
-    # We want ruff format to match black's 88 line length, so we set tool.ruff.line-length = 88. But
-    # this is a formatter suggestion, not a rule, so we also disable the E501 lint.
-    "E501",
-    "E721",
-    "E731",
-    "E741",
-    "FBT001",
-    "FBT003",
-    "PD011",
-    "PIE790",  # See https://github.com/astral-sh/ruff/issues/10538
-    "PT001",
-    "PT003",
-    "PT006",
-    "PT007",
-    "PT009",
-    "PT011",
-    "PT012",
-    "PT013",
-    "PT015",
-    "PT017",
-    "PT019",
-    "PT023",
-    "PT027",
-    "PT031",
-    "RUF005",
-    "RUF017",
-    "SIM102",
-    "SIM105",
-    "SIM108",
-    "SIM114",
-    "SIM115",
-    "SIM300",
-    "SIM905",
-    "UP031",
-    "UP037",
-]
+ignore = []
 
 [tool.mypy]
 python_version = "3.14"
