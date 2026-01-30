@@ -97,12 +97,8 @@ def make_test_function(
 
                     if command == "generate":
                         schema = message.get("schema", {})
-                        try:
-                            strategy = cached_from_schema(schema)
-                            result = data.draw(strategy)
-                        except:
-                            traceback.print_exc()
-                            raise
+                        strategy = cached_from_schema(schema)
+                        result = data.draw(strategy)
                         return result
 
                     elif command == "start_span":
