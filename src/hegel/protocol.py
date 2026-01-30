@@ -265,7 +265,7 @@ class Connection:
                             for k in to_reap:
                                 with self.__lock:
                                     self.channels.pop(k)
-                        to_reap = max(to_reap, 2 * len(self.channels))
+                        reap_at = max(reap_at, 2 * len(self.channels))
                 else:
                     if channel is None or isinstance(channel, DeadChannel):
                         error_type = "non-existent" if channel is None else "closed"
@@ -496,7 +496,6 @@ class Channel:
                 result = handler(message)
                 self.send_response_value(id, result)
             except BaseException as e:
-                traceback.print_exc()
                 self.send_response_error(id, e)
 
     def send_request(self, message: Any) -> Id:

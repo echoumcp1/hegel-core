@@ -160,7 +160,6 @@ def test_target_guides_toward_larger_values():
     def prop():
         x = floats(min_value=0, max_value=10000).generate()
         score = 1 - (float(x) - 101) ** 2
-        print(score)
         target(score, "maximize_x")
         max_seen[0] = max(max_seen[0], score)
         assert x >= 0  # Always passes
