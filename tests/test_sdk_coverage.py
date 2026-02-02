@@ -25,7 +25,6 @@ from hegel.sdk import (
     Generator,
     SampledFromGenerator,
     SchemaDictGenerator,
-    Verbosity,
     _current_channel,
     _extract_origin,
     _find_hegeld,
@@ -697,12 +696,12 @@ def test_hegel_session_start_and_run():
     """Test _HegelSession full lifecycle."""
     session = _HegelSession()
     try:
-        session._start(Verbosity.QUIET)
+        session._start()
         assert session._client is not None
         assert session._connection is not None
 
         # Calling _start again should be a no-op
-        session._start(Verbosity.QUIET)
+        session._start()
     finally:
         session._cleanup()
 
@@ -716,7 +715,7 @@ def test_hegel_session_run_test():
             x = draw({"type": "integer", "minimum": 0, "maximum": 10})
             assert isinstance(x, int)
 
-        session.run_test(my_test, test_cases=5, verbosity=Verbosity.QUIET)
+        session.run_test(my_test, test_cases=5)
     finally:
         session._cleanup()
 
@@ -1057,16 +1056,6 @@ def test_binary_generator_schema():
     assert schema["max_size"] == 10
 
 
-def test_hegel_session_start_verbose():
-    """Test _HegelSession._start with verbose verbosity."""
-    session = _HegelSession()
-    try:
-        session._start(Verbosity.VERBOSE)
-        assert session._client is not None
-    finally:
-        session._cleanup()
-
-
 def test_sampled_from_schema_type_error():
     """Test SampledFromGenerator.schema() catches TypeError/ValueError."""
 
@@ -1223,7 +1212,7 @@ def test_hegel_session_start_verbose_double_check_lock():
 
     def start_session():
         try:
-            session._start(Verbosity.QUIET)
+            session._start()
             started.set()
         except Exception as e:
             errors.append(e)
@@ -1261,7 +1250,7 @@ def test_hegel_session_timeout_kill():
         mock_popen.return_value = mock_process
 
         with pytest.raises(RuntimeError, match="Timeout"):
-            session._start(Verbosity.QUIET)
+            session._start()
 
         mock_process.kill.assert_called_once()
 
@@ -1287,7 +1276,7 @@ def test_hegel_session_connection_retry():
         mock_socket_cls.return_value = mock_sock
 
         with pytest.raises(RuntimeError, match="Timeout"):
-            session._start(Verbosity.QUIET)
+            session._start()
 
         # Verify close was called on failed connection attempts
         assert mock_sock.close.call_count > 0

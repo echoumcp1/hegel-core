@@ -11,7 +11,6 @@ import pytest
 
 from hegel.sdk import (
     DataclassGenerator,
-    Verbosity,
     dicts,
     from_type,
     hegel,

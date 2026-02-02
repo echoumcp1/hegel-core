@@ -14,7 +14,6 @@ from time import time
 import pytest
 
 from hegel.sdk import (
-    Verbosity,
     assume,
     booleans,
     floats,
@@ -257,19 +256,6 @@ def test_date_parsing():
     # Should be ISO format YYYY-MM-DD
     parsed = date.fromisoformat(date_str)
     assert parsed.isoformat() == date_str
-
-
-# =============================================================================
-# Verbosity enum
-# =============================================================================
-
-
-def test_verbosity_values():
-    """Test that Verbosity enum has expected values."""
-    assert Verbosity.QUIET.value == "quiet"
-    assert Verbosity.NORMAL.value == "normal"
-    assert Verbosity.VERBOSE.value == "verbose"
-    assert Verbosity.DEBUG.value == "debug"
 
 
 # =============================================================================
