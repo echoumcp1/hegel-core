@@ -940,7 +940,7 @@ class _HegelSession:
     def __has_working_client(self):
         return self._client is not None and self._connection.live
 
-    def _start(self, verbosity: Verbosity) -> None:
+    def _start(self) -> None:
         """Start hegeld if not already running."""
         if self.__has_working_client():
             return
@@ -959,9 +959,6 @@ class _HegelSession:
                 "--verbosity",
                 verbosity.value,
             ]
-
-            if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
-                print(f"Starting hegeld: {' '.join(cmd_args)}", file=sys.stderr)
 
             # Start hegeld - it will bind to the socket and listen
             self._process = subprocess.Popen(
@@ -986,9 +983,6 @@ class _HegelSession:
             else:
                 self._process.kill()
                 raise RuntimeError("Timeout waiting for hegeld to start")
-
-            if verbosity in (Verbosity.VERBOSE, Verbosity.DEBUG):
-                print("Connected to hegeld", file=sys.stderr)
 
             self._connection = Connection(self._sock, name="SDK")
             self._client = Client(self._connection)
@@ -1024,10 +1018,9 @@ class _HegelSession:
         self,
         test_fn: Callable[[], None],
         test_cases: int,
-        verbosity: Verbosity,
     ) -> None:
         """Run a property test using the shared hegeld process."""
-        self._start(verbosity)
+        self._start()
 
         assert self._client is not None
         test_name = test_fn.__name__ if hasattr(test_fn, "__name__") else "test"

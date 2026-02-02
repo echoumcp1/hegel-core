@@ -94,7 +94,7 @@ class SerializableClass:
 # =============================================================================
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_sampled_from_integers():
     """sampled_from with integers should work."""
     gen = sampled_from([1, 2, 3, 4, 5])
@@ -102,7 +102,7 @@ def test_sampled_from_integers():
     assert value in [1, 2, 3, 4, 5]
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_sampled_from_strings():
     """sampled_from with strings should work."""
     gen = sampled_from(["apple", "banana", "cherry"])
@@ -111,7 +111,7 @@ def test_sampled_from_strings():
     assert isinstance(value, str)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_sampled_from_booleans():
     """sampled_from with booleans should work."""
     gen = sampled_from([True, False])
@@ -125,7 +125,7 @@ def test_sampled_from_booleans():
 # =============================================================================
 
 
-@hegel(test_cases=20, verbosity=Verbosity.QUIET)
+@hegel(test_cases=20)
 def test_sampled_from_custom_class():
     """sampled_from with non-JSON-serializable class.
 
@@ -139,7 +139,7 @@ def test_sampled_from_custom_class():
     assert any(value is elem for elem in elements)
 
 
-@hegel(test_cases=30, verbosity=Verbosity.QUIET)
+@hegel(test_cases=30)
 def test_sampled_from_preserves_identity():
     """sampled_from should return the original objects, not copies.
 
@@ -158,7 +158,7 @@ def test_sampled_from_preserves_identity():
     assert any(value is elem for elem in elements)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_sampled_from_with_none():
     """sampled_from including None should work."""
     gen = sampled_from([None, 1, 2, 3])
@@ -171,28 +171,28 @@ def test_sampled_from_with_none():
 # =============================================================================
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_int():
     """from_type(int) should generate integers."""
     value = from_type(int).generate()
     assert isinstance(value, int)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_float():
     """from_type(float) should generate floats."""
     value = from_type(float).generate()
     assert isinstance(value, float)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_str():
     """from_type(str) should generate strings."""
     value = from_type(str).generate()
     assert isinstance(value, str)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_bool():
     """from_type(bool) should generate booleans."""
     value = from_type(bool).generate()
@@ -204,7 +204,7 @@ def test_from_type_bool():
 # =============================================================================
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_list_int():
     """from_type(list[int]) should generate lists of integers."""
     value = from_type(list[int]).generate()
@@ -212,7 +212,7 @@ def test_from_type_list_int():
     assert all(isinstance(x, int) for x in value)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_dict_str_int():
     """from_type(dict[str, int]) should generate dicts."""
     value = from_type(dict[str, int]).generate()
@@ -221,7 +221,7 @@ def test_from_type_dict_str_int():
     assert all(isinstance(v, int) for v in value.values())
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_optional_int():
     """from_type(int | None) should generate int or None."""
     value = from_type(int | None).generate()
@@ -233,7 +233,7 @@ def test_from_type_optional_int():
 # =============================================================================
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_simple_dataclass():
     """from_type should generate dataclass instances."""
     point = from_type(Point).generate()
@@ -242,7 +242,7 @@ def test_from_type_simple_dataclass():
     assert isinstance(point.y, int)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_dataclass_with_str():
     """from_type should handle dataclasses with string fields."""
     person = from_type(Person).generate()
@@ -251,7 +251,7 @@ def test_from_type_dataclass_with_str():
     assert isinstance(person.age, int)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_dataclass_with_optional():
     """from_type should handle Optional fields in dataclasses."""
     obj = from_type(OptionalFields).generate()
@@ -265,7 +265,7 @@ def test_from_type_dataclass_with_optional():
 # =============================================================================
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_string_enum():
     """from_type should generate enum members."""
     color = from_type(Color).generate()
@@ -273,7 +273,7 @@ def test_from_type_string_enum():
     assert color in [Color.RED, Color.GREEN, Color.BLUE]
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_from_type_int_enum():
     """from_type should generate int enum members."""
     status = from_type(Status).generate()
@@ -286,7 +286,7 @@ def test_from_type_int_enum():
 # =============================================================================
 
 
-@hegel(test_cases=100, verbosity=Verbosity.QUIET)
+@hegel(test_cases=100)
 def test_sampled_from_returns_exact_type():
     """sampled_from should return values of exactly the right type.
 
@@ -309,7 +309,7 @@ def test_sampled_from_returns_exact_type():
 # =============================================================================
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_dicts_generator():
     """dicts() should generate dictionaries."""
     d = dicts(text(max_size=5), integers()).generate()
@@ -319,7 +319,7 @@ def test_dicts_generator():
         assert isinstance(v, int)
 
 
-@hegel(test_cases=50, verbosity=Verbosity.QUIET)
+@hegel(test_cases=50)
 def test_dicts_with_min_size():
     """dicts() should respect min_size."""
     d = dicts(text(max_size=5), integers(), min_size=2).generate()
