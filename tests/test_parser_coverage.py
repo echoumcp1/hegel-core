@@ -1,5 +1,7 @@
 """Tests for parser.py uncovered paths: binary, object, url, domain types."""
 
+import base64
+
 from hegel.parser import from_schema
 
 
@@ -8,8 +10,6 @@ def test_binary_schema():
     v = from_schema({"type": "binary", "min_size": 1, "max_size": 10}).example()
     assert isinstance(v, str)
     # Should be valid base64
-    import base64
-
     decoded = base64.b64decode(v)
     assert 1 <= len(decoded) <= 10
 

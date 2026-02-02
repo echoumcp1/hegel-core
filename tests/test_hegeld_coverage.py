@@ -1,15 +1,22 @@
 """Tests for hegeld.py uncovered paths."""
 
 import socket
+import time
 from threading import Thread
 from unittest.mock import patch
 
 import pytest
 
-from hegel.hegeld import run_server_on_connection
-from hegel.protocol import Connection
+from hegel.hegeld import (
+    CACHE_SIZE,
+    FROM_SCHEMA_CACHE,
+    cached_from_schema,
+    run_server_on_connection,
+)
+from hegel.protocol import Connection, RequestError
 from hegel.sdk import (
     Client,
+    _get_channel,
     generate_from_schema as draw,
     start_span,
     stop_span,
@@ -138,8 +145,6 @@ def test_unknown_command_on_server():
         client = Client(client_connection)
 
         # Send an unknown command on the control channel
-        from hegel.protocol import RequestError
-
         with pytest.raises(RequestError, match="Unknown command"):
             client._control.request({"command": "bogus"}).get()
     finally:
@@ -150,8 +155,6 @@ def test_unknown_command_on_server():
 
 def test_cache_eviction():
     """Test schema cache eviction when exceeding CACHE_SIZE."""
-    from hegel.hegeld import CACHE_SIZE, FROM_SCHEMA_CACHE, cached_from_schema
-
     # Fill the cache beyond CACHE_SIZE
     for i in range(CACHE_SIZE + 10):
         schema = {"type": "integer", "minimum": i, "maximum": i + 100}
@@ -178,12 +181,8 @@ def test_unknown_command_in_test_case():
         client = Client(client_connection)
 
         def my_test():
-            from hegel.sdk import _get_channel
-
             channel = _get_channel()
             # Send an unknown command on the test case channel
-            from hegel.protocol import RequestError
-
             with pytest.raises(RequestError):
                 channel.request({"command": "bogus_command"}).get()
 
@@ -238,8 +237,6 @@ def test_base_exception_in_server():
     We patch receive_request (used in the while loop) to raise KeyboardInterrupt.
     receive_handshake uses receive_request_raw so it is unaffected by the patch.
     """
-    import time
-
     server_socket, client_socket = socket.socketpair()
     server_conn = Connection(server_socket, name="Server")
 

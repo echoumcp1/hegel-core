@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -216,15 +217,11 @@ def test_ipv6():
 
 
 def test_date():
-    import re
-
     v = from_schema({"type": "date"}).example()
     assert re.match(r"^\d{4}-\d{2}-\d{2}$", v)
 
 
 def test_time():
-    import re
-
     v = from_schema({"type": "time"}).example()
     assert re.match(r"^\d{2}:\d{2}:\d{2}", v)
 

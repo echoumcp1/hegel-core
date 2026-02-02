@@ -2,12 +2,14 @@
 
 import socket
 import struct
+import time
 import zlib
 from threading import Thread
 
 import cbor2
 import pytest
 
+from hegel.hegeld import run_server_on_connection
 from hegel.protocol import (
     HEADER_FORMAT,
     MAGIC,
@@ -22,6 +24,7 @@ from hegel.protocol import (
     result_or_error,
     write_packet,
 )
+from hegel.sdk import Client
 
 # ---- Packet validation ----
 
@@ -144,8 +147,6 @@ def test_connection_debug_mode():
         packet = Packet(channel=0, message_id=1, is_reply=False, payload=b"hello")
         write_packet(client_socket, packet)
         # Give the reader time to process
-        import time
-
         time.sleep(0.1)
     finally:
         conn.close()
@@ -166,8 +167,6 @@ def test_debug_packet_cbor_payload():
             payload=cbor_payload,
         )
         write_packet(client_socket, packet)
-        import time
-
         time.sleep(0.1)
     finally:
         conn.close()
@@ -188,8 +187,6 @@ def test_debug_packet_binary_payload():
             payload=raw_payload,
         )
         write_packet(client_socket, packet)
-        import time
-
         time.sleep(0.1)
     finally:
         conn.close()
@@ -209,8 +206,6 @@ def test_debug_packet_unknown_channel():
             payload=b"hello",
         )
         write_packet(client_socket, packet)
-        import time
-
         time.sleep(0.1)
     finally:
         conn.close()
@@ -247,8 +242,6 @@ def test_message_to_nonexistent_channel():
         client_conn.send_packet(packet)
 
         # The server should auto-reply with an error
-        import time
-
         time.sleep(0.2)
     finally:
         server_conn.close()
@@ -688,8 +681,6 @@ def test_close_channel_creates_dead_channel():
         ch = client_conn.new_channel(role="ToClose")
         ch.close()
 
-        import time
-
         time.sleep(0.1)
 
         # The channel should now be a DeadChannel on the server side
@@ -795,8 +786,6 @@ def test_dead_channel_reaping():
     We inject old DeadChannel entries directly, then trigger a close message.
     The reader thread's reap_at starts at 1024 for a fresh connection.
     """
-    import time as time_mod
-
     server_socket, client_socket = socket.socketpair()
     server_conn = Connection(server_socket, name="Server")
     client_conn = Connection(client_socket, name="Client")
@@ -806,7 +795,7 @@ def test_dead_channel_reaping():
     try:
         # Directly inject >1024 old dead channels into the server's channels dict
         # This simulates many channels that were opened and closed long ago
-        old_time = time_mod.time() - 60  # 60 seconds ago
+        old_time = time.time() - 60  # 60 seconds ago
         with server_conn._Connection__lock:
             for i in range(2000, 3100):
                 server_conn.channels[i] = DeadChannel(
@@ -821,13 +810,13 @@ def test_dead_channel_reaping():
         server_conn.connect_channel(ch.channel_id)
         ch.close()
 
-        time_mod.sleep(1.0)
+        time.sleep(1.0)
 
         # Verify that old dead channels were reaped
         remaining_dead = sum(
             1
             for v in server_conn.channels.values()
-            if isinstance(v, DeadChannel) and v.died < time_mod.time() - 30
+            if isinstance(v, DeadChannel) and v.died < time.time() - 30
         )
         assert remaining_dead == 0
     finally:
@@ -873,8 +862,6 @@ def test_connection_debug_cbor_payload():
 
         # Send a CBOR payload (non-ASCII)
         ch_client.send_request({"test": "data"})
-        import time
-
         time.sleep(0.2)
     finally:
         server_conn.close()
@@ -896,8 +883,6 @@ def test_connection_debug_binary_payload():
         # Send raw binary that's neither valid ASCII nor valid CBOR
         # 0xFC-0xFE are reserved CBOR and not valid ASCII
         ch_client.send_request_raw(b"\xfc\xfd\xfe")
-        import time
-
         time.sleep(0.2)
     finally:
         server_conn.close()
@@ -918,8 +903,6 @@ def test_message_to_dead_channel():
 
         # Close the channel on client side
         ch_client.close()
-        import time
-
         time.sleep(0.2)
 
         # Now send a request to the dead channel from server
@@ -991,9 +974,6 @@ def test_concurrent_connection_handshake():
     could start before the control channel was registered, causing handshake
     messages for channel 0 to be treated as messages to a non-existent channel.
     """
-
-    from hegel.hegeld import run_server_on_connection
-    from hegel.sdk import Client
 
     for _ in range(20):
         server_socket, client_socket = socket.socketpair()
