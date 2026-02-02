@@ -102,7 +102,7 @@ def test_run_with_callback_on_stdout_file():
     result = run_with_callback(
         [sys.executable, "-c", "print('hello')"],
         timeout=10,
-        on_stdout_file=lambda path: captured_path.append(path),
+        on_stdout_file=captured_path.append,
     )(lambda cmd, payload: None)
 
     assert result.exit_code == 0

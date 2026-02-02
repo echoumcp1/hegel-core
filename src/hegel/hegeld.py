@@ -16,7 +16,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from hypothesis import Verbosity, settings
+from hypothesis import settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import StopTest
@@ -48,12 +48,11 @@ def cached_from_schema(schema: dict) -> Any:
         return result
 
 
-def make_settings(test_cases: int, verbosity: Verbosity) -> settings:
+def make_settings(test_cases: int) -> settings:
     return settings(
         deadline=None,
         database=DATABASE,
         max_examples=test_cases,
-        verbosity=verbosity,
     )
 
 
@@ -162,7 +161,6 @@ def run_server_on_connection(connection: Connection) -> None:
                             channel,
                             test_name=test_name,
                             test_cases=message.get("test_cases", 1000),
-                            verbosity=Verbosity(message.get("verbosity", "normal")),
                         ),
                     )
                     connection.control_channel.send_response_value(
@@ -193,7 +191,6 @@ def handle_run_test(
     channel: Channel,
     test_name: str,
     test_cases: int = 100,
-    verbosity: Verbosity = Verbosity.normal,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -212,7 +209,7 @@ def handle_run_test(
 
         runner = ConjectureRunner(
             test_function,
-            settings=make_settings(test_cases, verbosity),
+            settings=make_settings(test_cases),
             database_key=db_key,
         )
         runner.run()

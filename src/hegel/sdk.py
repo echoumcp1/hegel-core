@@ -58,15 +58,6 @@ class DataExhausted(Exception):
     """Raised when the server runs out of test data (StopTest)."""
 
 
-class Verbosity(Enum):
-    """Verbosity level for test output."""
-
-    QUIET = "quiet"
-    NORMAL = "normal"
-    VERBOSE = "verbose"
-    DEBUG = "debug"
-
-
 # Span labels (matching Rust SDK)
 class Labels:
     LIST = 1
@@ -934,7 +925,6 @@ class _HegelSession:
         self._connection: Connection | None = None
         self._client: Client | None = None
         self._temp_dir: tempfile.TemporaryDirectory | None = None
-        self._verbosity = Verbosity.NORMAL
         self.__lock = threading.Lock()
 
     def __has_working_client(self):
@@ -948,7 +938,6 @@ class _HegelSession:
         with self.__lock:
             if self.__has_working_client():
                 return
-            self._verbosity = verbosity
             self._temp_dir = tempfile.TemporaryDirectory(prefix="hegel-")
             socket_path = os.path.join(self._temp_dir.name, "hegel.sock")
 
@@ -956,8 +945,6 @@ class _HegelSession:
             cmd_args = [
                 *hegel_cmd.split(),
                 socket_path,
-                "--verbosity",
-                verbosity.value,
             ]
 
             # Start hegeld - it will bind to the socket and listen
@@ -1035,7 +1022,6 @@ def hegel(
     test_fn: Callable[[], None] | None = None,
     *,
     test_cases: int = 100,
-    verbosity: Verbosity = Verbosity.NORMAL,
 ) -> Callable[[Callable[[], None]], Callable[[], None]] | Callable[[], None]:
     """Decorator for running property-based tests with Hegel.
 
@@ -1056,7 +1042,7 @@ def hegel(
     def decorator(fn: Callable[[], None]) -> Callable[[], None]:
         @functools.wraps(fn)
         def wrapper() -> None:
-            run_hegel_test(fn, test_cases=test_cases, verbosity=verbosity)
+            run_hegel_test(fn, test_cases=test_cases)
 
         return wrapper
 
@@ -1070,7 +1056,6 @@ def run_hegel_test(
     test_fn: Callable[[], None],
     *,
     test_cases: int = 100,
-    verbosity: Verbosity = Verbosity.NORMAL,
 ) -> None:
     """Run a property test using the shared hegeld process.
 
@@ -1078,4 +1063,4 @@ def run_hegel_test(
     - Re-raises the original exception if there's exactly one minimal failing case
     - Raises an ExceptionGroup if there are multiple distinct minimal failing cases
     """
-    _session.run_test(test_fn, test_cases, verbosity)
+    _session.run_test(test_fn, test_cases)
