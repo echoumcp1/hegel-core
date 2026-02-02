@@ -10,6 +10,7 @@ from enum import Enum
 import pytest
 
 from hegel.sdk import (
+    DataclassGenerator,
     Verbosity,
     dicts,
     from_type,
@@ -339,7 +340,5 @@ def test_from_type_unsupported_type():
 
 def test_dataclass_generator_non_dataclass():
     """DataclassGenerator should reject non-dataclass types."""
-    from hegel.sdk import DataclassGenerator
-
     with pytest.raises(TypeError, match="is not a dataclass"):
         DataclassGenerator(CustomClass)

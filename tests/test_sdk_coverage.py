@@ -1,14 +1,19 @@
 """Tests for sdk.py uncovered paths."""
 
+import contextlib
 import socket
 import sys
+import threading
+import typing
+from dataclasses import dataclass
+from enum import Enum
 from threading import Thread
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from hegel.hegeld import run_server_on_connection
-from hegel.protocol import Connection
+from hegel.protocol import Connection, RequestError
 from hegel.sdk import (
     Client,
     CompositeDictGenerator,
@@ -17,11 +22,17 @@ from hegel.sdk import (
     CompositeTupleGenerator,
     DataclassGenerator,
     FilteredGenerator,
+    Generator,
     SampledFromGenerator,
     SchemaDictGenerator,
     Verbosity,
+    _current_channel,
     _extract_origin,
     _find_hegeld,
+    _get_channel,
+    _HegelSession,
+    _is_final,
+    _test_aborted,
     assume,
     binary,
     dicts,
@@ -405,7 +416,6 @@ def test_just_generator():
 
 def test_dataclass_generator():
     """Test DataclassGenerator."""
-    from dataclasses import dataclass
 
     @dataclass
     class Point:
@@ -429,7 +439,6 @@ def test_dataclass_generator():
 
 def test_dataclass_generator_with_field():
     """Test DataclassGenerator.with_field()."""
-    from dataclasses import dataclass
 
     @dataclass
     class Point:
@@ -446,7 +455,6 @@ def test_dataclass_generator_with_field():
 
 def test_dataclass_generator_compositional():
     """Test DataclassGenerator with fields that lack schema."""
-    from dataclasses import dataclass
 
     @dataclass
     class Thing:
@@ -559,7 +567,6 @@ def test_from_type_set_bare():
 
 def test_from_type_enum():
     """Test from_type with Enum."""
-    from enum import Enum
 
     class Color(Enum):
         RED = 1
@@ -644,16 +651,12 @@ def test_find_hegeld_fallback():
 
 def test_hegel_session_cleanup():
     """Test _HegelSession._cleanup handles all branches."""
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
 
     # Cleanup with nothing set should be a no-op
     session._cleanup()
 
     # Set up mock fields
-    from unittest.mock import MagicMock
-
     session._connection = MagicMock()
     session._client = MagicMock()
     session._process = MagicMock()
@@ -671,10 +674,6 @@ def test_hegel_session_cleanup():
 
 def test_hegel_session_cleanup_with_exceptions():
     """Test _HegelSession._cleanup suppresses exceptions."""
-    from unittest.mock import MagicMock
-
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
 
     session._connection = MagicMock()
@@ -696,8 +695,6 @@ def test_hegel_session_cleanup_with_exceptions():
 
 def test_hegel_session_start_and_run():
     """Test _HegelSession full lifecycle."""
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
     try:
         session._start(Verbosity.QUIET)
@@ -712,8 +709,6 @@ def test_hegel_session_start_and_run():
 
 def test_hegel_session_run_test():
     """Test _HegelSession.run_test."""
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
     try:
 
@@ -731,10 +726,6 @@ def test_hegel_session_run_test():
 
 def test_start_stop_span_when_aborted():
     """Test start_span/stop_span are no-ops when test is aborted."""
-    from unittest.mock import MagicMock
-
-    from hegel.sdk import _current_channel, _test_aborted
-
     token_aborted = _test_aborted.set(True)
     token_channel = _current_channel.set(MagicMock())
     try:
@@ -851,7 +842,6 @@ def test_schema_dict_generator_through_server():
 
 def test_dataclass_with_composite_field_through_server():
     """Test DataclassGenerator with fields that have no schema."""
-    from dataclasses import dataclass
 
     @dataclass
     class Point:
@@ -877,10 +867,6 @@ def test_dataclass_with_composite_field_through_server():
 
 def test_note_on_final_run():
     """Test note() prints on final run."""
-    from unittest.mock import MagicMock
-
-    from hegel.sdk import _current_channel, _is_final
-
     token_final = _is_final.set(True)
     token_channel = _current_channel.set(MagicMock())
     try:
@@ -893,8 +879,6 @@ def test_note_on_final_run():
 
 def test_get_channel_outside_context():
     """Test _get_channel raises RuntimeError outside test context."""
-    from hegel.sdk import _get_channel
-
     with pytest.raises(RuntimeError, match="Not in a test context"):
         _get_channel()
 
@@ -907,8 +891,6 @@ def test_generator_base_schema():
             return 42
 
     # Use Generator base directly
-    from hegel.sdk import Generator
-
     class SimpleGen(Generator):
         def generate(self):
             return 42
@@ -949,7 +931,6 @@ def test_schema_dict_generator_schema():
 
 def test_dataclass_generator_schema_with_all_schemas():
     """Test DataclassGenerator.schema() when all fields have schemas."""
-    from dataclasses import dataclass
 
     @dataclass
     class Point:
@@ -966,7 +947,6 @@ def test_dataclass_generator_schema_with_all_schemas():
 
 def test_dataclass_generator_schema_returns_none_for_non_schema_field():
     """Test DataclassGenerator.schema() returns None when field has no schema."""
-    from dataclasses import dataclass
 
     @dataclass
     class Point:
@@ -1006,8 +986,6 @@ def test_from_type_typing_list_subscripted():
 
 def test_from_type_typing_list_bare():
     """Test from_type with typing.List (no args) - hits default branch."""
-    import typing
-
     gen = from_type(typing.List)  # noqa: UP006
     assert gen is not None
 
@@ -1021,8 +999,6 @@ def test_from_type_typing_dict_subscripted():
 
 def test_from_type_typing_dict_bare():
     """Test from_type with typing.Dict (no args) - hits default branch."""
-    import typing
-
     gen = from_type(typing.Dict)  # noqa: UP006
     assert gen is not None
 
@@ -1036,8 +1012,6 @@ def test_from_type_typing_tuple_subscripted():
 
 def test_from_type_typing_tuple_bare():
     """Test from_type with typing.Tuple (no args) - hits default branch."""
-    import typing
-
     gen = from_type(typing.Tuple)  # noqa: UP006
     assert gen is not None
 
@@ -1051,8 +1025,6 @@ def test_from_type_typing_set_subscripted():
 
 def test_from_type_typing_set_bare():
     """Test from_type with typing.Set (no args) - hits default branch."""
-    import typing
-
     gen = from_type(typing.Set)  # noqa: UP006
     assert gen is not None
 
@@ -1087,8 +1059,6 @@ def test_binary_generator_schema():
 
 def test_hegel_session_start_verbose():
     """Test _HegelSession._start with verbose verbosity."""
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
     try:
         session._start(Verbosity.VERBOSE)
@@ -1161,8 +1131,6 @@ def test_generate_from_schema_non_stop_test_error():
 
         def my_test():
             # Invalid schema type should cause a server-side error
-            from hegel.protocol import RequestError
-
             with pytest.raises(RequestError):
                 draw({"type": "completely_invalid_schema_type"})
 
@@ -1249,10 +1217,6 @@ def test_hegel_session_start_verbose_double_check_lock():
 
     This covers sdk.py line 953 by calling _start twice rapidly.
     """
-    import threading
-
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
     started = threading.Event()
     errors = []
@@ -1283,10 +1247,6 @@ def test_hegel_session_timeout_kill():
 
     This covers sdk.py lines 990-991.
     """
-    from unittest.mock import MagicMock
-
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
 
     # Mock _find_hegeld to return a command that creates a socket file
@@ -1311,10 +1271,6 @@ def test_hegel_session_connection_retry():
 
     This covers sdk.py lines 984-986.
     """
-    from unittest.mock import MagicMock
-
-    from hegel.sdk import _HegelSession
-
     session = _HegelSession()
 
     with (
@@ -1378,10 +1334,6 @@ def test_is_final_pass_with_multiple_interesting():
 
     This covers sdk.py line 171 (the AssertionError for is_final pass).
     """
-    import contextlib
-
-    from hegel.protocol import RequestError
-
     client, conn, thread = _make_client()
     try:
 

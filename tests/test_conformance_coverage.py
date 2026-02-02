@@ -4,9 +4,10 @@ import os
 import stat
 import sys
 import tempfile
+from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import find, given, settings, strategies as st
 
 from hegel.conformance import (
     BinaryConformance,
@@ -19,6 +20,7 @@ from hegel.conformance import (
     SampledFromConformance,
     TextConformance,
     _integer_params_strategy,
+    run_conformance_tests,
 )
 
 
@@ -254,8 +256,6 @@ def test_float_conformance_params_min_equals_max():
         fc = FloatConformance(binary_path, test_cases=1)
 
         # Draw from the strategy many times until we hit the min==max path
-        from hypothesis import find
-
         params = find(
             fc.params_strategy(),
             lambda p: (
@@ -907,10 +907,6 @@ def test_run_conformance_tests_function():
 
 def test_run_conformance_tests_full(subtests):
     """Test run_conformance_tests exercises the function structure."""
-    from unittest.mock import MagicMock
-
-    from hegel.conformance import run_conformance_tests
-
     binary_path = _make_conformance_binary(
         "mf.write(json.dumps({'value': True}) + '\\n')",
     )
@@ -935,12 +931,10 @@ def test_run_conformance_tests_full(subtests):
         for t in tests:
             t.run = MagicMock()
 
-        from hypothesis import settings as Settings
-
         run_conformance_tests(
             tests,
             subtests,
-            settings=Settings(max_examples=1, deadline=None),
+            settings=settings(max_examples=1, deadline=None),
         )
     finally:
         os.unlink(binary_path)

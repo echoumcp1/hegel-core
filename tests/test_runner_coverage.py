@@ -1,5 +1,6 @@
 """Tests for runner.py uncovered paths."""
 
+import json
 import math
 import sys
 
@@ -62,16 +63,12 @@ def test_convert_json_passthrough():
 
 def test_hegel_encoder_set():
     """Test HegelEncoder converts sets to lists."""
-    import json
-
     result = json.loads(json.dumps({1, 2, 3}, cls=HegelEncoder))
     assert sorted(result) == [1, 2, 3]
 
 
 def test_hegel_encoder_frozenset():
     """Test HegelEncoder converts frozensets to lists."""
-    import json
-
     result = json.loads(json.dumps(frozenset([1, 2]), cls=HegelEncoder))
     assert sorted(result) == [1, 2]
 

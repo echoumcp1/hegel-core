@@ -3,6 +3,7 @@
 import os
 import socket
 import tempfile
+import time
 from threading import Thread
 
 from click.testing import CliRunner
@@ -14,7 +15,6 @@ from hegel.sdk import Client
 
 def _wait_and_connect(socket_path, timeout=5.0):
     """Wait for a Unix socket to appear and connect to it."""
-    import time
 
     deadline = time.time() + timeout
     while time.time() < deadline:
