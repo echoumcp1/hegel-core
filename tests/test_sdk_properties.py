@@ -120,7 +120,7 @@ def test_division_with_assume():
 def test_finds_failing_case():
     """Verify that the framework finds failing cases and re-raises."""
 
-    @hegel(test_cases=50, verbosity=Verbosity.QUIET)
+    @hegel(test_cases=50)
     def failing_prop():
         x = integers(min_value=0, max_value=1000).generate()
         # This fails for x > 50
@@ -134,7 +134,7 @@ def test_finds_failing_case():
 def test_finds_edge_case_in_list():
     """Verify shrinking finds minimal failing case - re-raises original exception."""
 
-    @hegel(test_cases=50, verbosity=Verbosity.QUIET)
+    @hegel(test_cases=50)
     def failing_prop():
         xs = lists(
             integers(min_value=0, max_value=100),
@@ -158,7 +158,7 @@ def test_target_guides_toward_larger_values():
     """Use target() to guide search toward edge cases."""
     max_seen = [0]
 
-    @hegel(test_cases=100, verbosity=Verbosity.QUIET)
+    @hegel(test_cases=100)
     def prop():
         x = floats(min_value=0, max_value=10000).generate()
         score = 1 - (float(x) - 101) ** 2
