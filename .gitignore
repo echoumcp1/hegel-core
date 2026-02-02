@@ -16,8 +16,7 @@ devcontainer
 .coverage
 error.log
 
-# claude-reliability managed
-.claude/bin/
+.claude/reliability-config.yml
 .claude/*.local.md
 .claude/*.local.json
 .claude/*.local
