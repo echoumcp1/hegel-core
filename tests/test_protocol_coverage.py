@@ -23,7 +23,6 @@ from hegel.protocol import (
     write_packet,
 )
 
-
 # ---- Packet validation ----
 
 
@@ -72,7 +71,12 @@ def test_recv_exact_connection_closed_no_data():
 
 
 def _make_raw_packet(
-    magic, checksum, channel, message_id, payload, terminator=TERMINATOR,
+    magic,
+    checksum,
+    channel,
+    message_id,
+    payload,
+    terminator=TERMINATOR,
 ):
     """Build a raw packet with possibly-invalid fields."""
     length = len(payload)
@@ -156,7 +160,10 @@ def test_debug_packet_cbor_payload():
         # Send CBOR payload (non-ASCII)
         cbor_payload = cbor2.dumps({"hello": "world"})
         packet = Packet(
-            channel=0, message_id=1, is_reply=False, payload=cbor_payload,
+            channel=0,
+            message_id=1,
+            is_reply=False,
+            payload=cbor_payload,
         )
         write_packet(client_socket, packet)
         import time
@@ -175,7 +182,10 @@ def test_debug_packet_binary_payload():
         # Send raw binary that's neither ASCII nor valid CBOR
         raw_payload = bytes(range(128, 160))
         packet = Packet(
-            channel=0, message_id=1, is_reply=False, payload=raw_payload,
+            channel=0,
+            message_id=1,
+            is_reply=False,
+            payload=raw_payload,
         )
         write_packet(client_socket, packet)
         import time
@@ -193,7 +203,10 @@ def test_debug_packet_unknown_channel():
         conn = Connection(server_socket, name="DebugUnk", debug=True)
         # Send to a channel that doesn't exist
         packet = Packet(
-            channel=999, message_id=1, is_reply=False, payload=b"hello",
+            channel=999,
+            message_id=1,
+            is_reply=False,
+            payload=b"hello",
         )
         write_packet(client_socket, packet)
         import time
@@ -564,7 +577,9 @@ def test_send_response_error_with_kwargs():
             ch = server_conn.new_channel(role="ErrKw")
             msg_id, _ = ch.receive_request()
             ch.send_response_error(
-                msg_id, error="custom error", error_type="CustomType",
+                msg_id,
+                error="custom error",
+                error_type="CustomType",
             )
 
         t = Thread(target=server_side, daemon=True)

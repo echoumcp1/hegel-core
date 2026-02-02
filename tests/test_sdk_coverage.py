@@ -11,10 +11,10 @@ from hegel.hegeld import run_server_on_connection
 from hegel.protocol import Connection
 from hegel.sdk import (
     Client,
-    CompositeListGenerator,
-    CompositeTupleGenerator,
-    CompositeOneOfGenerator,
     CompositeDictGenerator,
+    CompositeListGenerator,
+    CompositeOneOfGenerator,
+    CompositeTupleGenerator,
     DataclassGenerator,
     FilteredGenerator,
     SampledFromGenerator,
@@ -671,8 +671,9 @@ def test_hegel_session_cleanup():
 
 def test_hegel_session_cleanup_with_exceptions():
     """Test _HegelSession._cleanup suppresses exceptions."""
-    from hegel.sdk import _HegelSession
     from unittest.mock import MagicMock
+
+    from hegel.sdk import _HegelSession
 
     session = _HegelSession()
 
@@ -730,8 +731,9 @@ def test_hegel_session_run_test():
 
 def test_start_stop_span_when_aborted():
     """Test start_span/stop_span are no-ops when test is aborted."""
-    from hegel.sdk import _test_aborted, _current_channel
     from unittest.mock import MagicMock
+
+    from hegel.sdk import _current_channel, _test_aborted
 
     token_aborted = _test_aborted.set(True)
     token_channel = _current_channel.set(MagicMock())
@@ -751,6 +753,7 @@ def test_composite_list_generator_through_server():
     """Test CompositeListGenerator with live server."""
     client, client_conn, thread = _make_client()
     try:
+
         def my_test():
             # MappedGenerator has no schema, so lists() uses CompositeListGenerator
             mapped = integers().map(lambda x: x * 2)
@@ -768,6 +771,7 @@ def test_composite_tuple_generator_through_server():
     """Test CompositeTupleGenerator with live server."""
     client, client_conn, thread = _make_client()
     try:
+
         def my_test():
             # MappedGenerator has no schema, so tuples() uses CompositeTupleGenerator
             mapped = integers().map(lambda x: x * 2)
@@ -785,6 +789,7 @@ def test_composite_one_of_generator_through_server():
     """Test CompositeOneOfGenerator with live server."""
     client, client_conn, thread = _make_client()
     try:
+
         def my_test():
             mapped = integers().map(lambda x: x * 2)
             result = one_of(mapped, text()).generate()
@@ -800,6 +805,7 @@ def test_composite_dict_generator_through_server():
     """Test CompositeDictGenerator with live server."""
     client, client_conn, thread = _make_client()
     try:
+
         def my_test():
             mapped_keys = text().map(lambda x: x.upper())
             result = dicts(mapped_keys, integers(), min_size=0, max_size=3).generate()
@@ -832,6 +838,7 @@ def test_schema_dict_generator_through_server():
     """Test SchemaDictGenerator with live server."""
     client, client_conn, thread = _make_client()
     try:
+
         def my_test():
             result = dicts(text(), integers(), min_size=0, max_size=2).generate()
             assert isinstance(result, dict)
@@ -853,6 +860,7 @@ def test_dataclass_with_composite_field_through_server():
 
     client, client_conn, thread = _make_client()
     try:
+
         def my_test():
             gen = DataclassGenerator(Point)
             mapped_gen = integers().map(lambda x: x * 2)
@@ -869,8 +877,9 @@ def test_dataclass_with_composite_field_through_server():
 
 def test_note_on_final_run():
     """Test note() prints on final run."""
-    from hegel.sdk import _is_final, _current_channel
     from unittest.mock import MagicMock
+
+    from hegel.sdk import _current_channel, _is_final
 
     token_final = _is_final.set(True)
     token_channel = _current_channel.set(MagicMock())
@@ -927,11 +936,13 @@ def test_filtered_generator_schema():
 
 def test_schema_dict_generator_schema():
     """Test SchemaDictGenerator.schema() returns schema."""
-    gen = SchemaDictGenerator({
-        "type": "dict",
-        "keys": {"type": "string"},
-        "values": {"type": "integer"},
-    })
+    gen = SchemaDictGenerator(
+        {
+            "type": "dict",
+            "keys": {"type": "string"},
+            "values": {"type": "integer"},
+        },
+    )
     assert gen.schema() is not None
     assert gen.schema()["type"] == "dict"
 
@@ -1050,6 +1061,7 @@ def test_failing_test_single_interesting():
     """Test that a single failing test raises properly."""
     client, client_conn, thread = _make_client()
     try:
+
         def my_test():
             x = draw({"type": "integer", "minimum": 0, "maximum": 100})
             assert x < 50
@@ -1196,7 +1208,8 @@ def test_unrecognised_event_in_run_test():
         # Receive run_test command
         msg_id, message = control.receive_request()
         test_channel = server_conn.connect_channel(
-            message["channel"], role="Test",
+            message["channel"],
+            role="Test",
         )
         control.send_response_value(msg_id, message=True)
 
@@ -1207,13 +1220,16 @@ def test_unrecognised_event_in_run_test():
 
         # Now send test_done
         test_channel.request(
-            {"event": "test_done", "results": {
-                "passed": True,
-                "examples_run": 0,
-                "valid_test_cases": 0,
-                "invalid_test_cases": 0,
-                "interesting_test_cases": 0,
-            }},
+            {
+                "event": "test_done",
+                "results": {
+                    "passed": True,
+                    "examples_run": 0,
+                    "valid_test_cases": 0,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": 0,
+                },
+            },
         ).get()
 
     t = Thread(target=fake_server, daemon=True)
@@ -1233,8 +1249,9 @@ def test_hegel_session_start_verbose_double_check_lock():
 
     This covers sdk.py line 953 by calling _start twice rapidly.
     """
-    from hegel.sdk import _HegelSession
     import threading
+
+    from hegel.sdk import _HegelSession
 
     session = _HegelSession()
     started = threading.Event()
@@ -1266,8 +1283,9 @@ def test_hegel_session_timeout_kill():
 
     This covers sdk.py lines 990-991.
     """
-    from hegel.sdk import _HegelSession
     from unittest.mock import MagicMock
+
+    from hegel.sdk import _HegelSession
 
     session = _HegelSession()
 
@@ -1293,8 +1311,9 @@ def test_hegel_session_connection_retry():
 
     This covers sdk.py lines 984-986.
     """
-    from hegel.sdk import _HegelSession
     from unittest.mock import MagicMock
+
+    from hegel.sdk import _HegelSession
 
     session = _HegelSession()
 

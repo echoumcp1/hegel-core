@@ -61,7 +61,10 @@ def test_integer_params_strategy_max_only(params):
 def _make_conformance_binary(script_body):
     """Create a temporary executable Python script for conformance testing."""
     with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False, prefix="conform_",
+        mode="w",
+        suffix=".py",
+        delete=False,
+        prefix="conform_",
     ) as f:
         f.write(f"#!{sys.executable}\n")
         f.write("import json, os, sys\n")
@@ -915,8 +918,10 @@ def test_run_conformance_tests_full(subtests):
         tests = [
             BooleanConformance(binary_path, test_cases=1),
             IntegerConformance(
-                binary_path, test_cases=1,
-                min_value=None, max_value=None,
+                binary_path,
+                test_cases=1,
+                min_value=None,
+                max_value=None,
             ),
             FloatConformance(binary_path, test_cases=1),
             TextConformance(binary_path, test_cases=1),
@@ -950,14 +955,16 @@ def test_float_conformance_run():
     binary_path = _make_conformance_binary(script)
     try:
         fc = FloatConformance(binary_path, test_cases=2)
-        fc.run({
-            "min_value": 0.0,
-            "max_value": 10.0,
-            "exclude_min": False,
-            "exclude_max": False,
-            "allow_nan": False,
-            "allow_infinity": False,
-        })
+        fc.run(
+            {
+                "min_value": 0.0,
+                "max_value": 10.0,
+                "exclude_min": False,
+                "exclude_max": False,
+                "allow_nan": False,
+                "allow_infinity": False,
+            },
+        )
     finally:
         os.unlink(binary_path)
 
@@ -1001,12 +1008,14 @@ def test_list_conformance_run():
     binary_path = _make_conformance_binary(script)
     try:
         lc = ListConformance(binary_path, test_cases=2, min_value=0, max_value=100)
-        lc.run({
-            "min_size": 0,
-            "max_size": 10,
-            "min_value": 0,
-            "max_value": 100,
-        })
+        lc.run(
+            {
+                "min_size": 0,
+                "max_size": 10,
+                "min_value": 0,
+                "max_value": 100,
+            },
+        )
     finally:
         os.unlink(binary_path)
 
@@ -1036,14 +1045,16 @@ def test_dict_conformance_run():
     binary_path = _make_conformance_binary(script)
     try:
         dc = DictConformance(binary_path, test_cases=2)
-        dc.run({
-            "min_size": 0,
-            "max_size": 10,
-            "key_type": "integer",
-            "min_key": 0,
-            "max_key": 100,
-            "min_value": 0,
-            "max_value": 100,
-        })
+        dc.run(
+            {
+                "min_size": 0,
+                "max_size": 10,
+                "key_type": "integer",
+                "min_key": 0,
+                "max_key": 100,
+                "min_value": 0,
+                "max_value": 100,
+            },
+        )
     finally:
         os.unlink(binary_path)

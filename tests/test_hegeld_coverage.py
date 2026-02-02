@@ -150,7 +150,7 @@ def test_unknown_command_on_server():
 
 def test_cache_eviction():
     """Test schema cache eviction when exceeding CACHE_SIZE."""
-    from hegel.hegeld import FROM_SCHEMA_CACHE, CACHE_SIZE, cached_from_schema
+    from hegel.hegeld import CACHE_SIZE, FROM_SCHEMA_CACHE, cached_from_schema
 
     # Fill the cache beyond CACHE_SIZE
     for i in range(CACHE_SIZE + 10):
@@ -213,11 +213,13 @@ def test_mark_interesting_status():
 
         def my_test():
             call_count[0] += 1
-            draw({
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 1000,
-            })
+            draw(
+                {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000,
+                },
+            )
             # Always fail - this will mark test cases as INTERESTING
             raise AssertionError
 
