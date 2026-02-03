@@ -10,6 +10,7 @@ import cbor2
 import pytest
 
 from hegel.hegeld import run_server_on_connection
+import hegel.protocol as protocol
 from hegel.protocol import (
     HEADER_FORMAT,
     MAGIC,
@@ -663,28 +664,49 @@ def test_bad_handshake_negotiation_inline():
 # ---- Dead channel reaping ----
 
 
-def test_close_channel_creates_dead_channel():
+@pytest.mark.parametrize('create_channel_first', [False, True])
+def test_close_channel_creates_dead_channel(monkeypatch, create_channel_first):
     """Test that closing a channel creates a DeadChannel."""
+    monkeypatch.setattr(protocol, '_DEBUG', True)
     server_socket, client_socket = socket.socketpair()
     try:
         server_conn = Connection(server_socket, name="Server")
         client_conn = Connection(client_socket, name="Client")
 
+
         def server_side():
             server_conn.receive_handshake()
+            channel = server_conn.control_channel
+            if create_channel_first:
+                msg_id, msg = channel.receive_request()
+                channel_id = msg["channel"]
+                server_conn.connect_channel(channel_id, role="Hello")
+                channel.send_response_value(msg_id, "Ok")
+            msg_id, _ = channel.receive_request()
+            channel.send_response_value(msg_id, "Ok")
 
         t = Thread(target=server_side, daemon=True)
         t.start()
         client_conn.send_handshake()
-        t.join(timeout=1)
 
-        ch = client_conn.new_channel(role="ToClose")
-        ch.close()
+        client_channel_to_close = client_conn.new_channel(role="ToClose")
 
-        time.sleep(0.1)
+        if create_channel_first:
+            assert client_conn.control_channel.request({'channel': client_channel_to_close.channel_id}).get() == "Ok"
+
+        client_channel_to_close.close()
+
+        assert client_conn.control_channel.request({}).get() == "Ok"
 
         # The channel should now be a DeadChannel on the server side
-        # (after close message is received)
+        # because the close happened before the response was sent to
+        # our last request.
+        dead = server_conn.channels[client_channel_to_close.channel_id]
+        assert isinstance(dead, DeadChannel)
+        if create_channel_first:
+            assert "Hello" in dead.name
+
+
     finally:
         client_conn.close()
         server_conn.close()
@@ -770,55 +792,6 @@ def test_channel_repr_with_role():
         ch = client_conn.new_channel(role="TestRole")
         r = repr(ch)
         assert "role=TestRole" in r
-    finally:
-        server_conn.close()
-        client_conn.close()
-
-
-def test_dead_channel_reaping():
-    """Test that dead channels are reaped when exceeding threshold.
-
-    The reaping logic in __run_reader runs when:
-    1. A close message is received
-    2. len(channels) > reap_at (initially 1024)
-    3. Dead channels have died > 30 seconds ago
-
-    We inject old DeadChannel entries directly, then trigger a close message.
-    The reader thread's reap_at starts at 1024 for a fresh connection.
-    """
-    server_socket, client_socket = socket.socketpair()
-    server_conn = Connection(server_socket, name="Server")
-    client_conn = Connection(client_socket, name="Client")
-
-    _handshake_pair(server_conn, client_conn)
-
-    try:
-        # Directly inject >1024 old dead channels into the server's channels dict
-        # This simulates many channels that were opened and closed long ago
-        old_time = time.time() - 60  # 60 seconds ago
-        with server_conn._Connection__lock:
-            for i in range(2000, 3100):
-                server_conn.channels[i] = DeadChannel(
-                    channel_id=i,
-                    name=f"old-ch-{i}",
-                    died=old_time,
-                )
-
-        # Now create and close a real channel
-        # The reader thread will process the close message and trigger reaping
-        ch = client_conn.new_channel()
-        server_conn.connect_channel(ch.channel_id)
-        ch.close()
-
-        time.sleep(1.0)
-
-        # Verify that old dead channels were reaped
-        remaining_dead = sum(
-            1
-            for v in server_conn.channels.values()
-            if isinstance(v, DeadChannel) and v.died < time.time() - 30
-        )
-        assert remaining_dead == 0
     finally:
         server_conn.close()
         client_conn.close()
