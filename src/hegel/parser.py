@@ -29,7 +29,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if schema_type == "null":
         return st.none()
     if schema_type == "boolean":
-        return BooleansStrategy(schema.get("p", 0.5))
+        return BooleansStrategy(schema["p"])
     if schema_type == "integer":
         return st.integers(
             min_value=schema.get("minimum"),
@@ -37,56 +37,61 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         )
     if schema_type == "number":
         return st.floats(
-            min_value=schema.get("minimum"),
-            max_value=schema.get("maximum"),
-            exclude_min=schema.get("exclude_minimum", False),
-            exclude_max=schema.get("exclude_maximum", False),
-            allow_nan=schema.get("allow_nan", False),
-            allow_infinity=schema.get("allow_infinity", False),
+            schema.get("minimum"),
+            schema.get("maximum"),
+            allow_nan=schema["allow_nan"],
+            allow_infinity=schema["allow_infinity"],
+            width=schema["width"],
+            exclude_min=schema["exclude_minimum"],
+            exclude_max=schema["exclude_maximum"],
         )
     if schema_type == "string":
+        # Exclude null bytes due to reflect-cpp truncation bug:
+        # https://github.com/getml/reflect-cpp/issues/559
+        # Exclude surrogates (Cs category) as they're invalid in UTF-8/JSON
         return st.text(
-            min_size=schema.get("min_size", 0),
+            alphabet=st.characters(
+                blacklist_characters="\x00", blacklist_categories=("Cs",)
+            ),
+            min_size=schema["min_size"],
             max_size=schema.get("max_size"),
         )
     if schema_type == "binary":
         return st.binary(
-            min_size=schema.get("min_size", 0),
+            min_size=schema["min_size"],
             max_size=schema.get("max_size"),
         ).map(lambda b: base64.b64encode(b).decode("ascii"))
     if schema_type == "regex":
-        return st.from_regex(
-            schema["pattern"], fullmatch=schema.get("fullmatch", False)
-        )
+        return st.from_regex(schema["pattern"], fullmatch=schema["fullmatch"])
     if schema_type == "list":
         return st.lists(
-            from_schema(schema.get("elements", {})),
-            min_size=schema.get("min_size", 0),
+            from_schema(schema["elements"]),
+            min_size=schema["min_size"],
             max_size=schema.get("max_size"),
         )
     if schema_type == "set":
         return st.sets(
-            from_schema(schema.get("elements", {})),
-            min_size=schema.get("min_size", 0),
+            from_schema(schema["elements"]),
+            min_size=schema["min_size"],
             max_size=schema.get("max_size"),
         )
     if schema_type == "dict":
         # Convert to [[k, v], ...] format to support non-string keys
         return st.dictionaries(
-            keys=from_schema(schema.get("keys", {"type": "string"})),
-            values=from_schema(schema.get("values", {})),
-            min_size=schema.get("min_size", 0),
+            keys=from_schema(schema["keys"]),
+            values=from_schema(schema["values"]),
+            min_size=schema["min_size"],
             max_size=schema.get("max_size"),
         ).map(lambda d: list(d.items()))
     if schema_type == "tuple":
-        elements = [from_schema(s) for s in schema.get("elements", [])]
+        elements = [from_schema(s) for s in schema["elements"]]
         return st.tuples(*elements)
     if schema_type == "email":
         return st.emails()
     if schema_type == "url":
         return urls()
     if schema_type == "domain":
-        return domains(max_length=schema.get("max_length", 255))
+        return domains(max_length=schema["max_length"])
     if schema_type == "ipv4":
         return st.ip_addresses(v=4).map(str)
     if schema_type == "ipv6":
