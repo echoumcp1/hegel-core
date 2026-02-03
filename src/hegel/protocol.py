@@ -179,7 +179,6 @@ SHUTDOWN = object()
 class DeadChannel:
     channel_id: Id
     name: str
-    died: float
 
 
 class Connection:
@@ -255,7 +254,6 @@ class Connection:
         )
 
     def __run_reader(self):
-        reap_at = 1024
         try:
             while self.__running:
                 packet = read_packet(self.__socket)
@@ -267,24 +265,14 @@ class Connection:
                 if packet.payload == CLOSE_CHANNEL_PAYLOAD:
                     assert packet.message_id == CLOSE_CHANNEL_MESSAGE_ID
                     self._debug_print(f"Received close for {channel_name}")
-                    self.channels[packet.channel] = DeadChannel(
-                        channel_id=packet.channel,
-                        name=self.channels[packet.channel].name,
-                        died=time(),
-                    )
-                    if len(self.channels) > reap_at:
-                        now = time()
-                        with self.__lock:
-                            to_reap = [
-                                k
-                                for k, v in self.channels.items()
-                                if isinstance(v, DeadChannel) and v.died < now - 30
-                            ]
-                        if to_reap:
-                            for k in to_reap:
-                                with self.__lock:
-                                    self.channels.pop(k)
-                        reap_at = max(reap_at, 2 * len(self.channels))
+                    # Dead channel markers only exist for debugging purposes to help
+                    # distinguish messages sent to channels after they were closed
+                    # from messages sent before they were opened.
+                    if _DEBUG:
+                        self.channels[packet.channel] = DeadChannel(
+                            channel_id=packet.channel,
+                            name=self.channels[packet.channel].name if packet.channel in self.channels else "Never opened!",
+                        )
                 else:
                     if channel is None or isinstance(channel, DeadChannel):
                         error_type = "non-existent" if channel is None else "closed"
@@ -455,11 +443,11 @@ class Channel:
             self.__closed = True
             return
         self.__closed = True
-        self.connection.channels[self.channel_id] = DeadChannel(
-            name=self.name,
-            channel_id=self.channel_id,
-            died=time(),
-        )
+        if _DEBUG:
+            self.connection.channels[self.channel_id] = DeadChannel(
+                name=self.name,
+                channel_id=self.channel_id,
+            )
         self.connection.send_packet(
             Packet(
                 payload=CLOSE_CHANNEL_PAYLOAD,
