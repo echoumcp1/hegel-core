@@ -60,6 +60,8 @@ class DataExhausted(Exception):
 
 # Span labels (matching Rust SDK)
 class Labels:
+    """Constants for span labels used in generation tracking."""
+
     LIST = 1
     LIST_ELEMENT = 2
     SET = 3

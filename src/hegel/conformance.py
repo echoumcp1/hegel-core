@@ -17,6 +17,7 @@ def _integer_params_strategy(
     min_value: int | None,
     max_value: int | None,
 ) -> dict[str, Any]:
+    """Generate random integer bounds within the given constraints."""
     drawn_min = min_value
     drawn_max = max_value
 
@@ -33,6 +34,8 @@ def _integer_params_strategy(
 
 
 class ConformanceTest(ABC):
+    """Base class for SDK conformance tests."""
+
     default_test_cases: int = 50
     registered_tests: ClassVar[set[type["ConformanceTest"]]] = set()
 
@@ -49,16 +52,21 @@ class ConformanceTest(ABC):
         self.test_cases = test_cases or self.default_test_cases
 
     @abstractmethod
-    def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]: ...
+    def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
+        """Return a strategy for generating test parameters."""
+        ...
 
     @abstractmethod
     def validate(
         self,
         metrics_list: list[dict[str, Any]],
         params: dict[str, Any],
-    ) -> None: ...
+    ) -> None:
+        """Validate that the SDK output matches the expected constraints."""
+        ...
 
     def run(self, params: dict[str, Any]) -> None:
+        """Run the conformance binary and validate its output."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl") as f:
             metrics_file = Path(f.name)
             input_json = json.dumps(params)
@@ -89,6 +97,8 @@ class ConformanceTest(ABC):
 
 
 class BooleanConformance(ConformanceTest):
+    """Conformance test for boolean generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         return st.just({})
 
@@ -102,6 +112,8 @@ class BooleanConformance(ConformanceTest):
 
 
 class IntegerConformance(ConformanceTest):
+    """Conformance test for integer generation with bounds."""
+
     def __init__(
         self,
         binary_path: str | Path,
@@ -131,6 +143,8 @@ class IntegerConformance(ConformanceTest):
 
 
 class FloatConformance(ConformanceTest):
+    """Conformance test for float generation with bounds and special values."""
+
     default_test_cases = 500  # NaN/infinity are rare, need more samples
 
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
@@ -221,6 +235,8 @@ class FloatConformance(ConformanceTest):
 
 
 class TextConformance(ConformanceTest):
+    """Conformance test for text string generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         @st.composite
         def strategy(draw: st.DrawFn) -> dict[str, Any]:
@@ -251,6 +267,8 @@ class TextConformance(ConformanceTest):
 
 
 class BinaryConformance(ConformanceTest):
+    """Conformance test for binary data generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         @st.composite
         def strategy(draw: st.DrawFn) -> dict[str, Any]:
@@ -281,6 +299,8 @@ class BinaryConformance(ConformanceTest):
 
 
 class ListConformance(ConformanceTest):
+    """Conformance test for list generation with element and size bounds."""
+
     def __init__(
         self,
         binary_path: str | Path,
@@ -336,6 +356,8 @@ class ListConformance(ConformanceTest):
 
 
 class SampledFromConformance(ConformanceTest):
+    """Conformance test for sampled_from generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         @st.composite
         def strategy(draw: st.DrawFn) -> dict[str, Any]:
@@ -361,6 +383,8 @@ class SampledFromConformance(ConformanceTest):
 
 
 class DictConformance(ConformanceTest):
+    """Conformance test for dictionary generation."""
+
     def __init__(
         self,
         binary_path: str | Path,
@@ -452,6 +476,7 @@ def run_conformance_tests(
     *,
     settings: Settings | None = None,
 ) -> None:
+    """Run all conformance tests using pytest subtests."""
     assert {type(t) for t in tests} == ConformanceTest.registered_tests
 
     for test in tests:
