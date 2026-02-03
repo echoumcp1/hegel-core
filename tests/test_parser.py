@@ -10,7 +10,7 @@ from hegel.runner import HegelEncoder
 def primitive_hashable_schemas():
     return (
         st.just({"type": "null"})
-        | st.just({"type": "boolean", "p": 0.5})
+        | st.just({"type": "boolean"})
         | st.builds(
             lambda min_val, max_val: {
                 "type": "integer",
@@ -142,7 +142,7 @@ def test_null():
 
 
 def test_boolean():
-    assert from_schema({"type": "boolean", "p": 0.5}).example() in [True, False]
+    assert from_schema({"type": "boolean"}).example() in [True, False]
 
 
 def test_integer():
@@ -243,9 +243,7 @@ def test_sampled_from():
 
 
 def test_one_of():
-    v = from_schema({
-        "one_of": [{"type": "boolean", "p": 0.5}, {"type": "null"}]
-    }).example()
+    v = from_schema({"one_of": [{"type": "boolean"}, {"type": "null"}]}).example()
     assert v is None or isinstance(v, bool)
 
 
@@ -330,7 +328,7 @@ def test_tuple():
         "elements": [
             {"type": "integer", "minimum": -100, "maximum": 100},
             {"type": "string", "min_size": 0},
-            {"type": "boolean", "p": 0.5},
+            {"type": "boolean"},
         ],
     }
     v = from_schema(schema).example()
