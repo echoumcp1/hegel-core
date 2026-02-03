@@ -14,6 +14,7 @@ Example usage:
         assert a + b == b + a
 """
 
+from dataclasses import dataclass
 import atexit
 import contextlib
 import functools
@@ -41,14 +42,17 @@ from hegel.protocol import (
     RequestError,
 )
 
+@dataclass
+class TestCaseState:
+    channel: Channel
+    is_final: bool
+    aborted: bool
+
 # Context variables for the current test case
-_current_channel: ContextVar[Channel | None] = ContextVar(
-    "_current_channel",
+_current_test_case: ContextVar[TestCaseState | None] = ContextVar(
+    "_current_test_case",
     default=None,
 )
-_is_final: ContextVar[bool] = ContextVar("_is_final", default=False)
-_test_aborted: ContextVar[bool] = ContextVar("_test_aborted", default=False)
-
 
 class AssumeRejected(Exception):
     """Raised when assume() condition is False."""
@@ -181,9 +185,13 @@ class Client:
         is_final: bool,
     ) -> None:
         """Run a single test case."""
-        token_channel = _current_channel.set(channel)
-        token_final = _is_final.set(is_final)
-        token_aborted = _test_aborted.set(False)
+        if _current_test_case.get() is not None:
+            raise ValueError("Cannot nest Hegel tests.")
+        _current_test_case.set(TestCaseState(
+            channel=channel,
+            is_final=is_final,
+            aborted=False
+        ))
         already_complete = False
         status = "VALID"
         origin = None
@@ -203,9 +211,7 @@ class Client:
             if is_final:
                 raise
         finally:
-            _current_channel.reset(token_channel)
-            _is_final.reset(token_final)
-            _test_aborted.reset(token_aborted)
+            _current_test_case.set(None)
             if not already_complete:
                 channel.send_request(
                     {
@@ -233,12 +239,12 @@ def _extract_origin(exc: Exception, tb: Any) -> str:
 
 def _get_channel() -> Channel:
     """Get the current test channel, raising if not in a test."""
-    channel = _current_channel.get()
-    if channel is None:
+    tc = _current_test_case.get()
+    if tc is None:
         raise RuntimeError(
             "Not in a test context - must be called from within a test function",
         )
-    return channel
+    return tc.channel
 
 
 # =============================================================================
@@ -255,7 +261,7 @@ def generate_from_schema(schema: dict) -> Any:
         if e.error_type == "StopTest":
             # Mark that this test case has been aborted - server won't respond
             # to any more messages on this channel
-            _test_aborted.set(True)
+            _current_test_case_state.get().aborted = True
             raise DataExhausted("Server ran out of data") from e
         raise
 
@@ -268,7 +274,7 @@ def assume(condition: bool) -> None:  # noqa: FBT001
 
 def note(message: str) -> None:
     """Record a message that will be printed on the final (failing) run."""
-    if _is_final.get():
+    if _current_test_case.get().is_final:
         print(message, file=sys.stderr)
 
 
@@ -281,7 +287,7 @@ def target(value: float, label: str = "") -> None:
 def start_span(label: int = 0) -> None:
     """Start a generation span for better shrinking."""
     # If test was aborted (StopTest), don't try to communicate with server
-    if _test_aborted.get():
+    if _current_test_case.get().aborted:
         return
     channel = _get_channel()
     channel.request({"command": "start_span", "label": label}).get()
@@ -294,7 +300,7 @@ def stop_span(*, discard: bool = False) -> None:
     since the server has already abandoned this test case.
     """
     # If test was aborted (StopTest), don't try to communicate with server
-    if _test_aborted.get():
+    if _current_test_case.get().aborted:
         return
     channel = _get_channel()
     channel.request({"command": "stop_span", "discard": discard}).get()

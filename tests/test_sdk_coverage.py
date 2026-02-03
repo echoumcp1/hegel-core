@@ -25,13 +25,10 @@ from hegel.sdk import (
     Generator,
     SampledFromGenerator,
     SchemaDictGenerator,
-    _current_channel,
     _extract_origin,
     _find_hegeld,
     _get_channel,
     _HegelSession,
-    _is_final,
-    _test_aborted,
     assume,
     binary,
     dicts,
@@ -866,8 +863,10 @@ def test_dataclass_with_composite_field_through_server():
 
 def test_note_on_final_run():
     """Test note() prints on final run."""
-    token_final = _is_final.set(True)
-    token_channel = _current_channel.set(MagicMock())
+    _current_test_case.set(TestCase(
+        is_final=True,
+        channel=MagicMock(),
+    ))
     try:
         # Should print to stderr
         note("test message")

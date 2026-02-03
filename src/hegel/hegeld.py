@@ -178,7 +178,8 @@ def run_server_on_connection(connection: Connection) -> None:
     except ConnectionError:
         pass
     except BaseException:
-        traceback.print_exc()
+        ...
+        # traceback.print_exc()
     finally:
         connection.close()
     for f in pending_futures:
