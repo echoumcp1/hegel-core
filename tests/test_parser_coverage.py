@@ -9,9 +9,7 @@ from hegel.parser import from_schema
 
 def schema_test(schema):
     def accept(test):
-        return settings(database=None, max_examples=1)(
-            given(from_schema(schema))(test)
-        )
+        return settings(database=None, max_examples=1)(given(from_schema(schema))(test))
 
     return accept
 
@@ -25,13 +23,15 @@ def test_binary_schema(example):
     assert 1 <= len(decoded) <= 10
 
 
-@schema_test({
-    "type": "object",
-    "properties": {
-        "name": {"type": "string"},
-        "age": {"type": "integer", "minimum": 0, "maximum": 100},
+@schema_test(
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "integer", "minimum": 0, "maximum": 100},
+        },
     },
-})
+)
 def test_object_schema(example):
     """Test object type with properties."""
     assert isinstance(example, dict)

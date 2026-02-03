@@ -62,9 +62,11 @@ select = [
     "UP",     # pyupgrade
     "W",      # pycodestyle
     "YTT",    # flake8-2020
-    "RUF",    # Ruff-specific rules
+    "RUF",    # Ruff-specific ruleCOM812s
 ]
-ignore = []
+ignore = [
+    "COM812"  # Trailing comma required - incompatible with ruff format
+]
 
 [tool.mypy]
 python_version = "3.14"
