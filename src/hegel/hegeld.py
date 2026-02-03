@@ -35,6 +35,7 @@ CACHE_SIZE = 1024
 
 
 def cached_from_schema(schema: dict) -> Any:
+    """Convert schema to strategy with LRU caching by SHA1 hash."""
     key = hashlib.sha1(json.dumps(schema, sort_keys=True).encode("utf-8")).digest()[:32]
     try:
         result = FROM_SCHEMA_CACHE[key]
@@ -49,6 +50,7 @@ def cached_from_schema(schema: dict) -> Any:
 
 
 def make_settings(test_cases: int) -> settings:
+    """Create Hypothesis settings for a test run."""
     return settings(
         deadline=None,
         database=DATABASE,

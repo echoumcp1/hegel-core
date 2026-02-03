@@ -77,6 +77,8 @@ Id = int
 
 @dataclass(frozen=True, slots=True)
 class Packet:
+    """A single message in the wire protocol."""
+
     channel: Id
     message_id: Id
     is_reply: bool
@@ -90,7 +92,7 @@ class Packet:
 
 
 class PartialPacket(ConnectionError):
-    pass
+    """Raised when connection closes mid-packet."""
 
 
 def recv_exact(sock: socket.socket, n: int) -> bytes:
@@ -155,7 +157,7 @@ def read_packet(sock: socket.socket) -> Packet:
 
 
 def write_packet(sock: socket.socket, packet: Packet) -> None:
-    """Write a packet to a socket."""
+    """Serialize and write a packet to the socket."""
     magic = MAGIC
     channel = packet.channel
     message_id = packet.message_id
@@ -177,26 +179,25 @@ SHUTDOWN = object()
 
 @dataclass(frozen=True, slots=True)
 class DeadChannel:
+    """Marker for a closed channel, used for debugging."""
+
     channel_id: Id
     name: str
 
 
 class ConnectionState(Enum):
+    """Connection role after handshake."""
+
     UNRESOLVED = 0
     CLIENT = 1
     SERVER = 2
 
 
 class Connection:
-    """A connection is a single real socket connection to
-    the Hegel server. It is designed to be thread safe. In
-    order to actually interact with the server, you will need
-    to use a *Channel*, which is a non-thread-safe logical
-      connection supporting sending and receiving objects."""
+    """Thread-safe multiplexed socket connection to a Hegel peer."""
 
     def __init__(self, socket, *, name=None, debug=_DEBUG):
-        """Connect to a given endpoint running the Hegel protocol
-        on the other end."""
+        """Initialize connection and start the reader thread."""
         self.name = name
         self.__socket = socket
         self.__next_channel_id = 1
@@ -311,11 +312,13 @@ class Connection:
             self.close()
 
     def send_packet(self, packet: Packet) -> None:
+        """Send a packet to the peer, thread-safe."""
         with self.__lock:
             self._debug_packet("SEND", packet)
             write_packet(self.__socket, packet)
 
     def close(self) -> None:
+        """Close the connection and clean up resources."""
         if not self.__running:
             return
         self.__running = False
@@ -332,6 +335,7 @@ class Connection:
         assert self.__socket._closed
 
     def send_handshake(self):
+        """Initiate handshake as a client."""
         if self.__connection_state != ConnectionState.UNRESOLVED:
             raise ValueError("Handshake already established")
         self.__connection_state = ConnectionState.CLIENT
@@ -341,6 +345,7 @@ class Connection:
             raise ConnectionError(f"Bad handshake result {response!r}")
 
     def receive_handshake(self):
+        """Accept handshake as a server."""
         if self.__connection_state != ConnectionState.UNRESOLVED:
             raise ValueError("Handshake already established")
         self.__connection_state = ConnectionState.SERVER
@@ -358,12 +363,11 @@ class Connection:
 
     @property
     def control_channel(self) -> "Channel":
-        """Special channel for sending control
-        commands affecting the entire connection."""
+        """Special channel for connection-level control commands."""
         return self.__control_channel
 
     def new_channel(self, *, role: str | None = None) -> "Channel":
-        """Creates a new channel."""
+        """Create a new logical channel on this connection."""
         if not self.channels:
             channel_id = 0
         elif self.__connection_state == ConnectionState.UNRESOLVED:
@@ -381,10 +385,7 @@ class Connection:
         return result
 
     def connect_channel(self, id: Id, *, role: str | None = None) -> "Channel":
-        """Creates the other half of a channel that has already
-        been created on the other side of this connection. Errors
-        if the other side does not exist or has already been connected
-        to."""
+        """Connect to a channel created by the peer."""
         if self.__connection_state == ConnectionState.UNRESOLVED:
             raise ValueError(
                 "Cannot create a new channel before handshake has been performed.",
@@ -403,6 +404,8 @@ NOT_SET = object()
 
 
 class RequestError(Exception):
+    """Error response from the peer."""
+
     def __init__(self, data: dict[str, Any]) -> None:
         super().__init__(data.pop("error"))
         self.error_type = data.pop("type")
@@ -410,6 +413,7 @@ class RequestError(Exception):
 
 
 def result_or_error(body: dict[str, Any]) -> Any:
+    """Extract result from response or raise RequestError."""
     assert isinstance(body, dict), body
     if "error" in body:
         raise RequestError(body)
@@ -419,12 +423,15 @@ def result_or_error(body: dict[str, Any]) -> Any:
 
 
 class PendingRequest:
+    """Future-like handle for an in-flight request."""
+
     def __init__(self, channel: "Channel", id: Id) -> None:
         self.__channel = channel
         self.__id = id
         self.__value: Any = NOT_SET
 
     def get(self) -> Any:
+        """Block until response arrives and return the result."""
         if self.__value is NOT_SET:
             self.__value = cbor2.loads(self.__channel.receive_response_raw(self.__id))
         return result_or_error(self.__value)
@@ -434,6 +441,8 @@ CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
 
 
 class Channel:
+    """Non-thread-safe logical channel for request/response messaging."""
+
     def __init__(
         self,
         connection: "Connection",
@@ -451,6 +460,7 @@ class Channel:
         self.__closed = False
 
     def close(self):
+        """Close this channel and notify the peer."""
         if self.__closed or self.connection.channels.get(self.channel_id) is not self:
             self.__closed = True
             return
@@ -481,9 +491,7 @@ class Channel:
             )
 
     def __process_one_message(self, timeout=CHANNEL_TIMEOUT):
-        """Process one message that has been sent to us, and put it in the
-        right place (either a response to a message we've already sent, or
-        a request)"""
+        """Route an incoming message to responses or requests queue."""
         if self.__closed:
             raise ConnectionError(f"{self.name} is closed")
         try:
@@ -504,10 +512,7 @@ class Channel:
             self.requests.append(packet)
 
     def request(self, message: Any) -> PendingRequest:
-        """Takes an arbitrary object, serializes it as CBOR, and
-        returns a future-like object for getting its response,
-        which will also be interpreted as CBOR and may wrap either
-        a result or an error."""
+        """Send a CBOR request and return a future for the response."""
         id = self.send_request(message)
         return PendingRequest(self, id)
 
@@ -518,6 +523,7 @@ class Channel:
             return f"Channel({self.channel_id}, role={self.role})"
 
     def handle_requests(self, handler, until=lambda: False):
+        """Process incoming requests with handler until condition is met."""
         while not until():
             id, message = self.receive_request()
             try:
@@ -527,12 +533,12 @@ class Channel:
                 self.send_response_error(id, e)
 
     def send_request(self, message: Any) -> Id:
+        """Send a CBOR-encoded request, return message ID."""
         assert isinstance(message, dict)
         return self.send_request_raw(cbor2.dumps(message))
 
     def send_request_raw(self, message: bytes) -> Id:
-        """Sends a message and returns an Id that can be used
-        too wait for a response."""
+        """Send raw bytes as request, return message ID for response."""
         id = self.next_message_id
         self.next_message_id += 1
         self.connection.send_packet(
@@ -546,6 +552,7 @@ class Channel:
         return id
 
     def receive_response(self, id: Id, timeout: float | None = CHANNEL_TIMEOUT) -> Any:
+        """Wait for and decode response to a request."""
         return result_or_error(
             cbor2.loads(self.receive_response_raw(id, timeout=timeout)),
         )
@@ -555,7 +562,7 @@ class Channel:
         id: Id,
         timeout: float | None = CHANNEL_TIMEOUT,
     ) -> bytes:
-        """Waits for a response to a previously sent message."""
+        """Wait for raw response bytes to a request."""
         while id not in self.responses:
             self.__process_one_message(timeout=timeout)
         return self.responses.pop(id)
@@ -564,6 +571,7 @@ class Channel:
         self,
         timeout: float | None = CHANNEL_TIMEOUT,
     ) -> tuple[Id, Any]:
+        """Receive and decode a request from the peer."""
         id, body = self.receive_request_raw()
         return id, cbor2.loads(body)
 
@@ -571,15 +579,14 @@ class Channel:
         self,
         timeout: float | None = CHANNEL_TIMEOUT,
     ) -> tuple[Id, bytes]:
-        """Receives a request from the other side, along with
-        an Id to respond on."""
+        """Receive raw request bytes and message ID for responding."""
         while not self.requests:
             self.__process_one_message(timeout=timeout)
         result = self.requests.popleft()
         return (result.message_id, result.payload)
 
     def send_response_raw(self, id: Id, message: bytes) -> None:
-        """Sends a response to a previously received message."""
+        """Send raw bytes as response to a request."""
         self.connection.send_packet(
             Packet(
                 payload=message,
@@ -590,6 +597,7 @@ class Channel:
         )
 
     def send_response_value(self, id: Id, message: Any) -> None:
+        """Send a success response with the given value."""
         self.send_response_raw(id, cbor2.dumps({"result": message}))
 
     def send_response_error(
@@ -600,6 +608,7 @@ class Channel:
         error: str | None = None,
         error_type: str | None = None,
     ) -> None:
+        """Send an error response."""
         assert message is not None or (error is not None and error_type is not None)
         if error is None:
             assert message is not None
