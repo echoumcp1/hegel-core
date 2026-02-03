@@ -9,8 +9,8 @@ from threading import Thread
 import cbor2
 import pytest
 
-from hegel.hegeld import run_server_on_connection
 import hegel.protocol as protocol
+from hegel.hegeld import run_server_on_connection
 from hegel.protocol import (
     HEADER_FORMAT,
     MAGIC,
@@ -664,15 +664,14 @@ def test_bad_handshake_negotiation_inline():
 # ---- Dead channel reaping ----
 
 
-@pytest.mark.parametrize('create_channel_first', [False, True])
+@pytest.mark.parametrize("create_channel_first", [False, True])
 def test_close_channel_creates_dead_channel(monkeypatch, create_channel_first):
     """Test that closing a channel creates a DeadChannel."""
-    monkeypatch.setattr(protocol, '_DEBUG', True)
+    monkeypatch.setattr(protocol, "_DEBUG", True)
     server_socket, client_socket = socket.socketpair()
     try:
         server_conn = Connection(server_socket, name="Server")
         client_conn = Connection(client_socket, name="Client")
-
 
         def server_side():
             server_conn.receive_handshake()
@@ -692,7 +691,12 @@ def test_close_channel_creates_dead_channel(monkeypatch, create_channel_first):
         client_channel_to_close = client_conn.new_channel(role="ToClose")
 
         if create_channel_first:
-            assert client_conn.control_channel.request({'channel': client_channel_to_close.channel_id}).get() == "Ok"
+            assert (
+                client_conn.control_channel.request(
+                    {"channel": client_channel_to_close.channel_id},
+                ).get()
+                == "Ok"
+            )
 
         client_channel_to_close.close()
 
@@ -705,7 +709,6 @@ def test_close_channel_creates_dead_channel(monkeypatch, create_channel_first):
         assert isinstance(dead, DeadChannel)
         if create_channel_first:
             assert "Hello" in dead.name
-
 
     finally:
         client_conn.close()

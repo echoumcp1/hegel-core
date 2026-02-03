@@ -34,9 +34,9 @@ import traceback
 import zlib
 from collections import deque
 from dataclasses import dataclass, fields
+from enum import Enum
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread, current_thread
-from time import time
 from typing import Any
 
 import cbor2
@@ -181,6 +181,12 @@ class DeadChannel:
     name: str
 
 
+class ConnectionState(Enum):
+    UNRESOLVED = 0
+    CLIENT = 1
+    SERVER = 2
+
+
 class Connection:
     """A connection is a single real socket connection to
     the Hegel server. It is designed to be thread safe. In
@@ -198,7 +204,7 @@ class Connection:
         self.__running = True
         self.__lock = Lock()
         self.__debug = debug
-        self.__is_client = None
+        self.__connection_state = ConnectionState.UNRESOLVED
         # Control channel must be created before the reader thread starts,
         # otherwise an incoming packet for channel 0 could arrive before
         # the channel is registered and be treated as a non-existent channel.
@@ -271,7 +277,11 @@ class Connection:
                     if _DEBUG:
                         self.channels[packet.channel] = DeadChannel(
                             channel_id=packet.channel,
-                            name=self.channels[packet.channel].name if packet.channel in self.channels else "Never opened!",
+                            name=(
+                                self.channels[packet.channel].name
+                                if packet.channel in self.channels
+                                else "Never opened!"
+                            ),
                         )
                 else:
                     if channel is None or isinstance(channel, DeadChannel):
@@ -322,18 +332,18 @@ class Connection:
         assert self.__socket._closed
 
     def send_handshake(self):
-        if self.__is_client is not None:
+        if self.__connection_state != ConnectionState.UNRESOLVED:
             raise ValueError("Handshake already established")
-        self.__is_client = True
+        self.__connection_state = ConnectionState.CLIENT
         id = self.control_channel.send_request_raw(VERSION_NEGOTIATION_MESSAGE)
         response = self.control_channel.receive_response_raw(id)
         if response != VERSION_NEGOTIATION_OK:
             raise ConnectionError(f"Bad handshake result {response!r}")
 
     def receive_handshake(self):
-        if self.__is_client is not None:
+        if self.__connection_state != ConnectionState.UNRESOLVED:
             raise ValueError("Handshake already established")
-        self.__is_client = False
+        self.__connection_state = ConnectionState.SERVER
         control = self.control_channel
         # Version negotiation
         id, payload = control.receive_request_raw()
@@ -356,12 +366,14 @@ class Connection:
         """Creates a new channel."""
         if not self.channels:
             channel_id = 0
-        elif self.__is_client is None:
+        elif self.__connection_state == ConnectionState.UNRESOLVED:
             raise ValueError(
                 "Cannot create a new channel before handshake has been performed.",
             )
         else:
-            channel_id = (self.__next_channel_id << 1) | int(self.__is_client)
+            channel_id = (self.__next_channel_id << 1) | int(
+                self.__connection_state == ConnectionState.CLIENT,
+            )
             self.__next_channel_id += 1
         result = Channel(connection=self, channel_id=channel_id, role=role)
         with self.__lock:
@@ -373,13 +385,13 @@ class Connection:
         been created on the other side of this connection. Errors
         if the other side does not exist or has already been connected
         to."""
-        if self.__is_client is None:
+        if self.__connection_state == ConnectionState.UNRESOLVED:
             raise ValueError(
                 "Cannot create a new channel before handshake has been performed.",
             )
         if id in self.channels:
             raise ValueError(f"Channel already connected as {self.channels[id]}.")
-        assert id & 1 != int(self.__is_client)
+        assert id & 1 != int(self.__connection_state == ConnectionState.CLIENT)
 
         result = Channel(connection=self, channel_id=id, role=role)
         with self.__lock:

@@ -886,7 +886,6 @@ def test_run_conformance_tests_function():
     )
     binary_path = _make_conformance_binary(script)
     try:
-
         tests = [
             BooleanConformance(binary_path, test_cases=2),
             IntegerConformance(binary_path, test_cases=2, min_value=0, max_value=10),
