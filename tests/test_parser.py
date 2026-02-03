@@ -10,7 +10,7 @@ from hegel.runner import HegelEncoder
 def primitive_hashable_schemas():
     return (
         st.just({"type": "null"})
-        | st.just({"type": "boolean"})
+        | st.just({"type": "boolean", "p": 0.5})
         | st.builds(
             lambda min_val, max_val: {
                 "type": "integer",
@@ -55,6 +55,9 @@ def schemas():
                 "maximum": max_val,
                 "allow_nan": False,
                 "allow_infinity": False,
+                "exclude_minimum": False,
+                "exclude_maximum": False,
+                "width": 64,
             },
             min_val=st.floats(min_value=-1000, max_value=0, allow_nan=False),
             max_val=st.floats(min_value=0, max_value=1000, allow_nan=False),
@@ -139,7 +142,7 @@ def test_null():
 
 
 def test_boolean():
-    assert from_schema({"type": "boolean"}).example() in [True, False]
+    assert from_schema({"type": "boolean", "p": 0.5}).example() in [True, False]
 
 
 def test_integer():
@@ -149,7 +152,16 @@ def test_integer():
 
 
 def test_number():
-    v = from_schema({"type": "number", "minimum": 0.0, "maximum": 1.0}).example()
+    v = from_schema({
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "allow_nan": False,
+        "allow_infinity": False,
+        "exclude_minimum": False,
+        "exclude_maximum": False,
+        "width": 64,
+    }).example()
     assert isinstance(v, float)
     assert 0.0 <= v <= 1.0
 
@@ -162,6 +174,9 @@ def test_number_exclusive():
             "maximum": 1.0,
             "exclude_minimum": True,
             "exclude_maximum": True,
+            "allow_nan": False,
+            "allow_infinity": False,
+            "width": 64,
         }
     ).example()
     assert 0.0 < v < 1.0
@@ -228,12 +243,18 @@ def test_sampled_from():
 
 
 def test_one_of():
-    v = from_schema({"one_of": [{"type": "boolean"}, {"type": "null"}]}).example()
+    v = from_schema({
+        "one_of": [{"type": "boolean", "p": 0.5}, {"type": "null"}]
+    }).example()
     assert v is None or isinstance(v, bool)
 
 
 def test_list():
-    schema = {"type": "list", "elements": {"type": "integer"}}
+    schema = {
+        "type": "list",
+        "elements": {"type": "integer", "minimum": -100, "maximum": 100},
+        "min_size": 0,
+    }
     v = from_schema(schema).example()
     assert isinstance(v, list)
     assert all(isinstance(x, int) for x in v)
@@ -266,7 +287,8 @@ def test_dict():
     schema = {
         "type": "dict",
         "keys": {"type": "string", "min_size": 1},
-        "values": {"type": "integer"},
+        "values": {"type": "integer", "minimum": -100, "maximum": 100},
+        "min_size": 0,
     }
     v = from_schema(schema).example()
     # Wire format is [[key, value], ...]
@@ -279,8 +301,8 @@ def test_dict():
 def test_dict_size():
     schema = {
         "type": "dict",
-        "keys": {"type": "string"},
-        "values": {"type": "integer"},
+        "keys": {"type": "string", "min_size": 0},
+        "values": {"type": "integer", "minimum": -100, "maximum": 100},
         "min_size": 1,
         "max_size": 3,
     }
@@ -289,9 +311,15 @@ def test_dict_size():
 
 
 def test_dict_default_keys():
-    schema = {"type": "dict", "values": {"type": "integer"}}
+    # Test that we can generate dicts with string keys
+    schema = {
+        "type": "dict",
+        "keys": {"type": "string", "min_size": 0},
+        "values": {"type": "integer", "minimum": -100, "maximum": 100},
+        "min_size": 0,
+    }
     v = from_schema(schema).example()
-    # Wire format is [[key, value], ...], keys default to strings
+    # Wire format is [[key, value], ...]
     assert isinstance(v, list)
     assert all(isinstance(k, str) for k, _ in v)
 
@@ -299,7 +327,11 @@ def test_dict_default_keys():
 def test_tuple():
     schema = {
         "type": "tuple",
-        "elements": [{"type": "integer"}, {"type": "string"}, {"type": "boolean"}],
+        "elements": [
+            {"type": "integer", "minimum": -100, "maximum": 100},
+            {"type": "string", "min_size": 0},
+            {"type": "boolean", "p": 0.5},
+        ],
     }
     v = from_schema(schema).example()
     assert isinstance(v, tuple)
@@ -319,8 +351,12 @@ def test_set_of_tuples():
         "type": "set",
         "elements": {
             "type": "tuple",
-            "elements": [{"type": "integer"}, {"type": "integer"}],
+            "elements": [
+                {"type": "integer", "minimum": -100, "maximum": 100},
+                {"type": "integer", "minimum": -100, "maximum": 100},
+            ],
         },
+        "min_size": 0,
     }
     v = from_schema(schema).example()
     assert isinstance(v, set)
@@ -334,7 +370,8 @@ def test_nested_dict_of_lists():
         "keys": {"type": "string", "min_size": 1},
         "values": {
             "type": "list",
-            "elements": {"type": "integer"},
+            "elements": {"type": "integer", "minimum": -100, "maximum": 100},
+            "min_size": 0,
             "max_size": 5,
         },
         "min_size": 1,
