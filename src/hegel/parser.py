@@ -29,7 +29,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if schema_type == "null":
         return st.none()
     if schema_type == "boolean":
-        return BooleansStrategy(schema["p"])
+        return BooleansStrategy(schema.get("p", 0.5))
     if schema_type == "integer":
         return st.integers(
             min_value=schema.get("minimum"),
