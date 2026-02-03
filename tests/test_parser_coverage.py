@@ -2,52 +2,61 @@
 
 import base64
 
+from hypothesis import given, settings
+
 from hegel.parser import from_schema
 
 
-def test_binary_schema():
+def schema_test(schema):
+    def accept(test):
+        return settings(database=None, max_examples=1)(
+            given(from_schema(schema))(test)
+        )
+
+    return accept
+
+
+@schema_test({"type": "binary", "min_size": 1, "max_size": 10})
+def test_binary_schema(example):
     """Test binary type returns base64 encoded string."""
-    v = from_schema({"type": "binary", "min_size": 1, "max_size": 10}).example()
-    assert isinstance(v, str)
+    assert isinstance(example, str)
     # Should be valid base64
-    decoded = base64.b64decode(v)
+    decoded = base64.b64decode(example)
     assert 1 <= len(decoded) <= 10
 
 
-def test_object_schema():
+@schema_test({
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "age": {"type": "integer", "minimum": 0, "maximum": 100},
+    },
+})
+def test_object_schema(example):
     """Test object type with properties."""
-    v = from_schema(
-        {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "age": {"type": "integer", "minimum": 0, "maximum": 100},
-            },
-        },
-    ).example()
-    assert isinstance(v, dict)
-    assert "name" in v
-    assert "age" in v
-    assert isinstance(v["name"], str)
-    assert isinstance(v["age"], int)
+    assert isinstance(example, dict)
+    assert "name" in example
+    assert "age" in example
+    assert isinstance(example["name"], str)
+    assert isinstance(example["age"], int)
 
 
-def test_url_schema():
+@schema_test({"type": "url"})
+def test_url_schema(example):
     """Test url type."""
-    v = from_schema({"type": "url"}).example()
-    assert isinstance(v, str)
-    assert "://" in v
+    assert isinstance(example, str)
+    assert "://" in example
 
 
-def test_domain_schema():
+@schema_test({"type": "domain"})
+def test_domain_schema(example):
     """Test domain type."""
-    v = from_schema({"type": "domain"}).example()
-    assert isinstance(v, str)
-    assert "." in v or len(v) > 0
+    assert isinstance(example, str)
+    assert "." in example or len(example) > 0
 
 
-def test_domain_with_max_length():
+@schema_test({"type": "domain", "max_length": 50})
+def test_domain_with_max_length(example):
     """Test domain type with max_length."""
-    v = from_schema({"type": "domain", "max_length": 50}).example()
-    assert isinstance(v, str)
-    assert len(v) <= 50
+    assert isinstance(example, str)
+    assert len(example) <= 50
