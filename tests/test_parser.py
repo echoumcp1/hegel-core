@@ -152,16 +152,18 @@ def test_integer():
 
 
 def test_number():
-    v = from_schema({
-        "type": "number",
-        "minimum": 0.0,
-        "maximum": 1.0,
-        "allow_nan": False,
-        "allow_infinity": False,
-        "exclude_minimum": False,
-        "exclude_maximum": False,
-        "width": 64,
-    }).example()
+    v = from_schema(
+        {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "allow_nan": False,
+            "allow_infinity": False,
+            "exclude_minimum": False,
+            "exclude_maximum": False,
+            "width": 64,
+        }
+    ).example()
     assert isinstance(v, float)
     assert 0.0 <= v <= 1.0
 
