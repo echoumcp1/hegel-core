@@ -54,7 +54,8 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         # Exclude surrogates (Cs category) as they're invalid in UTF-8/JSON
         return st.text(
             alphabet=st.characters(
-                blacklist_characters="\x00", blacklist_categories=("Cs",)
+                blacklist_characters="\x00",
+                blacklist_categories=("Cs",),  # type: ignore[arg-type]
             ),
             min_size=schema["min_size"],
             max_size=schema.get("max_size"),

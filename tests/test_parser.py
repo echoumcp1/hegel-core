@@ -312,7 +312,16 @@ def test_dict_size(example):
     assert 1 <= len(example) <= 3
 
 
-@given(from_schema({"type": "dict", "keys": {"type": "string", "min_size": 0}, "values": {"type": "integer"}, "min_size": 0}))
+@given(
+    from_schema(
+        {
+            "type": "dict",
+            "keys": {"type": "string", "min_size": 0},
+            "values": {"type": "integer"},
+            "min_size": 0,
+        }
+    )
+)
 def test_dict_default_keys(example):
     # Wire format is [[key, value], ...], keys default to strings
     assert isinstance(example, list)

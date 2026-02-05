@@ -36,7 +36,7 @@ from typing import Any, TypeVar, Union, get_args, get_origin
 try:
     ExceptionGroup
 except NameError:
-    from exceptiongroup import ExceptionGroup  # type: ignore[no-redef]
+    from exceptiongroup import ExceptionGroup
 
 import cbor2
 
@@ -818,7 +818,11 @@ class DataclassGenerator(Generator):
             properties[field.name] = field_schema
             required.append(field.name)
 
-        self._cached_schema = {"type": "object", "properties": properties, "required": required}
+        self._cached_schema = {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }
         return self._cached_schema
 
     def generate(self) -> Any:
