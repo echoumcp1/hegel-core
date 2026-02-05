@@ -110,7 +110,6 @@ ignore = [
     "SIM905",
     "UP031",
     "UP037",
-    "UP038",
 ]
 
 [tool.mypy]

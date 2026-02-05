@@ -1,9 +1,30 @@
 import re
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given, settings as Settings, strategies as st
+from hypothesis._settings import local_settings
+from hypothesis.control import _current_build_context
 
 from hegel.parser import from_schema
+
+
+def assert_all_examples(strategy, predicate, settings=None):
+    """Asserts that all examples of the given strategy match the predicate."""
+    if context := _current_build_context.value:
+        with local_settings(Settings(parent=settings)):
+            for _ in range(20):
+                s = context.data.draw(strategy)
+                msg = f"Found {s!r} using strategy {strategy} which does not match"
+                assert predicate(s), msg
+    else:
+
+        @given(strategy)
+        @Settings(parent=settings, database=None)
+        def assert_examples(s):
+            msg = f"Found {s!r} using strategy {strategy} which does not match"
+            assert predicate(s), msg
+
+        assert_examples()
 
 
 def primitive_hashable_schemas():
@@ -127,273 +148,291 @@ def schemas():
     )
 
 
-@given(from_schema({"type": "null"}))
-def test_null(example):
-    assert example is None
+def test_null():
+    assert_all_examples(from_schema({"type": "null"}), lambda x: x is None)
 
 
-@given(from_schema({"type": "boolean"}))
-def test_boolean(example):
-    assert example in [True, False]
+def test_boolean():
+    assert_all_examples(from_schema({"type": "boolean"}), lambda x: x in [True, False])
 
 
-@given(from_schema({"type": "integer", "minimum": 0, "maximum": 10}))
-def test_integer(example):
-    assert isinstance(example, int)
-    assert 0 <= example <= 10
-
-
-@given(
-    from_schema(
-        {
-            "type": "number",
-            "minimum": 0.0,
-            "maximum": 1.0,
-            "allow_nan": False,
-            "allow_infinity": False,
-            "exclude_minimum": False,
-            "exclude_maximum": False,
-            "width": 64,
-        },
-    ),
-)
-def test_number(example):
-    assert isinstance(example, float)
-    assert 0.0 <= example <= 1.0
-
-
-@given(
-    from_schema(
-        {
-            "type": "number",
-            "minimum": 0.0,
-            "maximum": 1.0,
-            "exclude_minimum": True,
-            "exclude_maximum": True,
-            "allow_nan": False,
-            "allow_infinity": False,
-            "width": 64,
-        },
-    ),
-)
-def test_number_exclusive(example):
-    assert 0.0 < example < 1.0
-
-
-@given(from_schema({"type": "string", "min_size": 1, "max_size": 5}))
-def test_string(example):
-    assert isinstance(example, str)
-    assert 1 <= len(example) <= 5
-
-
-@given(from_schema({"type": "regex", "pattern": r"^[a-z]+$", "fullmatch": True}))
-def test_string_pattern(example):
-    assert example.isalpha()
-    assert example.islower()
-
-
-@given(from_schema({"type": "email"}))
-def test_email(example):
-    assert "@" in example
-
-
-@given(from_schema({"type": "ipv4"}))
-def test_ipv4(example):
-    parts = example.split(".")
-    assert len(parts) == 4
-    assert all(0 <= int(p) <= 255 for p in parts)
-
-
-@given(from_schema({"type": "ipv6"}))
-def test_ipv6(example):
-    assert ":" in example
-
-
-@given(from_schema({"type": "date"}))
-def test_date(example):
-    assert re.match(r"^\d{4}-\d{2}-\d{2}$", example)
-
-
-@given(from_schema({"type": "time"}))
-def test_time(example):
-    assert re.match(r"^\d{2}:\d{2}:\d{2}", example)
-
-
-@given(from_schema({"type": "datetime"}))
-def test_datetime(example):
-    assert "T" in example
-
-
-@given(from_schema({"const": 42}))
-def test_const_int(example):
-    assert example == 42
-
-
-@given(from_schema({"const": "hello"}))
-def test_const_str(example):
-    assert example == "hello"
-
-
-@given(from_schema({"sampled_from": [1, 2, 3]}))
-def test_sampled_from(example):
-    assert example in [1, 2, 3]
-
-
-@given(from_schema({"one_of": [{"type": "boolean"}, {"type": "null"}]}))
-def test_one_of(example):
-    assert example is None or isinstance(example, bool)
-
-
-@given(from_schema({"type": "list", "elements": {"type": "integer"}, "min_size": 0}))
-def test_list(example):
-    assert isinstance(example, list)
-    assert all(isinstance(x, int) for x in example)
-
-
-@given(
-    from_schema(
-        {
-            "type": "list",
-            "elements": {"type": "integer"},
-            "min_size": 2,
-            "max_size": 5,
-        },
-    ),
-)
-def test_list_size(example):
-    assert 2 <= len(example) <= 5
-
-
-@given(
-    from_schema(
-        {
-            "type": "set",
-            "elements": {"type": "integer", "minimum": 0, "maximum": 100},
-            "min_size": 5,
-            "max_size": 10,
-        },
-    ),
-)
-def test_set(example):
-    assert len(example) == len(set(example))
-    assert 5 <= len(example) <= 10
-
-
-@given(
-    from_schema(
-        {
-            "type": "dict",
-            "keys": {"type": "string", "min_size": 1},
-            "values": {"type": "integer"},
-            "min_size": 0,
-        },
-    ),
-)
-def test_dict(example):
-    # Wire format is [[key, value], ...]
-    assert isinstance(example, list)
-    assert all(isinstance(kv, tuple) and len(kv) == 2 for kv in example)
-    assert all(isinstance(k, str) and len(k) >= 1 for k, _ in example)
-    assert all(isinstance(val, int) for _, val in example)
-
-
-@given(
-    from_schema(
-        {
-            "type": "dict",
-            "keys": {"type": "string", "min_size": 0},
-            "values": {"type": "integer"},
-            "min_size": 1,
-            "max_size": 3,
-        },
-    ),
-)
-def test_dict_size(example):
-    assert 1 <= len(example) <= 3
-
-
-@given(
-    from_schema(
-        {
-            "type": "dict",
-            "keys": {"type": "string", "min_size": 0},
-            "values": {"type": "integer"},
-            "min_size": 0,
-        }
+def test_integer():
+    assert_all_examples(
+        from_schema({"type": "integer", "minimum": 0, "maximum": 10}),
+        lambda x: isinstance(x, int) and 0 <= x <= 10,
     )
-)
-def test_dict_default_keys(example):
-    # Wire format is [[key, value], ...], keys default to strings
-    assert isinstance(example, list)
-    assert all(isinstance(k, str) for k, _ in example)
 
 
-@given(
-    from_schema(
-        {
-            "type": "tuple",
-            "elements": [
-                {"type": "integer"},
-                {"type": "string", "min_size": 0},
-                {"type": "boolean"},
-            ],
-        },
-    ),
-)
-def test_tuple(example):
-    assert isinstance(example, tuple)
-    assert len(example) == 3
-    assert isinstance(example[0], int)
-    assert isinstance(example[1], str)
-    assert isinstance(example[2], bool)
+def test_number():
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "allow_nan": False,
+                "allow_infinity": False,
+                "exclude_minimum": False,
+                "exclude_maximum": False,
+                "width": 64,
+            }
+        ),
+        lambda x: isinstance(x, float) and 0.0 <= x <= 1.0,
+    )
 
 
-@given(from_schema({"type": "tuple", "elements": []}))
-def test_tuple_empty(example):
-    assert example == ()
+def test_number_exclusive():
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "exclude_minimum": True,
+                "exclude_maximum": True,
+                "allow_nan": False,
+                "allow_infinity": False,
+                "width": 64,
+            }
+        ),
+        lambda x: 0.0 < x < 1.0,
+    )
 
 
-@given(
-    from_schema(
-        {
-            "type": "set",
-            "elements": {
-                "type": "tuple",
-                "elements": [{"type": "integer"}, {"type": "integer"}],
-            },
-            "min_size": 0,
-        },
-    ),
-)
-def test_set_of_tuples(example):
-    assert isinstance(example, set)
-    assert all(isinstance(elem, tuple) for elem in example)
+def test_string():
+    assert_all_examples(
+        from_schema({"type": "string", "min_size": 1, "max_size": 5}),
+        lambda x: isinstance(x, str) and 1 <= len(x) <= 5,
+    )
 
 
-@given(
-    from_schema(
-        {
-            "type": "dict",
-            "keys": {"type": "string", "min_size": 1},
-            "values": {
+def test_string_pattern():
+    assert_all_examples(
+        from_schema({"type": "regex", "pattern": r"^[a-z]+$", "fullmatch": True}),
+        lambda x: x.isalpha() and x.islower(),
+    )
+
+
+def test_email():
+    assert_all_examples(from_schema({"type": "email"}), lambda x: "@" in x)
+
+
+def test_ipv4():
+    def check(x):
+        parts = x.split(".")
+        return len(parts) == 4 and all(0 <= int(p) <= 255 for p in parts)
+
+    assert_all_examples(from_schema({"type": "ipv4"}), check)
+
+
+def test_ipv6():
+    assert_all_examples(from_schema({"type": "ipv6"}), lambda x: ":" in x)
+
+
+def test_date():
+    assert_all_examples(
+        from_schema({"type": "date"}),
+        lambda x: re.match(r"^\d{4}-\d{2}-\d{2}$", x),
+    )
+
+
+def test_time():
+    assert_all_examples(
+        from_schema({"type": "time"}),
+        lambda x: re.match(r"^\d{2}:\d{2}:\d{2}", x),
+    )
+
+
+def test_datetime():
+    assert_all_examples(from_schema({"type": "datetime"}), lambda x: "T" in x)
+
+
+def test_const_int():
+    assert_all_examples(from_schema({"const": 42}), lambda x: x == 42)
+
+
+def test_const_str():
+    assert_all_examples(from_schema({"const": "hello"}), lambda x: x == "hello")
+
+
+def test_sampled_from():
+    assert_all_examples(
+        from_schema({"sampled_from": [1, 2, 3]}), lambda x: x in [1, 2, 3]
+    )
+
+
+def test_one_of():
+    assert_all_examples(
+        from_schema({"one_of": [{"type": "boolean"}, {"type": "null"}]}),
+        lambda x: x is None or isinstance(x, bool),
+    )
+
+
+def test_list():
+    assert_all_examples(
+        from_schema({"type": "list", "elements": {"type": "integer"}, "min_size": 0}),
+        lambda x: isinstance(x, list) and all(isinstance(i, int) for i in x),
+    )
+
+
+def test_list_size():
+    assert_all_examples(
+        from_schema(
+            {
                 "type": "list",
                 "elements": {"type": "integer"},
-                "min_size": 0,
+                "min_size": 2,
                 "max_size": 5,
-            },
-            "min_size": 1,
-            "max_size": 2,
-        },
-    ),
-)
-def test_nested_dict_of_lists(example):
-    # Wire format is [[key, value], ...]
-    assert isinstance(example, list)
-    assert 1 <= len(example) <= 2
-    for key, val in example:
-        assert isinstance(key, str)
-        assert isinstance(val, list)
-        assert len(val) <= 5
+            }
+        ),
+        lambda x: 2 <= len(x) <= 5,
+    )
+
+
+def test_set():
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "set",
+                "elements": {"type": "integer", "minimum": 0, "maximum": 100},
+                "min_size": 5,
+                "max_size": 10,
+            }
+        ),
+        lambda x: len(x) == len(set(x)) and 5 <= len(x) <= 10,
+    )
+
+
+def test_dict():
+    def check(x):
+        return (
+            isinstance(x, list)
+            and all(isinstance(kv, tuple) and len(kv) == 2 for kv in x)
+            and all(isinstance(k, str) and len(k) >= 1 for k, _ in x)
+            and all(isinstance(val, int) for _, val in x)
+        )
+
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "dict",
+                "keys": {"type": "string", "min_size": 1},
+                "values": {"type": "integer"},
+                "min_size": 0,
+            }
+        ),
+        check,
+    )
+
+
+def test_dict_size():
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "dict",
+                "keys": {"type": "string", "min_size": 0},
+                "values": {"type": "integer"},
+                "min_size": 1,
+                "max_size": 3,
+            }
+        ),
+        lambda x: 1 <= len(x) <= 3,
+    )
+
+
+def test_dict_default_keys():
+    def check(x):
+        return isinstance(x, list) and all(isinstance(k, str) for k, _ in x)
+
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "dict",
+                "keys": {"type": "string", "min_size": 0},
+                "values": {"type": "integer"},
+                "min_size": 0,
+            }
+        ),
+        check,
+    )
+
+
+def test_tuple():
+    def check(x):
+        return (
+            isinstance(x, tuple)
+            and len(x) == 3
+            and isinstance(x[0], int)
+            and isinstance(x[1], str)
+            and isinstance(x[2], bool)
+        )
+
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "tuple",
+                "elements": [
+                    {"type": "integer"},
+                    {"type": "string", "min_size": 0},
+                    {"type": "boolean"},
+                ],
+            }
+        ),
+        check,
+    )
+
+
+def test_tuple_empty():
+    assert_all_examples(
+        from_schema({"type": "tuple", "elements": []}), lambda x: x == ()
+    )
+
+
+def test_set_of_tuples():
+    def check(x):
+        return isinstance(x, set) and all(isinstance(elem, tuple) for elem in x)
+
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "set",
+                "elements": {
+                    "type": "tuple",
+                    "elements": [{"type": "integer"}, {"type": "integer"}],
+                },
+                "min_size": 0,
+            }
+        ),
+        check,
+    )
+
+
+def test_nested_dict_of_lists():
+    def check(x):
+        if not isinstance(x, list) or not 1 <= len(x) <= 2:
+            return False
+        for key, val in x:
+            if not isinstance(key, str) or not isinstance(val, list) or len(val) > 5:
+                return False
+        return True
+
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "dict",
+                "keys": {"type": "string", "min_size": 1},
+                "values": {
+                    "type": "list",
+                    "elements": {"type": "integer"},
+                    "min_size": 0,
+                    "max_size": 5,
+                },
+                "min_size": 1,
+                "max_size": 2,
+            }
+        ),
+        check,
+    )
 
 
 def test_empty_schema():

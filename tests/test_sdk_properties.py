@@ -186,7 +186,7 @@ def test_nested_structure():
     # Verify structure
     assert isinstance(data, list)
     for item in data:
-        assert isinstance(item, (list, tuple))
+        assert isinstance(item, list | tuple)
         assert len(item) == 2
         assert isinstance(item[0], int)
         assert isinstance(item[1], str)
@@ -201,7 +201,7 @@ def test_one_of_generator():
         just(None),
     ).generate()
     # Value should be one of the types
-    assert isinstance(value, (int, str, type(None)))
+    assert isinstance(value, int | str | type(None))
 
 
 @hegel

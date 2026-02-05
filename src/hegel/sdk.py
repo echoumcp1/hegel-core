@@ -597,29 +597,31 @@ class SampledFromGenerator(Generator):
     def __init__(self, elements: list[Any]):
         self._elements = list(elements)
         self._json_values: list[Any] | None = None
-        self._cached_schema: dict | None | bool = False  # False = not computed
+        self._schema_computed = False
+        self._cached_schema: dict | None = None
 
     def schema(self) -> dict | None:
         """Return schema only if all elements are JSON primitives."""
-        if self._cached_schema is not False:
-            return self._cached_schema  # type: ignore[return-value]
+        if self._schema_computed:
+            return self._cached_schema
         try:
             json_values: list[Any] = []
             for elem in self._elements:
                 # Try to serialize - only primitives allowed
                 if elem is None:
                     json_values.append(None)
-                elif isinstance(elem, (bool, int, float, str)):
+                elif isinstance(elem, bool | int | float | str):
                     json_values.append(elem)
                 else:
                     # Not a primitive - fallback mode
-                    self._cached_schema = None
+                    self._schema_computed = True
                     return None
             self._json_values = json_values
             self._cached_schema = {"sampled_from": json_values}
+            self._schema_computed = True
             return self._cached_schema
         except (TypeError, ValueError):
-            self._cached_schema = None
+            self._schema_computed = True
             return None
 
     def generate(self) -> Any:
@@ -783,7 +785,8 @@ class DataclassGenerator(Generator):
             raise TypeError(f"{dataclass_type} is not a dataclass")
         self._type = dataclass_type
         self._field_generators: dict[str, Generator] = {}
-        self._cached_schema: dict | None | bool = False  # False = not computed
+        self._schema_computed = False
+        self._cached_schema: dict | None = None
 
         # Create generators for each field
         for field in fields(dataclass_type):
@@ -798,13 +801,14 @@ class DataclassGenerator(Generator):
         new_gen._type = self._type
         new_gen._field_generators = dict(self._field_generators)
         new_gen._field_generators[field_name] = gen
-        new_gen._cached_schema = False  # Reset cache for new generator
+        new_gen._schema_computed = False
+        new_gen._cached_schema = None
         return new_gen
 
     def schema(self) -> dict | None:
         """Return schema if all fields have schemas."""
-        if self._cached_schema is not False:
-            return self._cached_schema  # type: ignore[return-value]
+        if self._schema_computed:
+            return self._cached_schema
 
         properties = {}
         required = []
@@ -813,7 +817,7 @@ class DataclassGenerator(Generator):
             gen = self._field_generators[field.name]
             field_schema = gen.schema()
             if field_schema is None:
-                self._cached_schema = None
+                self._schema_computed = True
                 return None  # Compositional fallback
             properties[field.name] = field_schema
             required.append(field.name)
@@ -823,6 +827,7 @@ class DataclassGenerator(Generator):
             "properties": properties,
             "required": required,
         }
+        self._schema_computed = True
         return self._cached_schema
 
     def generate(self) -> Any:

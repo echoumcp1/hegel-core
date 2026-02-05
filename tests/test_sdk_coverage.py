@@ -254,7 +254,7 @@ def test_composite_one_of_generator():
             )
             assert isinstance(gen, CompositeOneOfGenerator)
             v = gen.generate()
-            assert isinstance(v, (int, str))
+            assert isinstance(v, int | str)
 
         client.run_test("test_comp_oneof", my_test, test_cases=10)
     finally:
@@ -787,7 +787,7 @@ def test_composite_one_of_generator_through_server():
         def my_test():
             mapped = integers().map(lambda x: x * 2)
             result = one_of(mapped, text()).generate()
-            assert isinstance(result, (int, str))
+            assert isinstance(result, int | str)
 
         client.run_test("test_composite_one_of", my_test, test_cases=5)
     finally:
@@ -1301,7 +1301,8 @@ def test_sampled_from_schema_iteration_error():
     gen = SampledFromGenerator.__new__(SampledFromGenerator)
     gen._elements = BadList([1, 2, 3])
     gen._json_values = None
-    gen._cached_schema = False
+    gen._schema_computed = False
+    gen._cached_schema = None
     assert gen.schema() is None
 
 
