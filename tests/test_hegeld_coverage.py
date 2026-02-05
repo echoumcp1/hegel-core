@@ -6,6 +6,7 @@ from threading import Thread
 from unittest.mock import patch
 
 import pytest
+from hypothesis import strategies as st
 
 from hegel.hegeld import (
     CACHE_SIZE,
@@ -221,6 +222,43 @@ def test_mark_interesting_status():
 
         with pytest.raises(AssertionError):
             client.run_test("test_mark_interesting", my_test, test_cases=20)
+    finally:
+        client_connection.close()
+
+    thread.join(timeout=5)
+
+
+def test_unsatisfied_assumption_handled_gracefully():
+    """Test that UnsatisfiedAssumption from data.draw() is handled as invalid.
+
+    When a Hypothesis strategy raises UnsatisfiedAssumption (e.g., st.nothing()),
+    the server should call data.mark_invalid() instead of crashing. This converts
+    it to a StopTest which the SDK handles as DataExhausted.
+    """
+    server_socket, client_socket = socket.socketpair()
+    thread = Thread(
+        target=run_server_on_connection,
+        args=(Connection(server_socket, name="Server"),),
+        daemon=True,
+    )
+    thread.start()
+
+    try:
+        client_connection = Connection(client_socket, name="Client")
+        client = Client(client_connection)
+
+        def my_test():
+            # st.nothing() always raises UnsatisfiedAssumption when drawn.
+            # The server should handle this gracefully by marking the test
+            # case as invalid rather than crashing.
+            generate_from_schema({"type": "integer"})
+
+        # Mock cached_from_schema to return st.nothing(), which always
+        # raises UnsatisfiedAssumption on draw.
+        with patch("hegel.hegeld.cached_from_schema", return_value=st.nothing()):
+            # All test cases will be marked invalid (UnsatisfiedAssumption),
+            # so no interesting examples are found and the test "passes".
+            client.run_test("test_unsatisfied", my_test, test_cases=10)
     finally:
         client_connection.close()
 

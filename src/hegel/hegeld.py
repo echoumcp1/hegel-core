@@ -18,7 +18,7 @@ from typing import Any
 from hypothesis import settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
-from hypothesis.errors import StopTest
+from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
@@ -114,6 +114,9 @@ def make_test_function(
                             )
                     else:
                         raise ValueError(f"Unknown command: {command}")
+                except UnsatisfiedAssumption:
+                    done = True
+                    data.mark_invalid()
                 except StopTest:
                     done = True
                     raise
