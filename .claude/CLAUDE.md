@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pip install --group dev -e .  # Install with dev dependencies
+just ci                       # Run all CI checks (lint + typecheck + test)
 pytest                        # Run all tests
 pytest tests/test_parser.py   # Run single test file
 pytest -k test_name           # Run tests matching pattern

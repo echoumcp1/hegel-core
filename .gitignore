@@ -17,6 +17,7 @@ devcontainer
 error.log
 
 .claude/reliability-config.yml
+.claude/reliability-config.yaml
 .claude/*.local.md
 .claude/*.local.json
 .claude/*.local
