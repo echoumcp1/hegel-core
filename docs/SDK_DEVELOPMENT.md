@@ -67,7 +67,6 @@ Test binaries receive these environment variables from Hegel:
 │  4. SDK connects to hegeld's socket as client               │
 │  5. Single persistent connection per program run            │
 │  6. Multiple tests run over same connection                 │
-│  7. Connection set/cleared per test case via thread-local   │
 └─────────────────────────────────────────────────────────────┘
 ```
 

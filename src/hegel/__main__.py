@@ -14,6 +14,7 @@ import socket
 import sys
 
 import click
+from hypothesis import Verbosity
 
 from hegel.hegeld import run_server_on_connection
 from hegel.protocol import Connection
@@ -40,47 +41,50 @@ def main(socket_path, test_cases, verbosity):
     Once connected, it handles test execution requests over a single persistent
     connection.
     """
-    if verbosity == "debug":
+    verbosity = Verbosity[verbosity]
+
+    if verbosity >= Verbosity.debug:
         os.environ["HEGEL_DEBUG"] = "true"
 
     # Store test_cases in environment for hegeld to pick up
     os.environ["HEGEL_TEST_CASES"] = str(test_cases)
+
+    # Clean up any existing socket before starting
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(socket_path)
 
     run_server(socket_path, verbosity)
 
 
 def run_server(socket_path, verbosity):
     """Bind to the socket and serve test execution requests."""
-    # Clean up any existing socket
-    with contextlib.suppress(FileNotFoundError):
-        os.unlink(socket_path)
+    if isinstance(verbosity, str):
+        verbosity = Verbosity[verbosity]
 
     # Create and bind server socket
     server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server_sock.bind(socket_path)
     server_sock.listen(1)
 
-    if verbosity in ("verbose", "debug"):
+    if verbosity >= Verbosity.verbose:
         print(f"Listening on {socket_path}", file=sys.stderr)
 
     try:
         # Accept a single connection from the SDK
         client_sock, _ = server_sock.accept()
 
-        if verbosity in ("verbose", "debug"):
+        if verbosity >= Verbosity.verbose:
             print("SDK connected", file=sys.stderr)
 
         # Handle the connection
         connection = Connection(client_sock, name="Server")
         run_server_on_connection(connection)
 
-        if verbosity in ("verbose", "debug"):
+        if verbosity >= Verbosity.verbose:
             print("SDK disconnected", file=sys.stderr)
 
     finally:
         server_sock.close()
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(socket_path)
 
 
 if __name__ == "__main__":  # pragma: no cover

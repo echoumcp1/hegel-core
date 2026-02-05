@@ -318,7 +318,7 @@ def test_channel_timeout():
 
         ch = client_conn.new_channel(role="TestTimeout")
 
-        with pytest.raises(ConnectionError, match="Timed out"):
+        with pytest.raises(TimeoutError, match="Timed out"):
             ch.receive_request(timeout=0.1)
     finally:
         server_conn.close()

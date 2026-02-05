@@ -33,6 +33,11 @@ from dataclasses import fields, is_dataclass
 from enum import Enum
 from typing import Any, TypeVar, Union, get_args, get_origin
 
+try:
+    ExceptionGroup
+except NameError:
+    from exceptiongroup import ExceptionGroup  # type: ignore[no-redef]
+
 import cbor2
 
 from hegel.protocol import (
@@ -181,9 +186,13 @@ class Client:
         is_final: bool,
     ) -> None:
         """Run a single test case."""
-        token_channel = _current_channel.set(channel)
-        token_final = _is_final.set(is_final)
-        token_aborted = _test_aborted.set(False)
+        if _current_channel.get() is not None:
+            raise RuntimeError(
+                "Cannot nest test cases - already inside a test case",
+            )
+        _current_channel.set(channel)
+        _is_final.set(is_final)
+        _test_aborted.set(False)
         already_complete = False
         status = "VALID"
         origin = None
@@ -203,9 +212,9 @@ class Client:
             if is_final:
                 raise
         finally:
-            _current_channel.reset(token_channel)
-            _is_final.reset(token_final)
-            _test_aborted.reset(token_aborted)
+            _current_channel.set(None)
+            _is_final.set(False)
+            _test_aborted.set(False)
             if not already_complete:
                 channel.send_request(
                     {
@@ -260,7 +269,7 @@ def generate_from_schema(schema: dict) -> Any:
         raise
 
 
-def assume(condition: bool) -> None:  # noqa: FBT001
+def assume(condition: bool) -> None:
     """Reject the current test case if condition is False."""
     if not condition:
         raise AssumeRejected
@@ -349,13 +358,12 @@ class Generator(ABC):
     def filter(
         self,
         predicate: Callable[[Any], bool],
-        max_attempts: int = 100,
     ) -> "FilteredGenerator":
         """Filter generated values using a predicate.
 
-        If max_attempts consecutive values fail the predicate, calls assume(false).
+        If 3 consecutive values fail the predicate, calls assume(false).
         """
-        return FilteredGenerator(self, predicate, max_attempts)
+        return FilteredGenerator(self, predicate)
 
 
 class SchemaGenerator(Generator):
@@ -414,18 +422,18 @@ class FlatMappedGenerator(Generator):
 class FilteredGenerator(Generator):
     """A generator that filters values."""
 
+    _MAX_ATTEMPTS = 3
+
     def __init__(
         self,
         source: Generator,
         predicate: Callable[[Any], bool],
-        max_attempts: int,
     ):
         self._source = source
         self._predicate = predicate
-        self._max_attempts = max_attempts
 
     def generate(self) -> Any:
-        for _ in range(self._max_attempts):
+        for _ in range(self._MAX_ATTEMPTS):
             start_span(Labels.FILTER)
             value = self._source.generate()
             if self._predicate(value):
@@ -586,9 +594,12 @@ class SampledFromGenerator(Generator):
     def __init__(self, elements: list[Any]):
         self._elements = list(elements)
         self._json_values: list[Any] | None = None
+        self._cached_schema: dict | None | bool = False  # False = not computed
 
     def schema(self) -> dict | None:
         """Return schema only if all elements are JSON primitives."""
+        if self._cached_schema is not False:
+            return self._cached_schema  # type: ignore[return-value]
         try:
             json_values: list[Any] = []
             for elem in self._elements:
@@ -599,10 +610,13 @@ class SampledFromGenerator(Generator):
                     json_values.append(elem)
                 else:
                     # Not a primitive - fallback mode
+                    self._cached_schema = None
                     return None
             self._json_values = json_values
-            return {"sampled_from": json_values}
+            self._cached_schema = {"sampled_from": json_values}
+            return self._cached_schema
         except (TypeError, ValueError):
+            self._cached_schema = None
             return None
 
     def generate(self) -> Any:
@@ -766,6 +780,7 @@ class DataclassGenerator(Generator):
             raise TypeError(f"{dataclass_type} is not a dataclass")
         self._type = dataclass_type
         self._field_generators: dict[str, Generator] = {}
+        self._cached_schema: dict | None | bool = False  # False = not computed
 
         # Create generators for each field
         for field in fields(dataclass_type):
@@ -780,10 +795,14 @@ class DataclassGenerator(Generator):
         new_gen._type = self._type
         new_gen._field_generators = dict(self._field_generators)
         new_gen._field_generators[field_name] = gen
+        new_gen._cached_schema = False  # Reset cache for new generator
         return new_gen
 
     def schema(self) -> dict | None:
         """Return schema if all fields have schemas."""
+        if self._cached_schema is not False:
+            return self._cached_schema  # type: ignore[return-value]
+
         properties = {}
         required = []
 
@@ -791,11 +810,13 @@ class DataclassGenerator(Generator):
             gen = self._field_generators[field.name]
             field_schema = gen.schema()
             if field_schema is None:
+                self._cached_schema = None
                 return None  # Compositional fallback
             properties[field.name] = field_schema
             required.append(field.name)
 
-        return {"type": "object", "properties": properties, "required": required}
+        self._cached_schema = {"type": "object", "properties": properties, "required": required}
+        return self._cached_schema
 
     def generate(self) -> Any:
         """Generate a dataclass instance."""

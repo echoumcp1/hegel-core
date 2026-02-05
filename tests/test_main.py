@@ -76,12 +76,15 @@ def test_run_server_verbose():
 
 
 def test_run_server_cleans_up_stale_socket():
-    """Test run_server removes an existing socket file."""
+    """Test caller must clean up stale socket before run_server."""
     with tempfile.TemporaryDirectory() as d:
         socket_path = os.path.join(d, "test.sock")
         # Create stale socket file
         with open(socket_path, "w"):
             pass
+
+        # Clean up the stale socket (caller's responsibility)
+        os.unlink(socket_path)
 
         def server():
             run_server(socket_path, "quiet")

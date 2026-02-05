@@ -17,7 +17,7 @@ from hegel.protocol import Connection, RequestError
 from hegel.sdk import (
     Client,
     _get_channel,
-    generate_from_schema as draw,
+    generate_from_schema,
     start_span,
     stop_span,
     target,
@@ -40,7 +40,7 @@ def test_start_and_stop_span():
 
         def my_test():
             start_span(1)
-            x = draw({"type": "integer", "minimum": 0, "maximum": 10})
+            x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
             stop_span()
             assert isinstance(x, int)
 
@@ -67,7 +67,7 @@ def test_stop_span_with_discard():
 
         def my_test():
             start_span(1)
-            x = draw({"type": "integer", "minimum": 0, "maximum": 10})
+            x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
             stop_span(discard=True)
             assert isinstance(x, int)
 
@@ -93,7 +93,7 @@ def test_target_observations_on_server():
         client = Client(client_connection)
 
         def my_test():
-            x = draw({"type": "integer", "minimum": 0, "maximum": 100})
+            x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
             target(float(x), "maximize_x")
             assert x >= 0
 
@@ -119,7 +119,7 @@ def test_mark_interesting():
         client = Client(client_connection)
 
         def my_test():
-            x = draw({"type": "integer", "minimum": 0, "maximum": 100})
+            x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
             assert x < 50
 
         with pytest.raises(AssertionError):
@@ -161,9 +161,6 @@ def test_cache_eviction():
         cached_from_schema(schema)
 
     assert len(FROM_SCHEMA_CACHE) <= CACHE_SIZE
-
-    # Clear out what we added
-    FROM_SCHEMA_CACHE.clear()
 
 
 def test_unknown_command_in_test_case():
@@ -212,7 +209,7 @@ def test_mark_interesting_status():
 
         def my_test():
             call_count[0] += 1
-            draw(
+            generate_from_schema(
                 {
                     "type": "integer",
                     "minimum": 0,

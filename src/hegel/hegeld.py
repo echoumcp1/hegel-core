@@ -11,7 +11,6 @@ import hashlib
 import json
 import os
 import traceback
-from collections import OrderedDict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -20,6 +19,7 @@ from hypothesis import settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import StopTest
+from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
@@ -30,32 +30,19 @@ from hegel.protocol import Channel, Connection
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
 # Schema cache for performance
-FROM_SCHEMA_CACHE: OrderedDict[bytes, Any] = OrderedDict()
 CACHE_SIZE = 1024
+FROM_SCHEMA_CACHE: LRUCache = LRUCache(CACHE_SIZE)
 
 
 def cached_from_schema(schema: dict) -> Any:
     """Convert schema to strategy with LRU caching by SHA1 hash."""
     key = hashlib.sha1(json.dumps(schema, sort_keys=True).encode("utf-8")).digest()[:32]
     try:
-        result = FROM_SCHEMA_CACHE[key]
-        FROM_SCHEMA_CACHE.move_to_end(key)
-        return result
+        return FROM_SCHEMA_CACHE[key]
     except KeyError:
         result = from_schema(schema)
         FROM_SCHEMA_CACHE[key] = result
-        if len(FROM_SCHEMA_CACHE) > CACHE_SIZE:
-            FROM_SCHEMA_CACHE.popitem(last=False)
         return result
-
-
-def make_settings(test_cases: int) -> settings:
-    """Create Hypothesis settings for a test run."""
-    return settings(
-        deadline=None,
-        database=DATABASE,
-        max_examples=test_cases,
-    )
 
 
 def make_test_function(
@@ -114,6 +101,7 @@ def make_test_function(
                         data.target_observations[label] = value
                         return None
                     elif command == "mark_complete":
+                        done = True
                         status = message.get("status", "VALID")
                         origin = message.get("origin")
                         if status == "VALID":
@@ -126,7 +114,7 @@ def make_test_function(
                             )
                     else:
                         raise ValueError(f"Unknown command: {command}")
-                except BaseException:
+                except StopTest:
                     done = True
                     raise
 
@@ -162,7 +150,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             connection,
                             channel,
                             test_name=test_name,
-                            test_cases=message.get("test_cases", 1000),
+                            test_cases=message["test_cases"],
                         ),
                     )
                     connection.control_channel.send_response_value(
@@ -192,7 +180,7 @@ def handle_run_test(
     connection: Connection,
     channel: Channel,
     test_name: str,
-    test_cases: int = 100,
+    test_cases: int,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -211,7 +199,11 @@ def handle_run_test(
 
         runner = ConjectureRunner(
             test_function,
-            settings=make_settings(test_cases),
+            settings=settings(
+                deadline=None,
+                database=DATABASE,
+                max_examples=test_cases,
+            ),
             database_key=db_key,
         )
         runner.run()

@@ -3,7 +3,6 @@ import os
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -482,14 +481,9 @@ def run_conformance_tests(
     for test in tests:
         with subtests.test(msg=type(test).__name__):
 
-            def make_run_test(
-                _test: ConformanceTest,
-            ) -> Callable[[], None]:
-                @Settings(parent=settings, max_examples=5, deadline=None)
-                @given(_test.params_strategy())
-                def run_test(params: dict[str, Any]) -> None:
-                    _test.run(params)
+            @Settings(parent=settings, max_examples=5, deadline=None)
+            @given(test.params_strategy())
+            def run_test(params: dict[str, Any]) -> None:
+                test.run(params)
 
-                return run_test
-
-            make_run_test(test)()
+            run_test()

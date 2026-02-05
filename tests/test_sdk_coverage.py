@@ -10,6 +10,11 @@ from enum import Enum
 from threading import Thread
 from unittest.mock import MagicMock, patch
 
+try:
+    ExceptionGroup
+except NameError:
+    from exceptiongroup import ExceptionGroup  # type: ignore[no-redef]
+
 import pytest
 
 from hegel.hegeld import run_server_on_connection
@@ -163,11 +168,10 @@ def test_filtered_generator_max_attempts_exhausted():
     try:
 
         def my_test():
-            # Always-failing filter with 1 attempt
+            # Always-failing filter - will exhaust all 3 attempts
             gen = FilteredGenerator(
                 integers(min_value=0, max_value=10),
                 lambda x: False,
-                max_attempts=1,
             )
             gen.generate()  # Should call assume(False) -> AssumeRejected
 
@@ -1297,6 +1301,7 @@ def test_sampled_from_schema_iteration_error():
     gen = SampledFromGenerator.__new__(SampledFromGenerator)
     gen._elements = BadList([1, 2, 3])
     gen._json_values = None
+    gen._cached_schema = False
     assert gen.schema() is None
 
 

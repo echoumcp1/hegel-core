@@ -242,7 +242,7 @@ class Connection:
             try:
                 payload_repr = cbor2.loads(packet.payload)
             except Exception:
-                payload_repr = packet.payload[:50]
+                payload_repr = packet.payload
         reply = "reply" if packet.is_reply else "request"
 
         if packet.channel == 0:
@@ -257,7 +257,7 @@ class Connection:
         self._debug_print(
             f"[{name}] {direction} ch={ch}"
             f" message_id={packet.message_id}"
-            f" {reply}: {payload_repr}",
+            f" {reply}: {payload_repr!r:.200}",
         )
 
     def __run_reader(self):
@@ -400,7 +400,21 @@ class Connection:
         return result
 
 
-NOT_SET = object()
+class _NotSet:
+    """Sentinel for values that have not been set yet."""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self):
+        return "NOT_SET"
+
+
+NOT_SET = _NotSet()
 
 
 class RequestError(Exception):
@@ -431,7 +445,11 @@ class PendingRequest:
         self.__value: Any = NOT_SET
 
     def get(self) -> Any:
-        """Block until response arrives and return the result."""
+        """Block until response arrives and return the result.
+
+        We cache the decoded response so that if it contains an error,
+        the same error is raised consistently on every call to get().
+        """
         if self.__value is NOT_SET:
             self.__value = cbor2.loads(self.__channel.receive_response_raw(self.__id))
         return result_or_error(self.__value)
@@ -470,14 +488,15 @@ class Channel:
                 name=self.name,
                 channel_id=self.channel_id,
             )
-        self.connection.send_packet(
-            Packet(
-                payload=CLOSE_CHANNEL_PAYLOAD,
-                message_id=CLOSE_CHANNEL_MESSAGE_ID,
-                channel=self.channel_id,
-                is_reply=False,
-            ),
-        )
+        if self.connection.live:
+            self.connection.send_packet(
+                Packet(
+                    payload=CLOSE_CHANNEL_PAYLOAD,
+                    message_id=CLOSE_CHANNEL_MESSAGE_ID,
+                    channel=self.channel_id,
+                    is_reply=False,
+                ),
+            )
 
     @property
     def name(self):
@@ -497,7 +516,7 @@ class Channel:
         try:
             packet = self.inbox.get(timeout=timeout)
         except Empty:
-            raise ConnectionError(
+            raise TimeoutError(
                 f"Timed out after {timeout}s waiting for a message on {self.name}",
             ) from None
         if packet is SHUTDOWN:
@@ -572,7 +591,7 @@ class Channel:
         timeout: float | None = CHANNEL_TIMEOUT,
     ) -> tuple[Id, Any]:
         """Receive and decode a request from the peer."""
-        id, body = self.receive_request_raw()
+        id, body = self.receive_request_raw(timeout=timeout)
         return id, cbor2.loads(body)
 
     def receive_request_raw(
