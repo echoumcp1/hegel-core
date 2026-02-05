@@ -478,6 +478,9 @@ def floats(
         schema["maximum"] = max_value
     schema["allow_nan"] = allow_nan
     schema["allow_infinity"] = allow_infinity
+    schema["exclude_minimum"] = False
+    schema["exclude_maximum"] = False
+    schema["width"] = 64
     return SchemaGenerator(schema)
 
 

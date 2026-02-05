@@ -143,7 +143,20 @@ def test_integer(example):
     assert 0 <= example <= 10
 
 
-@given(from_schema({"type": "number", "minimum": 0.0, "maximum": 1.0}))
+@given(
+    from_schema(
+        {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "allow_nan": False,
+            "allow_infinity": False,
+            "exclude_minimum": False,
+            "exclude_maximum": False,
+            "width": 64,
+        },
+    ),
+)
 def test_number(example):
     assert isinstance(example, float)
     assert 0.0 <= example <= 1.0
@@ -157,6 +170,9 @@ def test_number(example):
             "maximum": 1.0,
             "exclude_minimum": True,
             "exclude_maximum": True,
+            "allow_nan": False,
+            "allow_infinity": False,
+            "width": 64,
         },
     ),
 )
@@ -228,7 +244,7 @@ def test_one_of(example):
     assert example is None or isinstance(example, bool)
 
 
-@given(from_schema({"type": "list", "elements": {"type": "integer"}}))
+@given(from_schema({"type": "list", "elements": {"type": "integer"}, "min_size": 0}))
 def test_list(example):
     assert isinstance(example, list)
     assert all(isinstance(x, int) for x in example)
@@ -269,6 +285,7 @@ def test_set(example):
             "type": "dict",
             "keys": {"type": "string", "min_size": 1},
             "values": {"type": "integer"},
+            "min_size": 0,
         },
     ),
 )
@@ -284,7 +301,7 @@ def test_dict(example):
     from_schema(
         {
             "type": "dict",
-            "keys": {"type": "string"},
+            "keys": {"type": "string", "min_size": 0},
             "values": {"type": "integer"},
             "min_size": 1,
             "max_size": 3,
@@ -295,7 +312,7 @@ def test_dict_size(example):
     assert 1 <= len(example) <= 3
 
 
-@given(from_schema({"type": "dict", "values": {"type": "integer"}}))
+@given(from_schema({"type": "dict", "keys": {"type": "string", "min_size": 0}, "values": {"type": "integer"}, "min_size": 0}))
 def test_dict_default_keys(example):
     # Wire format is [[key, value], ...], keys default to strings
     assert isinstance(example, list)
@@ -308,7 +325,7 @@ def test_dict_default_keys(example):
             "type": "tuple",
             "elements": [
                 {"type": "integer"},
-                {"type": "string"},
+                {"type": "string", "min_size": 0},
                 {"type": "boolean"},
             ],
         },
@@ -335,6 +352,7 @@ def test_tuple_empty(example):
                 "type": "tuple",
                 "elements": [{"type": "integer"}, {"type": "integer"}],
             },
+            "min_size": 0,
         },
     ),
 )
@@ -351,6 +369,7 @@ def test_set_of_tuples(example):
             "values": {
                 "type": "list",
                 "elements": {"type": "integer"},
+                "min_size": 0,
                 "max_size": 5,
             },
             "min_size": 1,

@@ -230,7 +230,7 @@ def test_multiple_tests_same_connection():
             assert isinstance(x, int)
 
         def test2():
-            s = draw({"type": "string", "max_size": 10})
+            s = draw({"type": "string", "min_size": 0, "max_size": 10})
             assert isinstance(s, str)
 
         client.run_test("test1", test1, test_cases=20)

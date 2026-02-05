@@ -27,7 +27,7 @@ def test_binary_schema(example):
     {
         "type": "object",
         "properties": {
-            "name": {"type": "string"},
+            "name": {"type": "string", "min_size": 0},
             "age": {"type": "integer", "minimum": 0, "maximum": 100},
         },
     },
@@ -48,7 +48,7 @@ def test_url_schema(example):
     assert "://" in example
 
 
-@schema_test({"type": "domain"})
+@schema_test({"type": "domain", "max_length": 255})
 def test_domain_schema(example):
     """Test domain type."""
     assert isinstance(example, str)
