@@ -12,8 +12,11 @@ from hypothesis import given, settings as Settings, strategies as st
 
 @st.composite
 def _integer_params_strategy(
-    draw: st.DrawFn, min_value: int | None, max_value: int | None
+    draw: st.DrawFn,
+    min_value: int | None,
+    max_value: int | None,
 ) -> dict[str, Any]:
+    """Generate random integer bounds within the given constraints."""
     drawn_min = min_value
     drawn_max = max_value
 
@@ -30,6 +33,8 @@ def _integer_params_strategy(
 
 
 class ConformanceTest(ABC):
+    """Base class for SDK conformance tests."""
+
     default_test_cases: int = 50
     registered_tests: ClassVar[set[type["ConformanceTest"]]] = set()
 
@@ -46,14 +51,21 @@ class ConformanceTest(ABC):
         self.test_cases = test_cases or self.default_test_cases
 
     @abstractmethod
-    def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]: ...
+    def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
+        """Return a strategy for generating test parameters."""
+        ...
 
     @abstractmethod
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
-    ) -> None: ...
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
+    ) -> None:
+        """Validate that the SDK output matches the expected constraints."""
+        ...
 
     def run(self, params: dict[str, Any]) -> None:
+        """Run the conformance binary and validate its output."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl") as f:
             metrics_file = Path(f.name)
             input_json = json.dumps(params)
@@ -73,7 +85,7 @@ class ConformanceTest(ABC):
                 raise RuntimeError(
                     f"Conformance binary failed with exit code {result.returncode}\n"
                     f"stdout: {result.stdout}\n"
-                    f"stderr: {result.stderr}"
+                    f"stderr: {result.stderr}",
                 )
 
             metrics_list = [
@@ -84,17 +96,23 @@ class ConformanceTest(ABC):
 
 
 class BooleanConformance(ConformanceTest):
+    """Conformance test for boolean generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         return st.just({})
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
             assert metrics["value"] in (True, False)
 
 
 class IntegerConformance(ConformanceTest):
+    """Conformance test for integer generation with bounds."""
+
     def __init__(
         self,
         binary_path: str | Path,
@@ -111,7 +129,9 @@ class IntegerConformance(ConformanceTest):
         return _integer_params_strategy(self.min_value, self.max_value)
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
             value = metrics["value"]
@@ -122,6 +142,8 @@ class IntegerConformance(ConformanceTest):
 
 
 class FloatConformance(ConformanceTest):
+    """Conformance test for float generation with bounds and special values."""
+
     default_test_cases = 500  # NaN/infinity are rare, need more samples
 
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
@@ -140,7 +162,7 @@ class FloatConformance(ConformanceTest):
                         max_value=1e6,
                         allow_nan=False,
                         allow_infinity=False,
-                    )
+                    ),
                 )
 
             if use_max_value:
@@ -151,7 +173,7 @@ class FloatConformance(ConformanceTest):
                         max_value=1e6,
                         allow_nan=False,
                         allow_infinity=False,
-                    )
+                    ),
                 )
 
             # exclude_min/max only meaningful with bounds
@@ -186,7 +208,9 @@ class FloatConformance(ConformanceTest):
         return strategy()
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         if params.get("allow_nan"):
             assert any(m.get("is_nan") for m in metrics_list)
@@ -210,6 +234,8 @@ class FloatConformance(ConformanceTest):
 
 
 class TextConformance(ConformanceTest):
+    """Conformance test for text string generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         @st.composite
         def strategy(draw: st.DrawFn) -> dict[str, Any]:
@@ -228,7 +254,9 @@ class TextConformance(ConformanceTest):
         return strategy()
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
             length = metrics["length"]
@@ -238,6 +266,8 @@ class TextConformance(ConformanceTest):
 
 
 class BinaryConformance(ConformanceTest):
+    """Conformance test for binary data generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         @st.composite
         def strategy(draw: st.DrawFn) -> dict[str, Any]:
@@ -256,7 +286,9 @@ class BinaryConformance(ConformanceTest):
         return strategy()
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
             length = metrics["length"]
@@ -266,6 +298,8 @@ class BinaryConformance(ConformanceTest):
 
 
 class ListConformance(ConformanceTest):
+    """Conformance test for list generation with element and size bounds."""
+
     def __init__(
         self,
         binary_path: str | Path,
@@ -303,7 +337,9 @@ class ListConformance(ConformanceTest):
         return strategy()
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
             size = metrics["size"]
@@ -319,24 +355,35 @@ class ListConformance(ConformanceTest):
 
 
 class SampledFromConformance(ConformanceTest):
+    """Conformance test for sampled_from generation."""
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         @st.composite
         def strategy(draw: st.DrawFn) -> dict[str, Any]:
             options = draw(
-                st.lists(st.integers(-1000, 1000), min_size=1, max_size=10, unique=True)
+                st.lists(
+                    st.integers(-1000, 1000),
+                    min_size=1,
+                    max_size=10,
+                    unique=True,
+                ),
             )
             return {"options": options}
 
         return strategy()
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
             assert metrics["value"] in params["options"]
 
 
 class DictConformance(ConformanceTest):
+    """Conformance test for dictionary generation."""
+
     def __init__(
         self,
         binary_path: str | Path,
@@ -371,21 +418,22 @@ class DictConformance(ConformanceTest):
             max_allowed_min_key = max_key - max_size + 1
             drawn_min_key = draw(
                 st.integers(
-                    min_value=min_key, max_value=max(min_key, max_allowed_min_key)
-                )
+                    min_value=min_key,
+                    max_value=max(min_key, max_allowed_min_key),
+                ),
             )
             # Ensure at least max_size distinct keys are possible
             key_range_min = drawn_min_key + max_size - 1
             drawn_max_key = draw(
-                st.integers(min_value=key_range_min, max_value=max_key)
+                st.integers(min_value=key_range_min, max_value=max_key),
             )
 
             # For values, draw bounds within the allowed range
             drawn_min_value = draw(
-                st.integers(min_value=min_value, max_value=max_value)
+                st.integers(min_value=min_value, max_value=max_value),
             )
             drawn_max_value = draw(
-                st.integers(min_value=drawn_min_value, max_value=max_value)
+                st.integers(min_value=drawn_min_value, max_value=max_value),
             )
 
             return {
@@ -401,7 +449,9 @@ class DictConformance(ConformanceTest):
         return strategy()
 
     def validate(
-        self, metrics_list: list[dict[str, Any]], params: dict[str, Any]
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
             size = metrics["size"]
@@ -425,6 +475,7 @@ def run_conformance_tests(
     *,
     settings: Settings | None = None,
 ) -> None:
+    """Run all conformance tests using pytest subtests."""
     assert {type(t) for t in tests} == ConformanceTest.registered_tests
 
     for test in tests:

@@ -5,7 +5,9 @@ description = "Prototype universal property-based testing implementation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "cbor2>=5.8.0",
     "click>=8.3.1",
+    "exceptiongroup>=1.0.0; python_version < '3.11'",
     "hypothesis>=6.148.5",
     "textual>=3.0.0",
 ]

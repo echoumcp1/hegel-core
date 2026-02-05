@@ -8,6 +8,8 @@ from hypothesis.strategies import SearchStrategy
 
 
 class BooleansStrategy(SearchStrategy[bool]):
+    """Hypothesis strategy for booleans with configurable probability."""
+
     def __init__(self, p: float):
         super().__init__()
         self.p = p
@@ -17,6 +19,7 @@ class BooleansStrategy(SearchStrategy[bool]):
 
 
 def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
+    """Convert a JSON schema to a Hypothesis strategy."""
     if "const" in schema:
         return st.just(schema["const"])
     if "sampled_from" in schema:
@@ -51,7 +54,8 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         # Exclude surrogates (Cs category) as they're invalid in UTF-8/JSON
         return st.text(
             alphabet=st.characters(
-                blacklist_characters="\x00", blacklist_categories=("Cs",)
+                blacklist_characters="\x00",
+                blacklist_categories=("Cs",),  # type: ignore[arg-type]
             ),
             min_size=schema["min_size"],
             max_size=schema.get("max_size"),
@@ -62,7 +66,10 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             max_size=schema.get("max_size"),
         ).map(lambda b: base64.b64encode(b).decode("ascii"))
     if schema_type == "regex":
-        return st.from_regex(schema["pattern"], fullmatch=schema["fullmatch"])
+        return st.from_regex(
+            schema["pattern"],
+            fullmatch=schema["fullmatch"],
+        )
     if schema_type == "list":
         return st.lists(
             from_schema(schema["elements"]),
@@ -86,6 +93,14 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if schema_type == "tuple":
         elements = [from_schema(s) for s in schema["elements"]]
         return st.tuples(*elements)
+    if schema_type == "object":
+        properties = schema.get("properties", {})
+        return st.fixed_dictionaries(
+            {
+                name: from_schema(prop_schema)
+                for name, prop_schema in properties.items()
+            },
+        )
     if schema_type == "email":
         return st.emails()
     if schema_type == "url":

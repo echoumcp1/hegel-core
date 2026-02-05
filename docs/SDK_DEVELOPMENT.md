@@ -59,21 +59,14 @@ Test binaries receive these environment variables from Hegel:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    External Mode                          │
+│                    Connection Flow                          │
 ├─────────────────────────────────────────────────────────────┤
-│  1. First generate() or start_span() opens connection       │
-│  2. Connection persisted across multiple generate() calls   │
-│  3. Connection closed when span_depth reaches 0             │
-│  4. Thread-local state for multi-threaded tests             │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                    Embedded Mode                            │
-├─────────────────────────────────────────────────────────────┤
-│  1. Connection provided by embedding runtime                │
-│  2. SDK uses provided file descriptor                       │
-│  3. No connection management needed                         │
-│  4. Rejection via exception instead of exit                 │
+│  1. SDK creates socket path                                 │
+│  2. SDK spawns hegeld with socket path                      │
+│  3. hegeld binds to socket and listens                      │
+│  4. SDK connects to hegeld's socket as client               │
+│  5. Single persistent connection per program run            │
+│  6. Multiple tests run over same connection                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -521,9 +514,7 @@ Every SDK must implement `assume(condition)`:
 ```
 assume(condition: bool) -> void
 ├── If condition is true: returns normally
-├── If condition is false:
-│   ├── External mode: exit with HEGEL_REJECT_CODE
-│   └── Embedded mode: throw exception / panic with special marker
+├── If condition is false: throw exception / panic with special marker
 ```
 
 **Purpose:** Signal that the current test case is invalid (not a failure). Hegel will try different inputs.

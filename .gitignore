@@ -9,3 +9,20 @@ result
 *.egg-info
 .claude/settings.local.json
 build/
+external
+.devcontainer
+devcontainer
+.claude-reliability
+.coverage
+error.log
+
+.claude/reliability-config.yml
+.claude/*.local.md
+.claude/*.local.json
+.claude/*.local
+
+# claude-reliability managed
+.claude/bin/
+.claude/*.local.md
+.claude/*.local.json
+.claude/*.local
