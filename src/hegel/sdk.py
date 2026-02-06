@@ -505,6 +505,61 @@ def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
     return SchemaGenerator(schema)
 
 
+class collection:
+    def __init__(
+        self, name: str | None, min_size: int = 0, max_size: int | None = None
+    ):
+        self.__base_name = name
+        self.__server_name = None
+        self.__finished = False
+        self.min_size = min_size
+        self.max_size = max_size
+
+    @property
+    def _server_name(self):
+        if self.__server_name is None:
+            self.__server_name = (
+                _get_channel().request(
+                    {
+                        "command": "new_collection",
+                        "name": self.__base_name,
+                        "min_size": self.min_size,
+                        "max_size": self.max_size,
+                    }
+                )
+            ).get()
+        return self.__server_name
+
+    def more(self) -> bool:
+        """Should we generate another element?"""
+        if self.__finished:
+            return False
+        result = (
+            _get_channel()
+            .request({"command": "collection_more", "collection": self._server_name})
+            .get()
+        )
+        if not result:
+            self.__finished = True
+        return result
+
+    def reject(self, why: str | None = None) -> None:
+        """We did not add the last element to the collection,
+        don't count it towards our size budget."""
+        if not self.__finished:
+            return (
+                _get_channel()
+                .request(
+                    {
+                        "command": "collection_reject",
+                        "collection": self._server_name,
+                        "why": why,
+                    }
+                )
+                .get()
+            )
+
+
 def lists(
     elements: Generator,
     min_size: int = 0,
@@ -530,26 +585,21 @@ class CompositeListGenerator(Generator):
         self._elements = elements
         self._min_size = min_size
         self._max_size = max_size
+        self._collection = collection(
+            name="composite_list",
+            min_size=min_size,
+            max_size=max_size,
+        )
 
     def generate(self) -> list:
         start_span(Labels.LIST)
         try:
-            # First get the size
-            size_schema: dict = {"type": "integer", "minimum": self._min_size}
-            if self._max_size is not None:
-                size_schema["maximum"] = self._max_size
-            else:
-                size_schema["maximum"] = self._min_size + 10  # reasonable default
-
-            size = generate_from_schema(size_schema)
             result = []
-            for _ in range(size):
-                start_span(Labels.LIST_ELEMENT)
+            while self._collection.more():
                 result.append(self._elements.generate())
-                stop_span(discard=False)
             return result
         finally:
-            stop_span(discard=False)
+            stop_span()
 
 
 def tuples(*elements: Generator) -> Generator:
