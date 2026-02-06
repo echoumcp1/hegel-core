@@ -48,3 +48,4 @@ SDKs use `start_span`/`stop_span` commands to mark generation boundaries. This e
 ## Code Style
 
 - Don't add message strings to pytest asserts (`assert x, "message"`). Pytest provides excellent error messages automatically.
+- Don't reference source line numbers in test comments (e.g., "Covers sdk.py line 42"). Line numbers are not stable identifiers. Instead, describe the condition or branch being tested (e.g., "Tests the except TypeError branch in schema()").

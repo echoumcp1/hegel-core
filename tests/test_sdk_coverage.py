@@ -1094,8 +1094,8 @@ def test_find_hegeld_in_venv_not_exists():
 def test_multiple_interesting_exception_group():
     """Test ExceptionGroup is raised when there are multiple interesting examples.
 
-    This covers sdk.py lines 180-181 (ExceptionGroup path) which requires
-    n_interesting > 1 (multiple failure origins).
+    Tests that an ExceptionGroup is raised when there are multiple interesting
+    examples with different origins (n_interesting > 1).
     """
     client, conn, thread = _make_client()
     try:
@@ -1118,7 +1118,7 @@ def test_multiple_interesting_exception_group():
 def test_generate_from_schema_non_stop_test_error():
     """Test generate_from_schema re-raises non-StopTest RequestError.
 
-    This covers sdk.py line 267.
+    Tests that generate_from_schema re-raises RequestError when it's not a StopTest.
     """
     client, conn, thread = _make_client()
     try:
@@ -1137,7 +1137,8 @@ def test_generate_from_schema_non_stop_test_error():
 def test_connection_error_in_test_function():
     """Test ConnectionError is re-raised from test function.
 
-    This covers sdk.py line 205.
+    Tests that ConnectionError during test execution is re-raised rather than
+    caught as an interesting failure.
     """
     client, conn, thread = _make_client()
     try:
@@ -1155,8 +1156,9 @@ def test_connection_error_in_test_function():
 def test_unrecognised_event_in_run_test():
     """Test unrecognised event handling in Client.run_test.
 
-    This covers sdk.py line 141 by injecting a bad event through
-    the protocol directly instead of going through the normal server.
+    Tests the else branch in run_test's event loop where an unrecognised event
+    receives an error response. Injects a bad event through the protocol directly
+    instead of going through the normal server.
     """
 
     server_socket, client_socket = socket.socketpair()
@@ -1209,7 +1211,8 @@ def test_unrecognised_event_in_run_test():
 def test_hegel_session_start_verbose_double_check_lock():
     """Test _HegelSession._start double-check lock path.
 
-    This covers sdk.py line 953 by calling _start twice rapidly.
+    Tests the double-check locking in _HegelSession._start where a second
+    thread finds the client already initialized inside the lock.
     """
     session = _HegelSession()
     started = threading.Event()
@@ -1239,7 +1242,8 @@ def test_hegel_session_start_verbose_double_check_lock():
 def test_hegel_session_timeout_kill():
     """Test _HegelSession._start kills process on timeout.
 
-    This covers sdk.py lines 990-991.
+    Tests that _HegelSession._start kills the process and raises RuntimeError
+    when the socket never becomes available.
     """
     session = _HegelSession()
 
@@ -1263,7 +1267,8 @@ def test_hegel_session_timeout_kill():
 def test_hegel_session_connection_retry():
     """Test _HegelSession._start retries connection.
 
-    This covers sdk.py lines 984-986.
+    Tests that _HegelSession._start retries on ConnectionRefusedError and
+    closes failed sockets before retrying.
     """
     session = _HegelSession()
 
@@ -1290,7 +1295,8 @@ def test_hegel_session_connection_retry():
 def test_sampled_from_schema_iteration_error():
     """Test SampledFromGenerator.schema() catches TypeError during iteration.
 
-    This covers sdk.py lines 612-613 (except TypeError/ValueError).
+    Tests the except TypeError/ValueError branch in SampledFromGenerator.schema()
+    by providing elements whose iteration raises TypeError.
     """
 
     class BadList(list):
@@ -1310,7 +1316,8 @@ def test_sampled_from_schema_iteration_error():
 def test_sampled_from_generate_server_wrong_value():
     """Test SampledFromGenerator.generate() raises when server returns wrong value.
 
-    This covers sdk.py line 625.
+    Tests that SampledFromGenerator.generate() raises RuntimeError when the
+    server returns a value not present in the elements list.
     """
 
     gen = SampledFromGenerator([1, 2, 3])
@@ -1328,7 +1335,8 @@ def test_sampled_from_generate_server_wrong_value():
 def test_is_final_pass_with_multiple_interesting():
     """Test the branch where is_final test case doesn't fail with n_interesting > 1.
 
-    This covers sdk.py line 171 (the AssertionError for is_final pass).
+    Tests the AssertionError raised when an is_final test case unexpectedly
+    passes with n_interesting > 1.
     """
     client, conn, thread = _make_client()
     try:
@@ -1374,7 +1382,8 @@ def test_is_final_pass_with_multiple_interesting():
 def test_nested_test_case_raises():
     """Test that nesting test cases raises RuntimeError.
 
-    Covers sdk.py line 190.
+    Tests that _run_test_case raises RuntimeError when _current_channel is
+    already set (nested test case attempt).
     """
     client, conn, thread = _make_client()
     try:
@@ -1395,7 +1404,8 @@ def test_nested_test_case_raises():
 def test_collection_more_after_finished():
     """Test collection.more() returns False when already finished.
 
-    Covers sdk.py line 536.
+    Tests the early return in collection.more() when self.__finished is
+    already True.
     """
     client, conn, thread = _make_client()
     try:
@@ -1417,7 +1427,8 @@ def test_collection_more_after_finished():
 def test_collection_reject_while_active():
     """Test collection.reject() while collection is active.
 
-    Covers sdk.py line 550 (the body of reject when not finished).
+    Tests that collection.reject() sends the collection_reject command to the
+    server when the collection is still active (not finished).
     """
     client, conn, thread = _make_client()
     try:
@@ -1438,7 +1449,8 @@ def test_collection_reject_while_active():
 def test_collection_reject_when_finished():
     """Test collection.reject() is a no-op when collection is finished.
 
-    Covers sdk.py lines 549 (the False branch of if not self.__finished).
+    Tests that collection.reject() is a no-op when self.__finished is True
+    (the False branch of `if not self.__finished`).
     """
     client, conn, thread = _make_client()
     try:
