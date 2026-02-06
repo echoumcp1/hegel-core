@@ -637,7 +637,7 @@ class Channel:
             error_type = type(message).__name__
         response = {"error": error, "type": error_type}
         if message is not None:
-            response["detail"] = traceback.format_exception(message)
+            response["detail"] = "".join(traceback.format_exception(message))
         self.send_response_raw(
             id,
             cbor2.dumps(response),
