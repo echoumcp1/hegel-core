@@ -39,6 +39,7 @@ from hegel.sdk import (
     _test_aborted,
     assume,
     binary,
+    collection,
     dicts,
     from_type,
     generate_from_schema as draw,
@@ -1368,3 +1369,90 @@ def test_is_final_pass_with_multiple_interesting():
     finally:
         conn.close()
         thread.join(timeout=10)
+
+
+def test_nested_test_case_raises():
+    """Test that nesting test cases raises RuntimeError.
+
+    Covers sdk.py line 190.
+    """
+    client, conn, thread = _make_client()
+    try:
+
+        def my_test():
+            channel = _get_channel()
+            # _current_channel is already set, calling _run_test_case again
+            # should raise RuntimeError
+            with pytest.raises(RuntimeError, match="Cannot nest test cases"):
+                client._run_test_case(channel, lambda: None, is_final=False)
+
+        client.run_test("test_nested", my_test, test_cases=1)
+    finally:
+        conn.close()
+        thread.join(timeout=5)
+
+
+def test_collection_more_after_finished():
+    """Test collection.more() returns False when already finished.
+
+    Covers sdk.py line 536.
+    """
+    client, conn, thread = _make_client()
+    try:
+
+        def my_test():
+            c = collection("test_coll", min_size=0, max_size=1)
+            # Drain the collection
+            while c.more():
+                draw({"type": "integer"})
+            # Now call more() again — should return False immediately
+            assert c.more() is False
+
+        client.run_test("test_more_finished", my_test, test_cases=5)
+    finally:
+        conn.close()
+        thread.join(timeout=5)
+
+
+def test_collection_reject_while_active():
+    """Test collection.reject() while collection is active.
+
+    Covers sdk.py line 550 (the body of reject when not finished).
+    """
+    client, conn, thread = _make_client()
+    try:
+
+        def my_test():
+            c = collection("test_coll", min_size=1, max_size=5)
+            while c.more():
+                val = draw({"type": "integer", "minimum": 0, "maximum": 100})
+                if val % 2 != 0:
+                    c.reject()
+
+        client.run_test("test_reject_active", my_test, test_cases=10)
+    finally:
+        conn.close()
+        thread.join(timeout=5)
+
+
+def test_collection_reject_when_finished():
+    """Test collection.reject() is a no-op when collection is finished.
+
+    Covers sdk.py lines 549 (the False branch of if not self.__finished).
+    """
+    client, conn, thread = _make_client()
+    try:
+
+        def my_test():
+            c = collection("test_coll", min_size=0, max_size=1)
+            # Drain the collection
+            while c.more():
+                draw({"type": "integer"})
+            # Now call reject() — should be a no-op (returns None)
+            result = c.reject()
+            assert result is None
+
+        client.run_test("test_reject_finished", my_test, test_cases=5)
+    finally:
+        conn.close()
+        thread.join(timeout=5)

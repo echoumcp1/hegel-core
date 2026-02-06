@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import traceback
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -23,6 +24,7 @@ from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
+from hypothesis.internal.conjecture.utils import many
 
 from hegel.parser import from_schema
 from hegel.protocol import Channel, Connection
@@ -61,6 +63,9 @@ def make_test_function(
     """
 
     def test_function(data: ConjectureData) -> None:
+        collections: dict[str, many] = {}
+        collection_name_counter: Counter[str] = Counter()
+
         with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
             # Create a channel for this test case
             test_case_channel = connection.new_channel(role="Test Case")
@@ -86,7 +91,6 @@ def make_test_function(
                         schema = message.get("schema", {})
                         strategy = cached_from_schema(schema)
                         return data.draw(strategy)
-
                     elif command == "start_span":
                         label = message.get("label", 0)
                         data.start_span(label)
@@ -112,6 +116,33 @@ def make_test_function(
                             data.mark_interesting(
                                 origin,  # type: ignore[arg-type]
                             )
+                    elif command == "new_collection":
+                        base_name = message.get("name", "collection")
+                        name = f"{base_name}_{collection_name_counter[base_name]}"
+                        collection_name_counter[base_name] += 1
+                        assert name not in collections
+                        min_size = message.get("min_size", 0)
+                        max_size = message.get("max_size", float("inf"))
+                        if max_size is None:
+                            max_size = float("inf")
+                        # Standard formula for Hypothesis collections.
+                        average_size = min(
+                            max(min_size * 2, min_size + 5),
+                            0.5 * (min_size + max_size),
+                        )
+                        collections[name] = many(
+                            data,
+                            min_size=min_size,
+                            max_size=max_size,
+                            average_size=average_size,
+                        )
+                        return name
+                    elif command == "collection_more":
+                        collection = collections[message["collection"]]
+                        return collection.more()
+                    elif command == "collection_reject":
+                        collection = collections[message["collection"]]
+                        return collection.reject(why=message.get("why"))
                     else:
                         raise ValueError(f"Unknown command: {command}")
                 except UnsatisfiedAssumption:

@@ -139,6 +139,7 @@ parallel = true
 source = ["hegel"]
 
 [tool.coverage.report]
+fail_under = 100
 exclude_also = [
     "raise AssertionError",
 ]
