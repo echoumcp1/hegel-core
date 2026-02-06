@@ -976,7 +976,8 @@ def test_concurrent_connection_handshake():
 def test_not_set_singleton():
     """Test _NotSet singleton returns the same instance.
 
-    Covers protocol.py lines 409->411 (already-created branch).
+    Tests the singleton branch in _NotSet.__new__ where _instance is already
+    set (second instantiation returns the existing instance).
     """
     instance1 = _NotSet()
     instance2 = _NotSet()
@@ -987,7 +988,7 @@ def test_not_set_singleton():
 def test_not_set_repr():
     """Test _NotSet.__repr__ returns 'NOT_SET'.
 
-    Covers protocol.py line 414.
+    Tests that _NotSet.__repr__ returns the string 'NOT_SET'.
     """
     assert repr(NOT_SET) == "NOT_SET"
 
@@ -995,7 +996,8 @@ def test_not_set_repr():
 def test_channel_close_when_connection_not_live():
     """Test Channel.close() when connection is already closed.
 
-    Covers protocol.py line 491->exit (branch where connection.live is False).
+    Tests that Channel.close() skips sending the close notification when
+    connection.live is False.
     """
     server_socket, client_socket = socket.socketpair()
     server_conn = Connection(server_socket, name="Server")
@@ -1016,7 +1018,8 @@ def test_channel_close_when_connection_not_live():
 def test_reader_loop_clean_exit():
     """Test reader loop exits cleanly when __running is set to False.
 
-    Covers protocol.py line 265->312 (reader loop exits via while condition).
+    Tests that the reader loop exits cleanly via the `while self.__running`
+    condition becoming False (rather than via an exception).
     We wrap the channel inbox so that after the reader puts a packet into it,
     we set __running = False. The reader then loops back, checks the condition,
     and exits cleanly.

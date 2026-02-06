@@ -269,7 +269,8 @@ def test_unsatisfied_assumption_handled_gracefully():
 def test_collection_reject_on_server():
     """Test collection_reject command is handled by the server.
 
-    Covers hegeld.py lines 144-145.
+    Tests that the server handles the collection_reject command by calling
+    collection.reject() with the provided reason.
     """
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
@@ -307,7 +308,8 @@ def test_collection_reject_on_server():
 def test_mark_complete_unknown_status():
     """Test mark_complete with an unknown status (not VALID/INVALID/INTERESTING).
 
-    Covers hegeld.py line 115->exit (branch where status doesn't match any condition).
+    Tests the fallthrough branch in mark_complete where status is not
+    VALID, INVALID, or INTERESTING (no conclude/mark method is called).
     """
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
@@ -339,8 +341,9 @@ def test_mark_complete_unknown_status():
 def test_unsatisfied_assumption_in_handler():
     """Test UnsatisfiedAssumption from strategy draw is handled as invalid.
 
-    Covers hegeld.py lines 149-150. Uses a custom strategy that raises
-    UnsatisfiedAssumption directly in do_draw().
+    Tests the except UnsatisfiedAssumption handler in handle_sdk_request
+    which catches the exception and marks the test case as invalid.
+    Uses a custom strategy that raises UnsatisfiedAssumption directly in do_draw().
     """
     from hypothesis.errors import UnsatisfiedAssumption
 
@@ -376,10 +379,11 @@ def test_unsatisfied_assumption_in_handler():
 def test_future_cancel_on_connection_error():
     """Test that pending futures with ConnectionError are cancelled.
 
-    Covers hegeld.py line 210. When the client disconnects while a test
-    is running, handle_run_test raises ConnectionError. After the executor
-    shuts down, f.result() re-raises that ConnectionError, which is caught,
-    and f.cancel() is called.
+    Tests the except (ConnectionError, TimeoutError): f.cancel() branch
+    in run_server_on_connection's cleanup. When the client disconnects while
+    a test is running, handle_run_test raises ConnectionError. After the
+    executor shuts down, f.result() re-raises that ConnectionError, which
+    is caught, and f.cancel() is called.
     """
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
@@ -415,7 +419,8 @@ def test_future_cancel_on_connection_error():
 def test_base_exception_in_server():
     """Test that BaseException in server loop is caught and printed.
 
-    This covers hegeld.py lines 180-181 (except BaseException: traceback.print_exc()).
+    Tests the except BaseException handler in run_server_on_connection's main
+    loop, which catches non-ConnectionError exceptions and prints the traceback.
     We patch receive_request (used in the while loop) to raise KeyboardInterrupt.
     receive_handshake uses receive_request_raw so it is unaffected by the patch.
     """
