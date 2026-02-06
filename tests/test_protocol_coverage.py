@@ -14,12 +14,14 @@ from hegel.hegeld import run_server_on_connection
 from hegel.protocol import (
     HEADER_FORMAT,
     MAGIC,
+    NOT_SET,
     TERMINATOR,
     Connection,
     DeadChannel,
     Packet,
     PartialPacket,
     RequestError,
+    _NotSet,
     read_packet,
     recv_exact,
     result_or_error,
@@ -969,3 +971,89 @@ def test_concurrent_connection_handshake():
         client.run_test("test", my_test, test_cases=1)
         conn.close()
         t.join(timeout=5)
+
+
+def test_not_set_singleton():
+    """Test _NotSet singleton returns the same instance.
+
+    Covers protocol.py lines 409->411 (already-created branch).
+    """
+    instance1 = _NotSet()
+    instance2 = _NotSet()
+    assert instance1 is instance2
+    assert instance1 is NOT_SET
+
+
+def test_not_set_repr():
+    """Test _NotSet.__repr__ returns 'NOT_SET'.
+
+    Covers protocol.py line 414.
+    """
+    assert repr(NOT_SET) == "NOT_SET"
+
+
+def test_channel_close_when_connection_not_live():
+    """Test Channel.close() when connection is already closed.
+
+    Covers protocol.py line 491->exit (branch where connection.live is False).
+    """
+    server_socket, client_socket = socket.socketpair()
+    server_conn = Connection(server_socket, name="Server")
+    client_conn = Connection(client_socket, name="Client")
+
+    _handshake_pair(server_conn, client_conn)
+
+    try:
+        ch = client_conn.new_channel(role="TestClose")
+        # Close the connection first
+        client_conn.close()
+        # Now close the channel — connection is not live
+        ch.close()
+    finally:
+        server_conn.close()
+
+
+def test_reader_loop_clean_exit():
+    """Test reader loop exits cleanly when __running is set to False.
+
+    Covers protocol.py line 265->312 (reader loop exits via while condition).
+    We wrap the channel inbox so that after the reader puts a packet into it,
+    we set __running = False. The reader then loops back, checks the condition,
+    and exits cleanly.
+    """
+    server_socket, client_socket = socket.socketpair()
+    server_conn = Connection(server_socket, name="Server")
+    client_conn = Connection(client_socket, name="Client")
+
+    _handshake_pair(server_conn, client_conn)
+
+    ch_client = client_conn.new_channel(role="Test")
+    ch_server = server_conn.connect_channel(ch_client.channel_id, role="Test")
+
+    # Replace the inbox with a wrapper that sets __running = False after put
+    real_inbox = ch_server.inbox
+
+    class StoppingQueue:
+        """Queue wrapper that stops the reader after receiving a packet."""
+
+        def put(self, item):
+            real_inbox.put(item)
+            server_conn._Connection__running = False
+
+        def get(self, *args, **kwargs):
+            return real_inbox.get(*args, **kwargs)
+
+        def empty(self):
+            return real_inbox.empty()
+
+    ch_server.inbox = StoppingQueue()
+
+    # Send a packet — the reader will process it, put it in the inbox,
+    # which sets __running = False, then the reader loops back and exits.
+    ch_client.send_request({"test": "data"})
+
+    # Wait for the reader thread to exit
+    time.sleep(0.3)
+    # Now clean up
+    client_conn.close()
+    server_conn._Connection__socket.close()

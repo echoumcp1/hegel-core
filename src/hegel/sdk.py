@@ -35,7 +35,7 @@ from typing import Any, TypeVar, Union, get_args, get_origin
 
 try:
     ExceptionGroup
-except NameError:
+except NameError:  # pragma: no cover
     from exceptiongroup import ExceptionGroup
 
 import cbor2

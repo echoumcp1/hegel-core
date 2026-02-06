@@ -17,7 +17,11 @@ jobs:
           python-version: '3.13'
       - name: Install dependencies
         run: pip install --group dev -e .
-      - run: pytest
+      - name: Run tests with coverage
+        run: coverage run -m pytest
+      - run: coverage combine
+      - name: Check coverage is 100%
+        run: coverage report
 
   lint:
     name: lint
