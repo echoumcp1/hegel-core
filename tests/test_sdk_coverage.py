@@ -20,6 +20,7 @@ import pytest
 from hegel.hegeld import run_server_on_connection
 from hegel.protocol import Connection, RequestError
 from hegel.sdk import (
+    BasicGenerator,
     Client,
     CompositeDictGenerator,
     CompositeListGenerator,
@@ -28,8 +29,6 @@ from hegel.sdk import (
     DataclassGenerator,
     FilteredGenerator,
     Generator,
-    SampledFromGenerator,
-    SchemaDictGenerator,
     _current_channel,
     _extract_origin,
     _find_hegeld,
@@ -111,13 +110,14 @@ def test_assume_true_passes():
 
 
 def test_mapped_generator():
-    """Test MappedGenerator."""
+    """Test mapping on BasicGenerator preserves schema."""
     client, conn, thread = _make_client()
     try:
 
         def my_test():
             gen = integers(min_value=0, max_value=10).map(lambda x: x * 2)
-            assert gen.schema() is None
+            # Now .map() on BasicGenerator preserves schema
+            assert gen.schema() is not None
             v = gen.generate()
             assert v % 2 == 0
 
@@ -187,13 +187,13 @@ def test_filtered_generator_max_attempts_exhausted():
 
 
 def test_composite_list_generator():
-    """Test CompositeListGenerator (elements without schema)."""
+    """Test CompositeListGenerator (elements without BasicGenerator schema)."""
     client, conn, thread = _make_client()
     try:
 
         def my_test():
-            # Create generator with no schema (mapped)
-            elem = integers(min_value=0, max_value=10).map(lambda x: x * 2)
+            # Create generator with no schema (filter destroys schema)
+            elem = integers(min_value=0, max_value=10).filter(lambda x: x % 2 == 0)
             gen = lists(elem, min_size=1, max_size=3)
             assert isinstance(gen, CompositeListGenerator)
             v = gen.generate()
@@ -212,7 +212,8 @@ def test_composite_list_no_max():
     try:
 
         def my_test():
-            elem = integers(min_value=0, max_value=10).map(lambda x: x)
+            # filter destroys schema, so CompositeListGenerator is used
+            elem = integers(min_value=0, max_value=10).filter(lambda x: True)
             gen = lists(elem)
             assert isinstance(gen, CompositeListGenerator)
             v = gen.generate()
@@ -225,12 +226,13 @@ def test_composite_list_no_max():
 
 
 def test_composite_tuple_generator():
-    """Test CompositeTupleGenerator (elements without schema)."""
+    """Test CompositeTupleGenerator (elements without BasicGenerator schema)."""
     client, conn, thread = _make_client()
     try:
 
         def my_test():
-            elem = integers(min_value=0, max_value=10).map(lambda x: x)
+            # filter destroys schema, forcing CompositeTupleGenerator
+            elem = integers(min_value=0, max_value=10).filter(lambda x: True)
             gen = tuples(elem, integers())
             assert isinstance(gen, CompositeTupleGenerator)
             v = gen.generate()
@@ -264,12 +266,13 @@ def test_composite_one_of_generator():
 
 
 def test_composite_dict_generator():
-    """Test CompositeDictGenerator (keys/values without schema)."""
+    """Test CompositeDictGenerator (keys/values without BasicGenerator schema)."""
     client, conn, thread = _make_client()
     try:
 
         def my_test():
-            key_gen = text(min_size=1, max_size=3).map(lambda x: x)
+            # filter destroys schema, forcing CompositeDictGenerator
+            key_gen = text(min_size=1, max_size=3).filter(lambda x: True)
             gen = dicts(key_gen, integers(), min_size=0, max_size=2)
             assert isinstance(gen, CompositeDictGenerator)
             v = gen.generate()
@@ -287,7 +290,8 @@ def test_composite_dict_no_max():
     try:
 
         def my_test():
-            key_gen = text(min_size=1).map(lambda x: x)
+            # filter destroys schema, forcing CompositeDictGenerator
+            key_gen = text(min_size=1).filter(lambda x: True)
             gen = dicts(key_gen, integers())
             assert isinstance(gen, CompositeDictGenerator)
             v = gen.generate()
@@ -300,13 +304,14 @@ def test_composite_dict_no_max():
 
 
 def test_schema_dict_generator():
-    """Test SchemaDictGenerator."""
+    """Test dicts with BasicGenerator keys and values."""
     client, conn, thread = _make_client()
     try:
 
         def my_test():
             gen = dicts(text(min_size=1), integers(), min_size=0, max_size=2)
-            assert isinstance(gen, SchemaDictGenerator)
+            # Now returns BasicGenerator instead of SchemaDictGenerator
+            assert isinstance(gen, BasicGenerator)
             v = gen.generate()
             assert isinstance(v, dict)
 
@@ -316,11 +321,11 @@ def test_schema_dict_generator():
         thread.join(timeout=5)
 
 
-# ---- SampledFromGenerator ----
+# ---- sampled_from ----
 
 
 def test_sampled_from_non_primitive():
-    """Test SampledFromGenerator with non-primitive (index-based)."""
+    """Test sampled_from with non-primitive objects (identity preserved)."""
     client, conn, thread = _make_client()
     try:
 
@@ -332,7 +337,8 @@ def test_sampled_from_non_primitive():
 
         def my_test():
             gen = sampled_from(items)
-            assert gen.schema() is None
+            # Now sampled_from always returns BasicGenerator with index schema
+            assert gen.schema() is not None
             v = gen.generate()
             assert v in items
 
@@ -458,7 +464,7 @@ def test_dataclass_generator_with_field():
 
 
 def test_dataclass_generator_compositional():
-    """Test DataclassGenerator with fields that lack schema."""
+    """Test DataclassGenerator with fields that lack BasicGenerator schema."""
 
     @dataclass
     class Thing:
@@ -470,8 +476,8 @@ def test_dataclass_generator_compositional():
 
         def my_test():
             gen = DataclassGenerator(Thing)
-            # Override a field with a mapped generator (no schema)
-            gen = gen.with_field("label", text().map(lambda s: s.upper()))
+            # Override a field with a filtered generator (no schema)
+            gen = gen.with_field("label", text().filter(lambda s: True))
             assert gen.schema() is None
             v = gen.generate()
             assert isinstance(v, Thing)
@@ -813,7 +819,7 @@ def test_composite_dict_generator_through_server():
 
 
 def test_sampled_from_non_primitive_through_server():
-    """Test SampledFromGenerator fallback mode with non-primitives."""
+    """Test sampled_from with non-primitives preserves identity."""
     client, client_conn, thread = _make_client()
     try:
         obj_a = object()
@@ -903,9 +909,73 @@ def test_generator_base_schema():
 
 
 def test_mapped_generator_schema():
-    """Test MappedGenerator.schema() returns None."""
+    """Test BasicGenerator.map() preserves schema."""
     gen = integers().map(lambda x: x * 2)
-    assert gen.schema() is None
+    # Now map() on BasicGenerator preserves schema
+    assert gen.schema() is not None
+
+
+def test_basic_generator_double_map():
+    """Test BasicGenerator.map() when already has a transform (compose transforms)."""
+    client, conn, thread = _make_client()
+    try:
+
+        def my_test():
+            gen = (
+                integers(min_value=1, max_value=5)
+                .map(lambda x: x * 2)
+                .map(lambda x: x + 1)
+            )
+            # Double map should compose transforms while preserving schema
+            assert gen.schema() is not None
+            # The schema should be the original integer schema
+            assert gen.schema()["type"] == "integer"
+            # Actually generate a value to exercise the composed transform
+            v = gen.generate()
+            # 1*2+1=3, 2*2+1=5, 3*2+1=7, 4*2+1=9, 5*2+1=11
+            assert v in [3, 5, 7, 9, 11]
+
+        client.run_test("test_double_map", my_test, test_cases=10)
+    finally:
+        conn.close()
+        thread.join(timeout=5)
+
+
+def test_mapped_generator_on_non_basic():
+    """Test MappedGenerator.schema() returns None for non-BasicGenerator sources."""
+    # FilteredGenerator doesn't have a schema, so mapping it creates MappedGenerator
+    from hegel.sdk import MappedGenerator
+
+    filtered = integers().filter(lambda x: x > 0)
+    mapped = filtered.map(lambda x: x * 2)
+    assert isinstance(mapped, MappedGenerator)
+    assert mapped.schema() is None
+
+
+def test_one_of_with_mapped_basic_generators():
+    """Test one_of falls back to compositional when BasicGenerators have non-identity transforms."""
+    from hegel.sdk import CompositeOneOfGenerator
+
+    # Create BasicGenerators with non-identity transforms via map
+    gen1 = just(1).map(lambda x: x * 2)  # BasicGenerator with transform
+    gen2 = just(2).map(lambda x: x * 3)  # BasicGenerator with transform
+
+    # Both are BasicGenerators but have transforms, so one_of should fall back
+    combined = one_of(gen1, gen2)
+    assert isinstance(combined, CompositeOneOfGenerator)
+
+
+def test_one_of_with_non_basic_generators():
+    """Test one_of falls back to compositional when not all generators are BasicGenerators."""
+    from hegel.sdk import CompositeOneOfGenerator
+
+    # Create a non-BasicGenerator (FilteredGenerator has no schema)
+    gen1 = integers().filter(lambda x: x > 0)
+    gen2 = integers()
+
+    # Not all are BasicGenerators, so one_of should fall back
+    combined = one_of(gen1, gen2)
+    assert isinstance(combined, CompositeOneOfGenerator)
 
 
 def test_flat_mapped_generator_schema():
@@ -920,15 +990,9 @@ def test_filtered_generator_schema():
     assert gen.schema() is None
 
 
-def test_schema_dict_generator_schema():
-    """Test SchemaDictGenerator.schema() returns schema."""
-    gen = SchemaDictGenerator(
-        {
-            "type": "dict",
-            "keys": {"type": "string"},
-            "values": {"type": "integer"},
-        },
-    )
+def test_basic_dict_generator_schema():
+    """Test dicts() returns BasicGenerator with schema."""
+    gen = dicts(text(), integers(), min_size=0, max_size=5)
     assert gen.schema() is not None
     assert gen.schema()["type"] == "dict"
 
@@ -958,8 +1022,8 @@ def test_dataclass_generator_schema_returns_none_for_non_schema_field():
         y: int
 
     gen = DataclassGenerator(Point)
-    # Override with a generator that has no schema
-    gen_override = gen.with_field("x", integers().map(lambda x: x))
+    # Override with a generator that has no schema (filter destroys schema)
+    gen_override = gen.with_field("x", integers().filter(lambda x: True))
     assert gen_override.schema() is None
 
 
@@ -1061,15 +1125,10 @@ def test_binary_generator_schema():
     assert schema["max_size"] == 10
 
 
-def test_sampled_from_schema_type_error():
-    """Test SampledFromGenerator.schema() catches TypeError/ValueError."""
-
-    class BadObj:
-        def __eq__(self, other):
-            raise TypeError("nope")
-
-    gen = SampledFromGenerator([BadObj()])
-    assert gen.schema() is None
+def test_sampled_from_empty_raises():
+    """Test sampled_from raises ValueError for empty list."""
+    with pytest.raises(ValueError, match="at least one element"):
+        sampled_from([])
 
 
 def test_from_type_union_type_with_args():
@@ -1292,44 +1351,17 @@ def test_hegel_session_connection_retry():
         assert mock_sock.close.call_count > 0
 
 
-def test_sampled_from_schema_iteration_error():
-    """Test SampledFromGenerator.schema() catches TypeError during iteration.
-
-    Tests the except TypeError/ValueError branch in SampledFromGenerator.schema()
-    by providing elements whose iteration raises TypeError.
-    """
-
-    class BadList(list):
-        """List that raises TypeError when iterated."""
-
-        def __iter__(self):
-            raise TypeError("iteration error")
-
-    gen = SampledFromGenerator.__new__(SampledFromGenerator)
-    gen._elements = BadList([1, 2, 3])
-    gen._json_values = None
-    gen._schema_computed = False
-    gen._cached_schema = None
-    assert gen.schema() is None
-
-
-def test_sampled_from_generate_server_wrong_value():
-    """Test SampledFromGenerator.generate() raises when server returns wrong value.
-
-    Tests that SampledFromGenerator.generate() raises RuntimeError when the
-    server returns a value not present in the elements list.
-    """
-
-    gen = SampledFromGenerator([1, 2, 3])
-    # Force schema to return a valid schema
-    assert gen.schema() is not None
-
-    # Mock generate_from_schema to return a value NOT in the elements
-    with (
-        patch("hegel.sdk.generate_from_schema", return_value=999),
-        pytest.raises(RuntimeError, match="Server returned 999"),
-    ):
-        gen.generate()
+def test_sampled_from_with_objects():
+    """Test sampled_from preserves object identity."""
+    obj1 = object()
+    obj2 = object()
+    gen = sampled_from([obj1, obj2])
+    # sampled_from now always uses index-based generation
+    schema = gen.schema()
+    assert schema is not None
+    assert schema["type"] == "integer"
+    assert schema["minimum"] == 0
+    assert schema["maximum"] == 1
 
 
 def test_is_final_pass_with_multiple_interesting():
