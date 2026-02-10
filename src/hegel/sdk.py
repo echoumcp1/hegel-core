@@ -374,7 +374,7 @@ class BasicGenerator(Generator):
     by composing transform functions.
 
     The transform defaults to identity, making this a drop-in
-    replacement for SchemaGenerator.
+    replacement for BasicGenerator.
     """
 
     def __init__(
@@ -407,10 +407,6 @@ class BasicGenerator(Generator):
             return BasicGenerator(self._raw_schema, composed)
         else:
             return BasicGenerator(self._raw_schema, f)
-
-
-# Alias for backwards compatibility and clarity
-SchemaGenerator = BasicGenerator
 
 
 class MappedGenerator(Generator):
@@ -493,7 +489,7 @@ def integers(min_value: int | None = None, max_value: int | None = None) -> Gene
         schema["minimum"] = min_value
     if max_value is not None:
         schema["maximum"] = max_value
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 def floats(
@@ -514,12 +510,12 @@ def floats(
     schema["exclude_minimum"] = False
     schema["exclude_maximum"] = False
     schema["width"] = 64
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 def booleans(p: float = 0.5) -> Generator:
     """Generator for booleans."""
-    return SchemaGenerator({"type": "boolean", "p": p})
+    return BasicGenerator({"type": "boolean", "p": p})
 
 
 def text(min_size: int = 0, max_size: int | None = None) -> Generator:
@@ -527,7 +523,7 @@ def text(min_size: int = 0, max_size: int | None = None) -> Generator:
     schema: dict = {"type": "string", "min_size": min_size}
     if max_size is not None:
         schema["max_size"] = max_size
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
@@ -535,7 +531,7 @@ def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
     schema: dict = {"type": "binary", "min_size": min_size}
     if max_size is not None:
         schema["max_size"] = max_size
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 class collection:
