@@ -719,10 +719,9 @@ def sampled_from(values: list) -> BasicGenerator:
 def one_of(*generators: Generator) -> Generator:
     """Generator that picks from one of several generators.
 
-    Only uses schema composition when ALL generators are BasicGenerators
-    with identity transforms (transform=None). This is because the server's
-    one_of returns only the value, not which branch was chosen, so we can't
-    apply different per-branch transforms.
+    When all generators are BasicGenerators, composes into a single schema.
+    Uses tagged tuples [tag, value] when transforms are present so the
+    correct transform can be applied.
     """
     all_basic = all(isinstance(g, BasicGenerator) for g in generators)
 
@@ -731,14 +730,35 @@ def one_of(*generators: Generator) -> Generator:
         basic_generators: list[BasicGenerator] = [
             g for g in generators if isinstance(g, BasicGenerator)
         ]
-        # Check if all have identity transforms
+
+        # Check if all have identity transforms - can use simpler one_of
         all_identity = all(g._transform is None for g in basic_generators)
         if all_identity:
-            # All are BasicGenerator with identity - can compose schemas
             schemas = [g._raw_schema for g in basic_generators]
             return BasicGenerator({"one_of": schemas})
 
-    # Either not all BasicGenerator, or different transforms - use compositional
+        # Use one_of of tagged tuples: each branch is [const_tag, value]
+        # This lets us know which transform to apply
+        tagged_schemas = [
+            {"type": "tuple", "elements": [{"const": i}, g._raw_schema]}
+            for i, g in enumerate(basic_generators)
+        ]
+        transforms: list[Callable[[Any], Any] | None] = [
+            g._transform for g in basic_generators
+        ]
+
+        def apply_tagged_transform(
+            tagged: list, ts: list[Callable[[Any], Any] | None] = transforms
+        ) -> Any:
+            tag, value = tagged
+            transform = ts[tag]
+            if transform is not None:
+                return transform(value)
+            return value
+
+        return BasicGenerator({"one_of": tagged_schemas}, apply_tagged_transform)
+
+    # Not all BasicGenerator - use compositional
     return CompositeOneOfGenerator(list(generators))
 
 

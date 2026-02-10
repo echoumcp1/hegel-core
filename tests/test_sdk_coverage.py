@@ -246,13 +246,14 @@ def test_composite_tuple_generator():
 
 
 def test_composite_one_of_generator():
-    """Test CompositeOneOfGenerator (generators without schema)."""
+    """Test CompositeOneOfGenerator (generators without BasicGenerator schema)."""
     client, conn, thread = _make_client()
     try:
 
         def my_test():
+            # filter destroys schema, so one_of must use CompositeOneOfGenerator
             gen = one_of(
-                integers(min_value=0, max_value=10).map(lambda x: x),
+                integers(min_value=0, max_value=10).filter(lambda x: True),
                 text(),
             )
             assert isinstance(gen, CompositeOneOfGenerator)
@@ -774,9 +775,9 @@ def test_composite_tuple_generator_through_server():
     try:
 
         def my_test():
-            # MappedGenerator has no schema, so tuples() uses CompositeTupleGenerator
-            mapped = integers().map(lambda x: x * 2)
-            result = tuples(mapped, integers()).generate()
+            # filter destroys schema, so tuples() uses CompositeTupleGenerator
+            filtered = integers().filter(lambda x: True)
+            result = tuples(filtered, integers()).generate()
             assert isinstance(result, tuple)
             assert len(result) == 2
 
@@ -792,8 +793,9 @@ def test_composite_one_of_generator_through_server():
     try:
 
         def my_test():
-            mapped = integers().map(lambda x: x * 2)
-            result = one_of(mapped, text()).generate()
+            # filter destroys schema, so one_of uses CompositeOneOfGenerator
+            filtered = integers().filter(lambda x: True)
+            result = one_of(filtered, text()).generate()
             assert isinstance(result, int | str)
 
         client.run_test("test_composite_one_of", my_test, test_cases=5)
@@ -953,16 +955,38 @@ def test_mapped_generator_on_non_basic():
 
 
 def test_one_of_with_mapped_basic_generators():
-    """Test one_of falls back to compositional when BasicGenerators have non-identity transforms."""
-    from hegel.sdk import CompositeOneOfGenerator
+    """Test one_of uses tagged tuples schema when BasicGenerators have transforms."""
+    from hegel.sdk import BasicGenerator
 
     # Create BasicGenerators with non-identity transforms via map
-    gen1 = just(1).map(lambda x: x * 2)  # BasicGenerator with transform
-    gen2 = just(2).map(lambda x: x * 3)  # BasicGenerator with transform
+    gen1 = just(1).map(lambda x: x * 2)  # BasicGenerator with transform -> 2
+    gen2 = just(2).map(lambda x: x * 3)  # BasicGenerator with transform -> 6
 
-    # Both are BasicGenerators but have transforms, so one_of should fall back
+    # Both are BasicGenerators with transforms - uses one_of with tagged tuples
     combined = one_of(gen1, gen2)
-    assert isinstance(combined, CompositeOneOfGenerator)
+    assert isinstance(combined, BasicGenerator)
+    schema = combined.schema()
+    assert "one_of" in schema
+    # Each branch should be a tuple with [const_tag, value_schema]
+    assert schema["one_of"][0]["type"] == "tuple"
+
+
+def test_one_of_with_mapped_basic_generators_through_server():
+    """Test one_of with tagged_one_of actually applies transforms correctly."""
+    client, conn, thread = _make_client()
+    try:
+
+        def my_test():
+            gen1 = just(1).map(lambda x: x * 2)  # -> 2
+            gen2 = just(2).map(lambda x: x * 3)  # -> 6
+            combined = one_of(gen1, gen2)
+            v = combined.generate()
+            assert v in [2, 6]  # Should be 1*2=2 or 2*3=6
+
+        client.run_test("test_tagged_one_of", my_test, test_cases=10)
+    finally:
+        conn.close()
+        thread.join(timeout=5)
 
 
 def test_one_of_with_non_basic_generators():
