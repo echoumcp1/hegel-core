@@ -245,6 +245,39 @@ def test_composite_tuple_generator():
         thread.join(timeout=5)
 
 
+def test_tuple_with_mapped_basic_generators():
+    """Test tuples where all elements are BasicGenerators with transforms."""
+    client, conn, thread = _make_client()
+    try:
+
+        def my_test():
+            # Create BasicGenerators with non-identity transforms via map()
+            gen1 = integers(min_value=0, max_value=10).map(lambda x: x * 2)
+            gen2 = just(5).map(lambda x: x + 1)
+            # Verify that both generators have non-None transforms BEFORE tuples()
+            assert isinstance(gen1, BasicGenerator), f"gen1 is {type(gen1)}"
+            assert isinstance(gen2, BasicGenerator), f"gen2 is {type(gen2)}"
+            assert gen1._transform is not None, "gen1._transform is None!"
+            assert gen2._transform is not None, "gen2._transform is None!"
+            gen = tuples(gen1, gen2)
+            # Should be a BasicGenerator since all elements are BasicGenerators
+            assert isinstance(gen, BasicGenerator)
+            # The tuple should have a non-None transform (apply_transforms)
+            assert gen._transform is not None, "tuple gen._transform is None!"
+            v = gen.generate()
+            assert isinstance(v, tuple)
+            assert len(v) == 2
+            # First element is doubled integer (0-20 even), second is always 6
+            assert 0 <= v[0] <= 20
+            assert v[0] % 2 == 0
+            assert v[1] == 6
+
+        client.run_test("test_tuple_mapped", my_test, test_cases=5)
+    finally:
+        conn.close()
+        thread.join(timeout=5)
+
+
 def test_composite_one_of_generator():
     """Test CompositeOneOfGenerator (generators without BasicGenerator schema)."""
     client, conn, thread = _make_client()
