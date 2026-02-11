@@ -329,17 +329,7 @@ class Generator(ABC):
     def generate(self) -> Any:
         """Generate a value."""
 
-    def schema(self) -> dict | None:
-        """Get the schema for this generator, if available.
-
-        Schemas enable composition optimizations where a single request
-        to the server can generate complex nested structures.
-
-        Returns None for composite generators (map, filter, flat_map).
-        """
-        return None
-
-    def map(self, f: Callable[[Any], Any]) -> "MappedGenerator":
+    def map(self, f: Callable[[Any], Any]) -> "Generator":
         """Transform generated values using a function.
 
         The resulting generator has no schema since the transformation
@@ -366,18 +356,44 @@ class Generator(ABC):
         return FilteredGenerator(self, predicate)
 
 
-class SchemaGenerator(Generator):
-    """A generator backed by a JSON schema."""
+class BasicGenerator(Generator):
+    """A generator with a schema and an optional client-side transform.
 
-    def __init__(self, schema_dict: dict):
-        self._schema = schema_dict
+    When map() is called on a BasicGenerator, the schema is preserved
+    and the transform functions are composed. This avoids falling back
+    to compositional generation for mapped values.
+    """
+
+    def __init__(
+        self,
+        raw_schema: dict,
+        transform: Callable[[Any], Any] | None = None,
+    ):
+        self._raw_schema = raw_schema
+        self._transform = transform
 
     def generate(self) -> Any:
-        """Generate a value from the schema."""
-        return generate_from_schema(self._schema)
+        raw = generate_from_schema(self._raw_schema)
+        if self._transform is not None:
+            return self._transform(raw)
+        return raw
 
     def schema(self) -> dict | None:
-        return self._schema
+        return self._raw_schema
+
+    def map(self, f: Callable[[Any], Any]) -> "BasicGenerator":
+        """Transform values while preserving the schema."""
+        current_transform = self._transform
+        if current_transform is not None:
+            # Capture current_transform in a variable that mypy knows is not None
+            ct: Callable[[Any], Any] = current_transform
+
+            def composed(raw: Any) -> Any:
+                return f(ct(raw))
+
+            return BasicGenerator(self._raw_schema, composed)
+        else:
+            return BasicGenerator(self._raw_schema, f)
 
 
 class MappedGenerator(Generator):
@@ -395,9 +411,6 @@ class MappedGenerator(Generator):
         finally:
             stop_span(discard=False)
 
-    def schema(self) -> dict | None:
-        return None  # No schema after transformation
-
 
 class FlatMappedGenerator(Generator):
     """A generator for dependent generation."""
@@ -414,9 +427,6 @@ class FlatMappedGenerator(Generator):
             return second_gen.generate()
         finally:
             stop_span(discard=False)
-
-    def schema(self) -> dict | None:
-        return None  # No schema for dependent generation
 
 
 class FilteredGenerator(Generator):
@@ -444,9 +454,6 @@ class FilteredGenerator(Generator):
         assume(condition=False)
         raise AssertionError("unreachable")
 
-    def schema(self) -> dict | None:
-        return None  # No schema after filtering
-
 
 # =============================================================================
 # Generator factory functions
@@ -460,7 +467,7 @@ def integers(min_value: int | None = None, max_value: int | None = None) -> Gene
         schema["minimum"] = min_value
     if max_value is not None:
         schema["maximum"] = max_value
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 def floats(
@@ -481,12 +488,12 @@ def floats(
     schema["exclude_minimum"] = False
     schema["exclude_maximum"] = False
     schema["width"] = 64
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 def booleans(p: float = 0.5) -> Generator:
     """Generator for booleans."""
-    return SchemaGenerator({"type": "boolean", "p": p})
+    return BasicGenerator({"type": "boolean", "p": p})
 
 
 def text(min_size: int = 0, max_size: int | None = None) -> Generator:
@@ -494,7 +501,7 @@ def text(min_size: int = 0, max_size: int | None = None) -> Generator:
     schema: dict = {"type": "string", "min_size": min_size}
     if max_size is not None:
         schema["max_size"] = max_size
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
@@ -502,7 +509,7 @@ def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
     schema: dict = {"type": "binary", "min_size": min_size}
     if max_size is not None:
         schema["max_size"] = max_size
-    return SchemaGenerator(schema)
+    return BasicGenerator(schema)
 
 
 class collection:
@@ -566,15 +573,28 @@ def lists(
     max_size: int | None = None,
 ) -> Generator:
     """Generator for lists."""
-    elem_schema = elements.schema()
-    if elem_schema is not None:
-        # Can compose into single schema
-        schema: dict = {"type": "list", "elements": elem_schema, "min_size": min_size}
+    if isinstance(elements, BasicGenerator):
+        # Element is BasicGenerator - compose into BasicGenerator
+        raw_schema: dict = {
+            "type": "list",
+            "elements": elements._raw_schema,
+            "min_size": min_size,
+        }
         if max_size is not None:
-            schema["max_size"] = max_size
-        return SchemaGenerator(schema)
+            raw_schema["max_size"] = max_size
+        transform = elements._transform
+        if transform is not None:
+            # Capture transform in a variable that mypy knows is not None
+            t: Callable[[Any], Any] = transform
+
+            def list_transform(raw_list: list) -> list:
+                return [t(x) for x in raw_list]
+
+            return BasicGenerator(raw_schema, list_transform)
+        else:
+            return BasicGenerator(raw_schema)
     else:
-        # Composite generator - must generate element by element
+        # Element is not BasicGenerator - fall back to compositional
         return CompositeListGenerator(elements, min_size, max_size)
 
 
@@ -604,11 +624,34 @@ class CompositeListGenerator(Generator):
 
 def tuples(*elements: Generator) -> Generator:
     """Generator for tuples."""
-    # Check if all elements have schemas
-    schemas = [e.schema() for e in elements]
-    if all(s is not None for s in schemas):
-        return SchemaGenerator({"type": "tuple", "elements": schemas})
+    # Only if ALL elements are BasicGenerators can we compose into BasicGenerator
+    if all(isinstance(e, BasicGenerator) for e in elements):
+        # Cast to list of BasicGenerator for type safety
+        basic_elements: list[BasicGenerator] = [
+            e for e in elements if isinstance(e, BasicGenerator)
+        ]
+        raw_schemas = [e._raw_schema for e in basic_elements]
+        transforms: list[Callable[[Any], Any] | None] = [
+            e._transform for e in basic_elements
+        ]
+        combined_schema = {"type": "tuple", "elements": raw_schemas}
+
+        # Check if all transforms are identity (None)
+        if all(t is None for t in transforms):
+            return BasicGenerator(combined_schema)
+        else:
+            # Apply transforms to each element
+            def apply_transforms(
+                raw_tuple: list, ts: list[Callable[[Any], Any] | None] = transforms
+            ) -> tuple:
+                return tuple(
+                    t(r) if t is not None else r
+                    for t, r in zip(ts, raw_tuple, strict=True)
+                )
+
+            return BasicGenerator(combined_schema, apply_transforms)
     else:
+        # At least one element is not a BasicGenerator - fall back to compositional
         return CompositeTupleGenerator(list(elements))
 
 
@@ -629,95 +672,72 @@ class CompositeTupleGenerator(Generator):
             stop_span(discard=False)
 
 
-def just(value: Any) -> Generator:
+def just(value: Any) -> BasicGenerator:
     """Generator that always returns the same value."""
-    return SchemaGenerator({"const": value})
+    return BasicGenerator({"const": None}, lambda _: value)
 
 
-class SampledFromGenerator(Generator):
-    """Generator that samples from a list of values with identity preservation.
-
-    This generator works in two modes:
-    1. If all elements are JSON primitives (None, bool, int, float, str),
-       uses the schema-based approach for efficient generation.
-    2. Otherwise, falls back to generating an index and returning the
-       original object, preserving object identity.
-    """
-
-    def __init__(self, elements: list[Any]):
-        self._elements = list(elements)
-        self._json_values: list[Any] | None = None
-        self._schema_computed = False
-        self._cached_schema: dict | None = None
-
-    def schema(self) -> dict | None:
-        """Return schema only if all elements are JSON primitives."""
-        if self._schema_computed:
-            return self._cached_schema
-        try:
-            json_values: list[Any] = []
-            for elem in self._elements:
-                # Try to serialize - only primitives allowed
-                if elem is None:
-                    json_values.append(None)
-                elif isinstance(elem, bool | int | float | str):
-                    json_values.append(elem)
-                else:
-                    # Not a primitive - fallback mode
-                    self._schema_computed = True
-                    return None
-            self._json_values = json_values
-            self._cached_schema = {"sampled_from": json_values}
-            self._schema_computed = True
-            return self._cached_schema
-        except (TypeError, ValueError):
-            self._schema_computed = True
-            return None
-
-    def generate(self) -> Any:
-        schema = self.schema()
-        if schema is not None:
-            # Mode 1: Use schema, find matching element
-            wire_value = generate_from_schema(schema)
-            # Find the original element with matching JSON value
-            assert self._json_values is not None  # Guaranteed after schema() succeeds
-            for i, json_val in enumerate(self._json_values):
-                if json_val == wire_value:
-                    return self._elements[i]
-            raise RuntimeError(f"Server returned {wire_value!r} not in elements")
-        else:
-            # Mode 2: Compositional fallback with index
-            start_span(Labels.SAMPLED_FROM)
-            try:
-                idx = generate_from_schema(
-                    {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": len(self._elements) - 1,
-                    },
-                )
-                return self._elements[idx]
-            finally:
-                stop_span()
-
-
-def sampled_from(values: list) -> Generator:
+def sampled_from(values: list) -> BasicGenerator:
     """Generator that samples uniformly from a list of values.
 
     Works with any type, including non-JSON-serializable objects.
-    For non-primitive types, returns the original objects (identity preserved).
+    Returns the original objects (identity preserved).
     """
-    return SampledFromGenerator(values)
+    elements = list(values)
+    if not elements:
+        raise ValueError("sampled_from requires at least one element")
+    schema = {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": len(elements) - 1,
+    }
+    return BasicGenerator(schema, lambda idx: elements[idx])
 
 
 def one_of(*generators: Generator) -> Generator:
-    """Generator that picks from one of several generators."""
-    # Check if all generators have schemas
-    schemas = [g.schema() for g in generators]
-    if all(s is not None for s in schemas):
-        return SchemaGenerator({"one_of": schemas})
-    else:
-        return CompositeOneOfGenerator(list(generators))
+    """Generator that picks from one of several generators.
+
+    When all generators are BasicGenerators, composes into a single schema.
+    Uses tagged tuples [tag, value] when transforms are present so the
+    correct transform can be applied.
+    """
+    all_basic = all(isinstance(g, BasicGenerator) for g in generators)
+
+    if all_basic:
+        # Cast to list of BasicGenerator for type safety
+        basic_generators: list[BasicGenerator] = [
+            g for g in generators if isinstance(g, BasicGenerator)
+        ]
+
+        # Check if all have identity transforms - can use simpler one_of
+        all_identity = all(g._transform is None for g in basic_generators)
+        if all_identity:
+            schemas = [g._raw_schema for g in basic_generators]
+            return BasicGenerator({"one_of": schemas})
+
+        # Use one_of of tagged tuples: each branch is [const_tag, value]
+        # This lets us know which transform to apply
+        tagged_schemas = [
+            {"type": "tuple", "elements": [{"const": i}, g._raw_schema]}
+            for i, g in enumerate(basic_generators)
+        ]
+        transforms: list[Callable[[Any], Any] | None] = [
+            g._transform for g in basic_generators
+        ]
+
+        def apply_tagged_transform(
+            tagged: list, ts: list[Callable[[Any], Any] | None] = transforms
+        ) -> Any:
+            tag, value = tagged
+            transform = ts[tag]
+            if transform is not None:
+                return transform(value)
+            return value
+
+        return BasicGenerator({"one_of": tagged_schemas}, apply_tagged_transform)
+
+    # Not all BasicGenerator - use compositional
+    return CompositeOneOfGenerator(list(generators))
 
 
 class CompositeOneOfGenerator(Generator):
@@ -750,40 +770,46 @@ def dicts(
     max_size: int | None = None,
 ) -> Generator:
     """Generator for dictionaries."""
-    key_schema = keys.schema()
-    value_schema = values.schema()
-
-    if key_schema is not None and value_schema is not None:
-        schema: dict = {
+    if isinstance(keys, BasicGenerator) and isinstance(values, BasicGenerator):
+        # Both are BasicGenerator - compose into BasicGenerator
+        basic_keys: BasicGenerator = keys
+        basic_values: BasicGenerator = values
+        raw_schema: dict = {
             "type": "dict",
-            "keys": key_schema,
-            "values": value_schema,
+            "keys": basic_keys._raw_schema,
+            "values": basic_values._raw_schema,
             "min_size": min_size,
         }
         if max_size is not None:
-            schema["max_size"] = max_size
-        return SchemaDictGenerator(schema)
+            raw_schema["max_size"] = max_size
+
+        key_transform = basic_keys._transform
+        value_transform = basic_values._transform
+
+        # Build appropriate transform for the dict
+        if key_transform is None and value_transform is None:
+            # Both identity - just convert pairs to dict
+            def items_to_dict(items: list) -> dict:
+                return dict(items)
+
+            return BasicGenerator(raw_schema, items_to_dict)
+        else:
+            # Apply transforms to keys and/or values
+            def transform_dict(
+                items: list,
+                kt: Callable[[Any], Any] | None = key_transform,
+                vt: Callable[[Any], Any] | None = value_transform,
+            ) -> dict:
+                result = {}
+                for k, v in items:
+                    key = kt(k) if kt is not None else k
+                    val = vt(v) if vt is not None else v
+                    result[key] = val
+                return result
+
+            return BasicGenerator(raw_schema, transform_dict)
     else:
         return CompositeDictGenerator(keys, values, min_size, max_size)
-
-
-class SchemaDictGenerator(Generator):
-    """A dict generator backed by a schema.
-
-    The server returns dicts as list of [key, value] pairs,
-    so we need to convert back to a dict.
-    """
-
-    def __init__(self, schema_dict: dict):
-        self._schema = schema_dict
-
-    def generate(self) -> dict:
-        # Server returns list of [key, value] pairs
-        items = generate_from_schema(self._schema)
-        return dict(items)
-
-    def schema(self) -> dict | None:
-        return self._schema
 
 
 class CompositeDictGenerator(Generator):
@@ -827,18 +853,69 @@ class CompositeDictGenerator(Generator):
 # =============================================================================
 
 
-class DataclassGenerator(Generator):
-    """Generator for dataclass instances."""
+def _build_dataclass_generator(
+    dataclass_type: type,
+    field_generators: dict[str, Generator],
+) -> Generator:
+    """Build a generator for a dataclass type from per-field generators."""
+    all_basic = all(isinstance(g, BasicGenerator) for g in field_generators.values())
+
+    if all_basic:
+        properties = {}
+        required = []
+        transforms: dict[str, Callable | None] = {}
+
+        for field in fields(dataclass_type):
+            gen = field_generators[field.name]
+            assert isinstance(gen, BasicGenerator)
+            properties[field.name] = gen._raw_schema
+            transforms[field.name] = gen._transform
+            required.append(field.name)
+
+        schema = {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }
+
+        def make_instance(raw: Any) -> Any:
+            kwargs = {}
+            for field_name, raw_value in raw.items():
+                transform = transforms.get(field_name)
+                if transform is not None:
+                    kwargs[field_name] = transform(raw_value)
+                else:
+                    kwargs[field_name] = raw_value
+            return dataclass_type(**kwargs)
+
+        return BasicGenerator(schema, make_instance)
+
+    class _CompositeDataclassGenerator(Generator):
+        def generate(self_inner) -> Any:
+            start_span(Labels.FIXED_DICT)
+            try:
+                kwargs = {}
+                for field in fields(dataclass_type):
+                    kwargs[field.name] = field_generators[field.name].generate()
+                return dataclass_type(**kwargs)
+            finally:
+                stop_span()
+
+    return _CompositeDataclassGenerator()
+
+
+class DataclassGenerator:
+    """Builder for dataclass generators with per-field customization.
+
+    Use with_field() to override specific field generators, then call
+    build() to get the final Generator.
+    """
 
     def __init__(self, dataclass_type: type):
         if not is_dataclass(dataclass_type):
             raise TypeError(f"{dataclass_type} is not a dataclass")
         self._type = dataclass_type
         self._field_generators: dict[str, Generator] = {}
-        self._schema_computed = False
-        self._cached_schema: dict | None = None
-
-        # Create generators for each field
         for field in fields(dataclass_type):
             self._field_generators[field.name] = from_type(field.type)
 
@@ -846,57 +923,15 @@ class DataclassGenerator(Generator):
         """Override the generator for a specific field."""
         if field_name not in self._field_generators:
             raise ValueError(f"Unknown field: {field_name}")
-        # Create a copy with the modified generator
         new_gen = DataclassGenerator.__new__(DataclassGenerator)
         new_gen._type = self._type
         new_gen._field_generators = dict(self._field_generators)
         new_gen._field_generators[field_name] = gen
-        new_gen._schema_computed = False
-        new_gen._cached_schema = None
         return new_gen
 
-    def schema(self) -> dict | None:
-        """Return schema if all fields have schemas."""
-        if self._schema_computed:
-            return self._cached_schema
-
-        properties = {}
-        required = []
-
-        for field in fields(self._type):
-            gen = self._field_generators[field.name]
-            field_schema = gen.schema()
-            if field_schema is None:
-                self._schema_computed = True
-                return None  # Compositional fallback
-            properties[field.name] = field_schema
-            required.append(field.name)
-
-        self._cached_schema = {
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }
-        self._schema_computed = True
-        return self._cached_schema
-
-    def generate(self) -> Any:
-        """Generate a dataclass instance."""
-        schema = self.schema()
-        if schema is not None:
-            # Single server request
-            data = generate_from_schema(schema)
-            return self._type(**data)
-        else:
-            # Compositional fallback
-            start_span(Labels.FIXED_DICT)
-            try:
-                kwargs = {}
-                for field in fields(self._type):
-                    kwargs[field.name] = self._field_generators[field.name].generate()
-                return self._type(**kwargs)
-            finally:
-                stop_span()
+    def build(self) -> Generator:
+        """Build the generator for the current field configuration."""
+        return _build_dataclass_generator(self._type, self._field_generators)
 
 
 def from_type(type_hint: Any) -> Generator:
@@ -970,7 +1005,8 @@ def from_type(type_hint: Any) -> Generator:
 
     # Check for dataclass
     if is_dataclass(type_hint) and isinstance(type_hint, type):
-        return DataclassGenerator(type_hint)
+        field_gens = {f.name: from_type(f.type) for f in fields(type_hint)}
+        return _build_dataclass_generator(type_hint, field_gens)
 
     raise TypeError(f"Cannot generate values for type: {type_hint}")
 

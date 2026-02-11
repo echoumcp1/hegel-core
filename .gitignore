@@ -29,3 +29,4 @@ error.log
 .claude/*.local.md
 .claude/*.local.json
 .claude/*.local
+.claude-reliability/
