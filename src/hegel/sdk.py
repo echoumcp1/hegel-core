@@ -330,12 +330,9 @@ class Generator(ABC):
         """Generate a value."""
 
     def schema(self) -> dict | None:
-        """Get the schema for this generator, if available.
+        """Return the schema for this generator, or None.
 
-        Schemas enable composition optimizations where a single request
-        to the server can generate complex nested structures.
-
-        Returns None for composite generators (map, filter, flat_map).
+        Only BasicGenerator overrides this to return a schema.
         """
         return None
 
@@ -421,9 +418,6 @@ class MappedGenerator(Generator):
         finally:
             stop_span(discard=False)
 
-    def schema(self) -> dict | None:
-        return None  # No schema after transformation
-
 
 class FlatMappedGenerator(Generator):
     """A generator for dependent generation."""
@@ -440,9 +434,6 @@ class FlatMappedGenerator(Generator):
             return second_gen.generate()
         finally:
             stop_span(discard=False)
-
-    def schema(self) -> dict | None:
-        return None  # No schema for dependent generation
 
 
 class FilteredGenerator(Generator):
@@ -469,9 +460,6 @@ class FilteredGenerator(Generator):
         # Too many failed attempts - reject this test case
         assume(condition=False)
         raise AssertionError("unreachable")
-
-    def schema(self) -> dict | None:
-        return None  # No schema after filtering
 
 
 # =============================================================================
