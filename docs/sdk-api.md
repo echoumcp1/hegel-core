@@ -1,8 +1,28 @@
 # Hegel SDK API Specification
 
-This document describes the public-facing Hegel API as implemented across
-SDKs. It serves as both the specification for SDK authors and the reference
-for understanding how generators, combinators, and basic generators work.
+This document is the complete specification for implementing Hegel SDKs. It
+covers the public API, protocol, design guidance, and implementation checklist.
+
+## Overview
+
+A Hegel SDK enables property-based testing from any language by communicating
+with the Hegel server via Unix socket. The SDK provides:
+
+1. **Generator types** that produce random values according to constraints
+2. **Combinators** for composing generators into complex structures
+3. **Socket communication** to request values from Hypothesis's generation engine
+4. **Schema composition** for efficient single-request generation
+
+### Core Principles
+
+- **Schema composition preferred**: When possible, compose schemas and make a
+  single socket request for the entire structure.
+- **Compositional fallback**: When schemas are unavailable (after `map`/`filter`
+  on non-basic generators, or `flat_map`), generate structurally with multiple
+  requests.
+- **Idiomatic APIs**: Match the target language's conventions for generics,
+  builders, and error handling.
+- **Minimal overhead**: Reuse connections, batch requests via schema composition.
 
 ## Core Concepts
 
@@ -471,6 +491,27 @@ optional(element)
 Implemented as `one_of(just(null), element)`. Inherits the basicness rules
 from `one_of`.
 
+### `builds`
+
+Construct objects from generated field values.
+
+```
+builds(type, generators...)
+```
+
+Used in static languages to construct typed objects from individually
+generated fields. See "Object/Struct Generation" under Design Considerations
+for patterns.
+
+### Dynamic Language Only: `fixed_dictionaries`
+
+```
+fixed_dictionaries({"key": gen, ...})
+```
+
+Generate a dictionary with fixed keys and generated values. Essential for
+dynamic languages to generate struct-like data without actual struct types.
+
 ## Span Labels
 
 Spans are used to group related generation calls, helping the test engine
@@ -512,10 +553,29 @@ counterexamples.
 Guide the test engine toward higher values of a numeric metric. The engine
 will try to maximize the target value, which can help find edge cases.
 
-## Protocol Overview
+## Protocol
 
 SDKs communicate with the Hegel server (hegeld) via a binary protocol over
 Unix domain sockets.
+
+### Connection Lifecycle
+
+1. SDK creates a socket path.
+2. SDK spawns hegeld with that socket path.
+3. hegeld binds to the socket and listens.
+4. SDK connects to hegeld's socket as a client.
+5. A single persistent connection is maintained per program run.
+6. Multiple tests run over the same connection.
+
+### Environment Variables
+
+Test binaries receive these environment variables from Hegel:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `HEGEL_SOCKET` | Yes | Path to Unix socket for communication |
+| `HEGEL_REJECT_CODE` | Yes | Exit code for rejected test cases (default: 137) |
+| `HEGEL_DEBUG` | No | Enable debug logging when set |
 
 ### Packet Format
 
@@ -553,6 +613,397 @@ Followed by a CBOR-encoded payload and a terminator byte (`0x0A`).
 |-------|-----------|-------------|
 | `test_case` | Server -> SDK | Run a test case |
 | `test_done` | Server -> SDK | All test cases complete, results available |
+
+### Important Notes
+
+- **Request ID matching**: Always verify response ID matches request ID.
+- **additionalProperties**: Server automatically adds `"additionalProperties": false` to object schemas — SDKs should NOT add this.
+
+## Error Handling
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Test passed |
+| 1 | Test failed (assertion failure) |
+| 134 | Socket communication error (recommended) |
+| `HEGEL_REJECT_CODE` | Test case rejected (invalid input) |
+
+### The `assume()` Function
+
+Every SDK must implement `assume(condition)`:
+
+- If condition is true: returns normally.
+- If condition is false: exits with `HEGEL_REJECT_CODE` (external mode) or
+  throws an exception / panics with a special marker (embedded mode).
+
+**Purpose:** Signal that the current test case is invalid (not a failure).
+Hegel will try different inputs.
+
+### Error Categories
+
+| Error Type | Action |
+|------------|--------|
+| Socket connection failure | Exit with SOCKET_ERROR (134) |
+| Socket I/O error | Exit with SOCKET_ERROR (134) |
+| JSON parse error | `assume(false)` |
+| Server returns error | `assume(false)` |
+| Filter exhaustion | `assume(false)` |
+| Test assertion failure | Exit with code 1 |
+
+### Filter Implementation
+
+Filters try up to 3 times, using spans for proper shrinking:
+
+```rust
+fn generate(&self) -> T {
+    for _ in 0..3 {
+        if let Some(value) = discardable_group(labels::FILTER, || {
+            let value = self.source.generate();
+            if (self.predicate)(&value) {
+                Some(value)
+            } else {
+                None  // Triggers span discard
+            }
+        }) {
+            return value;
+        }
+    }
+    assume(false);
+    unreachable!()
+}
+```
+
+### Embedded Mode
+
+When running embedded (SDK provides the Hegel server), `assume(false)` uses
+exceptions instead of exit codes:
+
+```cpp
+// C++
+class HegelReject : public std::exception {
+public:
+    const char* what() const noexcept override { return "assume failed"; }
+};
+
+void assume(bool condition) {
+    if (!condition) {
+        if (current_mode == Mode::Embedded) {
+            throw HegelReject();
+        } else {
+            std::exit(get_reject_code());
+        }
+    }
+}
+```
+
+```rust
+// Rust - use panic with special marker
+const REJECT_MARKER: &str = "HEGEL_REJECT";
+
+pub fn assume(condition: bool) {
+    if !condition {
+        match current_mode() {
+            HegelMode::Embedded => panic!("{}", REJECT_MARKER),
+            HegelMode::External => {
+                std::process::exit(get_reject_code());
+            }
+        }
+    }
+}
+```
+
+## Design Considerations
+
+### Language-Specific Idioms
+
+Before implementing, understand the target language's patterns for:
+
+| Concept | Questions to Answer |
+|---------|---------------------|
+| **Generics** | Templates? Type parameters? Protocols? |
+| **Higher-order functions** | Closures? Lambdas? Function types? |
+| **Option types** | `Option<T>`? `Maybe`? `null`? `nil`? |
+| **Object construction** | Constructors? Builders? Factory functions? |
+| **Collections** | List vs Vector vs Array naming? Set types? |
+| **Error handling** | Exceptions? Result types? Error codes? |
+
+### API Style Patterns
+
+#### Builder Pattern (Rust style)
+```rust
+integers::<i32>()
+    .with_min(0)
+    .with_max(100)
+    .generate()
+```
+
+#### Parameter Structs (C++ style)
+```cpp
+integers<int>({.min_value = 0, .max_value = 100})
+```
+
+#### Keyword Arguments (Python style)
+```python
+integers(min_value=0, max_value=100)
+```
+
+#### Fluent Interface (Java/Kotlin style)
+```kotlin
+Generators.integers()
+    .between(0, 100)
+    .generate()
+```
+
+### Type Parameter Conventions
+
+**Static languages with bounds inference:**
+```rust
+integers::<u8>()  // Automatically min=0, max=255
+integers::<i32>().with_min(-1000).with_max(1000)  // Override defaults
+```
+
+**Dynamic languages:**
+```python
+integers()  # Arbitrary precision
+integers(min_value=-128, max_value=127)  # Explicit bounds
+```
+
+### Naming Conventions
+
+| Concept | Examples by Language Style |
+|---------|---------------------------|
+| Lists | `vectors` (C++), `vecs` (Rust), `lists` (Python), `arrays` (JS) |
+| Maps | `dictionaries` (Python), `hashmaps` (Rust), `maps` (Java) |
+| Optional | `optional` (C++), `optional` (Rust), `none_or` (Hypothesis) |
+
+### Object/Struct Generation
+
+#### Static Languages
+
+Two patterns for struct generation:
+
+**1. Default Generator (schema from type reflection)**
+```cpp
+// C++ with reflect-cpp
+auto gen = default_generator<Person>();
+Person p = gen.generate();
+```
+
+**2. Builder Pattern with Field Generators**
+```rust
+// Rust with derive macro
+let gen = PersonGenerator::new()
+    .with_name(text().with_max_length(50))
+    .with_age(integers::<u32>().with_max(120));
+let p: Person = gen.generate();
+```
+
+#### Dynamic Languages
+
+Use `fixed_dictionaries`:
+```python
+person_gen = fixed_dictionaries(
+    {"name": text(max_size=50), "age": integers(min_value=0, max_value=120)}
+)
+```
+
+#### Schema for Objects
+
+**Option 1: Use tuples (recommended for schema composition)**
+
+Generate fields as a tuple and convert to object in generate():
+
+```json
+{
+  "type": "tuple",
+  "elements": [
+    {"type": "string", "max_size": 50},
+    {"type": "integer", "minimum": 0, "maximum": 120}
+  ]
+}
+```
+
+Then convert the tuple `[name, age]` back to an object `{name: ..., age: ...}`.
+
+**Option 2: Compositional fallback**
+
+When schemas aren't composable, generate each field separately within a
+labeled group.
+
+**Note:** The Rust derive macro generates `type: "object"` schemas with
+`properties` and `required` fields. This format is planned for future parser
+support.
+
+### Thread Safety
+
+- Use thread-local storage for connection state.
+- Atomic operations for request ID counter.
+- Each thread maintains independent connection.
+
+```rust
+thread_local! {
+    static CONNECTION: RefCell<Option<ConnectionState>> = RefCell::new(None);
+}
+static REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+```
+
+### UTF-8 and String Lengths
+
+JSON Schema string lengths count **Unicode codepoints**, not bytes:
+
+```json
+{"type": "string", "minLength": 1, "maxLength": 10}
+```
+
+This means 1-10 codepoints. If your language counts bytes by default (e.g.,
+C), you need codepoint-aware string handling.
+
+## Testing Patterns
+
+### Test Selection Pattern
+
+Use `sampled_from` to let Hegel explore different test paths:
+
+```rust
+fn main() {
+    let tests: Vec<(&str, fn())> = vec![
+        ("test_integers", test_integers),
+        ("test_strings", test_strings),
+        ("test_lists", test_lists),
+    ];
+
+    let names: Vec<_> = tests.iter().map(|(n, _)| *n).collect();
+    let selected = sampled_from(names).generate();
+
+    for (name, test_fn) in &tests {
+        if *name == selected {
+            test_fn();
+            break;
+        }
+    }
+}
+```
+
+### Property Test Structure
+
+```rust
+fn test_list_reverse() {
+    let list = vecs(integers::<i32>())
+        .with_min_size(0)
+        .with_max_size(100)
+        .generate();
+
+    // Property: reversing twice gives original
+    let reversed_twice: Vec<i32> = list.iter()
+        .rev()
+        .rev()
+        .cloned()
+        .collect();
+
+    assert_eq!(list, reversed_twice);
+}
+```
+
+### Debugging Output
+
+Use `note()` for debugging output visible during shrinking:
+
+```rust
+fn test_sorting() {
+    let list = vecs(integers::<i32>()).generate();
+    note(&format!("Testing with list: {:?}", list));
+
+    let sorted = sort(&list);
+    assert!(is_sorted(&sorted));
+}
+```
+
+## Implementation Checklist
+
+### Phase 1: Core Infrastructure
+
+- [ ] Socket connection management (thread-local)
+- [ ] CBOR binary packet serialization (20-byte header + CBOR payload)
+- [ ] Request ID counter (atomic)
+- [ ] `assume()` function
+- [ ] Environment variable reading (`HEGEL_SOCKET`, `HEGEL_REJECT_CODE`)
+- [ ] Basic `Generator<T>` type with `generate()` and `as_basic()`
+
+### Phase 2: Primitive Generators
+
+- [ ] `nulls()`
+- [ ] `booleans()`
+- [ ] `just(value)`
+- [ ] `integers()` with min/max
+- [ ] `floats()` with min/max and exclusions
+- [ ] `text()` with length bounds
+- [ ] `binary()` with min/max size (base64 decoding)
+- [ ] `from_regex(pattern)`
+
+### Phase 3: Format Strings
+
+- [ ] `emails()`
+- [ ] `urls()`
+- [ ] `domains()`
+- [ ] `ip_addresses()` with v4/v6 option
+- [ ] `dates()`
+- [ ] `times()`
+- [ ] `datetimes()`
+
+### Phase 4: Collections
+
+- [ ] `lists(elements)` with min/max size and unique
+- [ ] `sets(elements)`
+- [ ] `dictionaries(keys, values)` (string keys only)
+- [ ] `tuples(generators...)`
+- [ ] Schema composition for all collections (via `as_basic()`)
+- [ ] Compositional fallback when generators are not basic
+
+### Phase 5: Combinators
+
+- [ ] `sampled_from(elements)`
+- [ ] `one_of(generators...)`
+- [ ] `optional(generator)`
+- [ ] `builds(type, generators...)`
+- [ ] `map(f)` on Generator (preserving basicness when source is basic)
+- [ ] `flatmap(f)` / `flat_map(f)` on Generator
+- [ ] `filter(predicate)` on Generator
+
+### Phase 6: Advanced Features
+
+- [ ] Span support (`start_span`, `stop_span`)
+- [ ] Labeled groups for compositional generation
+- [ ] Discardable spans for filtering
+- [ ] Default generators from types (if language supports reflection)
+- [ ] Builder pattern for customizing generators
+- [ ] Derive macros / code generation (if applicable)
+
+### Phase 7: Embedded Mode (Optional)
+
+- [ ] Mode detection (external vs embedded)
+- [ ] Exception-based assume(false) handling
+- [ ] Provided file descriptor support
+- [ ] Test runner integration
+
+### Phase 8: Testing & Documentation
+
+- [ ] Unit tests for each generator type
+- [ ] Integration test with actual Hegel server
+- [ ] Property tests using the SDK itself
+- [ ] API documentation
+- [ ] Usage examples
+
+## Reference Implementations
+
+- **C++ SDK**: `external/hegel-cpp/`
+- **Rust SDK**: `external/hegel-rust/`
+- **Go SDK**: Separate repository
+- **TypeScript SDK**: Separate repository
+
+The C++ and Rust SDKs implement the full feature set and can serve as
+reference for new implementations.
 
 ## Language-Specific Notes
 
