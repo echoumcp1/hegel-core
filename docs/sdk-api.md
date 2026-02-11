@@ -532,8 +532,9 @@ numeric label:
 | `FIXED_DICT` | 10 | Fixed-key dict compositional generation |
 | `FLAT_MAP` | 11 | flat_map combinator |
 | `FILTER` | 12 | filter combinator |
-| `MAPPED` | 13 (Python) / 15 (Rust) | map combinator on non-basic generators |
+| `MAPPED` | 13 | map combinator on non-basic generators |
 | `SAMPLED_FROM` | 14 | sampled_from compositional fallback |
+| `ENUM_VARIANT` | 15 | Rust derive macro enum variant generation |
 
 ## Test Control Functions
 
