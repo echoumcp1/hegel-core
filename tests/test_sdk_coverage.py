@@ -512,8 +512,9 @@ def test_dataclass_generator_compositional():
             gen = DataclassGenerator(Thing)
             # Override a field with a filtered generator (no schema)
             gen = gen.with_field("label", text().filter(lambda s: True))
-            assert not isinstance(gen._build(), BasicGenerator)
-            v = gen.generate()
+            built = gen.build()
+            assert not isinstance(built, BasicGenerator)
+            v = built.generate()
             assert isinstance(v, Thing)
 
         client.run_test("test_dc_comp", my_test, test_cases=5)
@@ -900,8 +901,8 @@ def test_dataclass_with_composite_field_through_server():
             gen = DataclassGenerator(Point)
             mapped_gen = integers().map(lambda x: x * 2)
             gen_with_override = gen.with_field("x", mapped_gen)
-            # This forces compositional fallback in DataclassGenerator.generate()
-            result = gen_with_override.generate()
+            # mapped_gen is still BasicGenerator, so this is still basic
+            result = gen_with_override.build().generate()
             assert isinstance(result, Point)
 
         client.run_test("test_dataclass_composite", my_test, test_cases=5)
@@ -1047,7 +1048,7 @@ def test_dataclass_generator_basic_when_all_fields_basic():
         y: int
 
     gen = DataclassGenerator(Point)
-    built = gen._build()
+    built = gen.build()
     assert isinstance(built, BasicGenerator)
     assert built.schema()["type"] == "object"
     assert "x" in built.schema()["properties"]
@@ -1065,7 +1066,7 @@ def test_dataclass_generator_non_basic_when_field_not_basic():
     gen = DataclassGenerator(Point)
     # Override with a generator that has no schema (filter destroys basicness)
     gen_override = gen.with_field("x", integers().filter(lambda x: True))
-    built = gen_override._build()
+    built = gen_override.build()
     assert not isinstance(built, BasicGenerator)
 
 

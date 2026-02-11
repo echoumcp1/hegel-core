@@ -853,13 +853,62 @@ class CompositeDictGenerator(Generator):
 # =============================================================================
 
 
-class DataclassGenerator:
-    """Builder for dataclass generators.
+def _build_dataclass_generator(
+    dataclass_type: type,
+    field_generators: dict[str, Generator],
+) -> Generator:
+    """Build a generator for a dataclass type from per-field generators."""
+    all_basic = all(isinstance(g, BasicGenerator) for g in field_generators.values())
 
-    Supports with_field() for customizing field generators. When used
-    as a generator (via generate()), returns the appropriate generator
-    type: BasicGenerator when all fields are basic, or a compositional
-    generator otherwise.
+    if all_basic:
+        properties = {}
+        required = []
+        transforms: dict[str, Callable | None] = {}
+
+        for field in fields(dataclass_type):
+            gen = field_generators[field.name]
+            assert isinstance(gen, BasicGenerator)
+            properties[field.name] = gen._raw_schema
+            transforms[field.name] = gen._transform
+            required.append(field.name)
+
+        schema = {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }
+
+        def make_instance(raw: Any) -> Any:
+            kwargs = {}
+            for field_name, raw_value in raw.items():
+                transform = transforms.get(field_name)
+                if transform is not None:
+                    kwargs[field_name] = transform(raw_value)
+                else:
+                    kwargs[field_name] = raw_value
+            return dataclass_type(**kwargs)
+
+        return BasicGenerator(schema, make_instance)
+
+    class _CompositeDataclassGenerator(Generator):
+        def generate(self_inner) -> Any:
+            start_span(Labels.FIXED_DICT)
+            try:
+                kwargs = {}
+                for field in fields(dataclass_type):
+                    kwargs[field.name] = field_generators[field.name].generate()
+                return dataclass_type(**kwargs)
+            finally:
+                stop_span()
+
+    return _CompositeDataclassGenerator()
+
+
+class DataclassGenerator:
+    """Builder for dataclass generators with per-field customization.
+
+    Use with_field() to override specific field generators, then call
+    build() to get the final Generator.
     """
 
     def __init__(self, dataclass_type: type):
@@ -867,12 +916,8 @@ class DataclassGenerator:
             raise TypeError(f"{dataclass_type} is not a dataclass")
         self._type = dataclass_type
         self._field_generators: dict[str, Generator] = {}
-
-        # Create generators for each field
         for field in fields(dataclass_type):
             self._field_generators[field.name] = from_type(field.type)
-
-        self._generator: Generator | None = None
 
     def with_field(self, field_name: str, gen: Generator) -> "DataclassGenerator":
         """Override the generator for a specific field."""
@@ -882,70 +927,11 @@ class DataclassGenerator:
         new_gen._type = self._type
         new_gen._field_generators = dict(self._field_generators)
         new_gen._field_generators[field_name] = gen
-        new_gen._generator = None
         return new_gen
 
-    def _build(self) -> Generator:
-        """Build the appropriate generator for the current field configuration."""
-        if self._generator is not None:
-            return self._generator
-
-        dataclass_type = self._type
-        field_generators = self._field_generators
-
-        # Check if all fields are basic
-        all_basic = all(
-            isinstance(g, BasicGenerator) for g in field_generators.values()
-        )
-
-        if all_basic:
-            properties = {}
-            required = []
-            transforms: dict[str, Callable | None] = {}
-
-            for field in fields(dataclass_type):
-                gen = field_generators[field.name]
-                assert isinstance(gen, BasicGenerator)
-                properties[field.name] = gen._raw_schema
-                transforms[field.name] = gen._transform
-                required.append(field.name)
-
-            schema = {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            }
-
-            def make_instance(raw: Any) -> Any:
-                kwargs = {}
-                for field_name, raw_value in raw.items():
-                    transform = transforms.get(field_name)
-                    if transform is not None:
-                        kwargs[field_name] = transform(raw_value)
-                    else:
-                        kwargs[field_name] = raw_value
-                return dataclass_type(**kwargs)
-
-            self._generator = BasicGenerator(schema, make_instance)
-        else:
-
-            class _CompositeDataclassGenerator(Generator):
-                def generate(self_inner) -> Any:
-                    start_span(Labels.FIXED_DICT)
-                    try:
-                        kwargs = {}
-                        for field in fields(dataclass_type):
-                            kwargs[field.name] = field_generators[field.name].generate()
-                        return dataclass_type(**kwargs)
-                    finally:
-                        stop_span()
-
-            self._generator = _CompositeDataclassGenerator()
-
-        return self._generator
-
-    def generate(self) -> Any:
-        return self._build().generate()
+    def build(self) -> Generator:
+        """Build the generator for the current field configuration."""
+        return _build_dataclass_generator(self._type, self._field_generators)
 
 
 def from_type(type_hint: Any) -> Generator:
@@ -1019,7 +1005,8 @@ def from_type(type_hint: Any) -> Generator:
 
     # Check for dataclass
     if is_dataclass(type_hint) and isinstance(type_hint, type):
-        return DataclassGenerator(type_hint)._build()
+        field_gens = {f.name: from_type(f.type) for f in fields(type_hint)}
+        return _build_dataclass_generator(type_hint, field_gens)
 
     raise TypeError(f"Cannot generate values for type: {type_hint}")
 
