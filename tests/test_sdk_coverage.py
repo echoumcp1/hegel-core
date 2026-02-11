@@ -28,7 +28,6 @@ from hegel.sdk import (
     CompositeTupleGenerator,
     DataclassGenerator,
     FilteredGenerator,
-    Generator,
     _current_channel,
     _extract_origin,
     _find_hegeld,
@@ -116,8 +115,8 @@ def test_mapped_generator():
 
         def my_test():
             gen = integers(min_value=0, max_value=10).map(lambda x: x * 2)
-            # Now .map() on BasicGenerator preserves schema
-            assert gen.schema() is not None
+            # map() on BasicGenerator preserves schema
+            assert isinstance(gen, BasicGenerator)
             v = gen.generate()
             assert v % 2 == 0
 
@@ -136,7 +135,7 @@ def test_flat_mapped_generator():
             gen = integers(min_value=1, max_value=5).flat_map(
                 lambda n: lists(integers(min_value=0, max_value=10), max_size=n),
             )
-            assert gen.schema() is None
+            assert not isinstance(gen, BasicGenerator)
             v = gen.generate()
             assert isinstance(v, list)
 
@@ -153,7 +152,7 @@ def test_filtered_generator():
 
         def my_test():
             gen = integers(min_value=0, max_value=100).filter(lambda x: x % 2 == 0)
-            assert gen.schema() is None
+            assert not isinstance(gen, BasicGenerator)
             v = gen.generate()
             assert v % 2 == 0
 
@@ -371,8 +370,8 @@ def test_sampled_from_non_primitive():
 
         def my_test():
             gen = sampled_from(items)
-            # Now sampled_from always returns BasicGenerator with index schema
-            assert gen.schema() is not None
+            # sampled_from always returns BasicGenerator with index schema
+            assert isinstance(gen, BasicGenerator)
             v = gen.generate()
             assert v in items
 
@@ -471,7 +470,8 @@ def test_dataclass_generator():
 
         def my_test():
             gen = from_type(Point)
-            assert isinstance(gen, DataclassGenerator)
+            # All fields are basic, so from_type returns a BasicGenerator
+            assert isinstance(gen, BasicGenerator)
             v = gen.generate()
             assert isinstance(v, Point)
 
@@ -512,7 +512,7 @@ def test_dataclass_generator_compositional():
             gen = DataclassGenerator(Thing)
             # Override a field with a filtered generator (no schema)
             gen = gen.with_field("label", text().filter(lambda s: True))
-            assert gen.schema() is None
+            assert not isinstance(gen._build(), BasicGenerator)
             v = gen.generate()
             assert isinstance(v, Thing)
 
@@ -534,19 +534,19 @@ def test_dataclass_not_a_dataclass():
 def test_from_type_none():
     """Test from_type(type(None))."""
     gen = from_type(type(None))
-    assert gen.schema() is not None
+    assert isinstance(gen, BasicGenerator)
 
 
 def test_from_type_bytes():
     """Test from_type(bytes)."""
     gen = from_type(bytes)
-    assert gen.schema() is not None
+    assert isinstance(gen, BasicGenerator)
 
 
 def test_from_type_float():
     """Test from_type(float)."""
     gen = from_type(float)
-    assert gen.schema() is not None
+    assert isinstance(gen, BasicGenerator)
 
 
 def test_from_type_union():
@@ -928,25 +928,11 @@ def test_get_channel_outside_context():
         _get_channel()
 
 
-def test_generator_base_schema():
-    """Test Generator.schema() base class returns None."""
-
-    class MyGen(integers().__class__.__bases__[0]):
-        def generate(self):
-            return 42
-
-    # Use Generator base directly
-    class SimpleGen(Generator):
-        def generate(self):
-            return 42
-
-    assert SimpleGen().schema() is None
-
-
 def test_mapped_generator_schema():
     """Test BasicGenerator.map() preserves schema."""
     gen = integers().map(lambda x: x * 2)
-    # Now map() on BasicGenerator preserves schema
+    # map() on BasicGenerator preserves schema - result is still BasicGenerator
+    assert isinstance(gen, BasicGenerator)
     assert gen.schema() is not None
 
 
@@ -962,8 +948,7 @@ def test_basic_generator_double_map():
                 .map(lambda x: x + 1)
             )
             # Double map should compose transforms while preserving schema
-            assert gen.schema() is not None
-            # The schema should be the original integer schema
+            assert isinstance(gen, BasicGenerator)
             assert gen.schema()["type"] == "integer"
             # Actually generate a value to exercise the composed transform
             v = gen.generate()
@@ -977,14 +962,13 @@ def test_basic_generator_double_map():
 
 
 def test_mapped_generator_on_non_basic():
-    """Test MappedGenerator.schema() returns None for non-BasicGenerator sources."""
-    # FilteredGenerator doesn't have a schema, so mapping it creates MappedGenerator
+    """Test map() on non-BasicGenerator creates MappedGenerator (not basic)."""
     from hegel.sdk import MappedGenerator
 
     filtered = integers().filter(lambda x: x > 0)
     mapped = filtered.map(lambda x: x * 2)
     assert isinstance(mapped, MappedGenerator)
-    assert mapped.schema() is None
+    assert not isinstance(mapped, BasicGenerator)
 
 
 def test_one_of_with_mapped_basic_generators():
@@ -1035,27 +1019,27 @@ def test_one_of_with_non_basic_generators():
     assert isinstance(combined, CompositeOneOfGenerator)
 
 
-def test_flat_mapped_generator_schema():
-    """Test FlatMappedGenerator.schema() returns None."""
+def test_flat_mapped_generator_not_basic():
+    """Test FlatMappedGenerator is not basic."""
     gen = integers().flat_map(lambda x: integers())
-    assert gen.schema() is None
+    assert not isinstance(gen, BasicGenerator)
 
 
-def test_filtered_generator_schema():
-    """Test FilteredGenerator.schema() returns None."""
+def test_filtered_generator_not_basic():
+    """Test FilteredGenerator is not basic."""
     gen = integers().filter(lambda x: x > 0)
-    assert gen.schema() is None
+    assert not isinstance(gen, BasicGenerator)
 
 
 def test_basic_dict_generator_schema():
     """Test dicts() returns BasicGenerator with schema."""
     gen = dicts(text(), integers(), min_size=0, max_size=5)
-    assert gen.schema() is not None
+    assert isinstance(gen, BasicGenerator)
     assert gen.schema()["type"] == "dict"
 
 
-def test_dataclass_generator_schema_with_all_schemas():
-    """Test DataclassGenerator.schema() when all fields have schemas."""
+def test_dataclass_generator_basic_when_all_fields_basic():
+    """Test DataclassGenerator builds a BasicGenerator when all fields are basic."""
 
     @dataclass
     class Point:
@@ -1063,15 +1047,15 @@ def test_dataclass_generator_schema_with_all_schemas():
         y: int
 
     gen = DataclassGenerator(Point)
-    schema = gen.schema()
-    assert schema is not None
-    assert schema["type"] == "object"
-    assert "x" in schema["properties"]
-    assert "y" in schema["properties"]
+    built = gen._build()
+    assert isinstance(built, BasicGenerator)
+    assert built.schema()["type"] == "object"
+    assert "x" in built.schema()["properties"]
+    assert "y" in built.schema()["properties"]
 
 
-def test_dataclass_generator_schema_returns_none_for_non_schema_field():
-    """Test DataclassGenerator.schema() returns None when field has no schema."""
+def test_dataclass_generator_non_basic_when_field_not_basic():
+    """Test DataclassGenerator builds a non-basic generator when a field is not basic."""
 
     @dataclass
     class Point:
@@ -1079,9 +1063,10 @@ def test_dataclass_generator_schema_returns_none_for_non_schema_field():
         y: int
 
     gen = DataclassGenerator(Point)
-    # Override with a generator that has no schema (filter destroys schema)
+    # Override with a generator that has no schema (filter destroys basicness)
     gen_override = gen.with_field("x", integers().filter(lambda x: True))
-    assert gen_override.schema() is None
+    built = gen_override._build()
+    assert not isinstance(built, BasicGenerator)
 
 
 def test_from_type_optional():
@@ -1173,13 +1158,13 @@ def test_failing_test_single_interesting():
 def test_binary_generator_schema():
     """Test binary() generator factory function."""
     gen = binary()
-    assert gen.schema() is not None
+    assert isinstance(gen, BasicGenerator)
     assert gen.schema()["type"] == "binary"
 
     gen_with_max = binary(min_size=5, max_size=10)
-    schema = gen_with_max.schema()
-    assert schema["min_size"] == 5
-    assert schema["max_size"] == 10
+    assert isinstance(gen_with_max, BasicGenerator)
+    assert gen_with_max.schema()["min_size"] == 5
+    assert gen_with_max.schema()["max_size"] == 10
 
 
 def test_sampled_from_empty_raises():
