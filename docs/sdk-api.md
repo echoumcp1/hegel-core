@@ -575,7 +575,6 @@ Test binaries receive these environment variables from Hegel:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `HEGEL_SOCKET` | Yes | Path to Unix socket for communication |
-| `HEGEL_REJECT_CODE` | Yes | Exit code for rejected test cases (default: 137) |
 | `HEGEL_DEBUG` | No | Enable debug logging when set |
 
 ### Packet Format
@@ -622,22 +621,14 @@ Followed by a CBOR-encoded payload and a terminator byte (`0x0A`).
 
 ## Error Handling
 
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Test passed |
-| 1 | Test failed (assertion failure) |
-| 134 | Socket communication error (recommended) |
-| `HEGEL_REJECT_CODE` | Test case rejected (invalid input) |
-
 ### The `assume()` Function
 
 Every SDK must implement `assume(condition)`:
 
 - If condition is true: returns normally.
-- If condition is false: exits with `HEGEL_REJECT_CODE` (external mode) or
-  throws an exception / panics with a special marker (embedded mode).
+- If condition is false: throws an exception (C++) or panics with a special
+  marker (Rust). The test runner catches this and reports the test case as
+  INVALID to the server via `mark_complete`.
 
 **Purpose:** Signal that the current test case is invalid (not a failure).
 Hegel will try different inputs.
@@ -646,12 +637,9 @@ Hegel will try different inputs.
 
 | Error Type | Action |
 |------------|--------|
-| Socket connection failure | Exit with SOCKET_ERROR (134) |
-| Socket I/O error | Exit with SOCKET_ERROR (134) |
 | JSON parse error | `assume(false)` |
 | Server returns error | `assume(false)` |
 | Filter exhaustion | `assume(false)` |
-| Test assertion failure | Exit with code 1 |
 
 ### Filter Implementation
 
@@ -676,13 +664,12 @@ fn generate(&self) -> T {
 }
 ```
 
-### Embedded Mode
+### Rejection Mechanism
 
-When running embedded (SDK provides the Hegel server), `assume(false)` uses
-exceptions instead of exit codes:
+Each language uses its idiomatic unwinding mechanism for `assume(false)`:
 
 ```cpp
-// C++
+// C++ - throw a special exception caught by hegel()
 class HegelReject : public std::exception {
 public:
     const char* what() const noexcept override { return "assume failed"; }
@@ -690,30 +677,22 @@ public:
 
 void assume(bool condition) {
     if (!condition) {
-        if (current_mode == Mode::Embedded) {
-            throw HegelReject();
-        } else {
-            std::exit(get_reject_code());
-        }
+        throw HegelReject();
     }
 }
 ```
 
 ```rust
-// Rust - use panic with special marker
-const REJECT_MARKER: &str = "HEGEL_REJECT";
-
+// Rust - panic with special marker caught by catch_unwind
 pub fn assume(condition: bool) {
     if !condition {
-        match current_mode() {
-            HegelMode::Embedded => panic!("{}", REJECT_MARKER),
-            HegelMode::External => {
-                std::process::exit(get_reject_code());
-            }
-        }
+        panic!("HEGEL_REJECT");
     }
 }
 ```
+
+The test runner catches these and reports status INVALID to the server via
+`mark_complete`.
 
 ## Design Considerations
 
@@ -929,7 +908,7 @@ fn test_sorting() {
 - [ ] CBOR binary packet serialization (20-byte header + CBOR payload)
 - [ ] Request ID counter (atomic)
 - [ ] `assume()` function
-- [ ] Environment variable reading (`HEGEL_SOCKET`, `HEGEL_REJECT_CODE`)
+- [ ] Environment variable reading (`HEGEL_SOCKET`)
 - [ ] Basic `Generator<T>` type with `generate()` and `as_basic()`
 
 ### Phase 2: Primitive Generators
