@@ -367,14 +367,11 @@ class Generator(ABC):
 
 
 class BasicGenerator(Generator):
-    """A generator with a schema and client-side transform.
+    """A generator with a schema and an optional client-side transform.
 
-    Unlike MappedGenerator where map() loses the schema,
-    BasicGenerator preserves the schema through transformations
-    by composing transform functions.
-
-    The transform defaults to identity, making this a drop-in
-    replacement for BasicGenerator.
+    When map() is called on a BasicGenerator, the schema is preserved
+    and the transform functions are composed. This avoids falling back
+    to compositional generation for mapped values.
     """
 
     def __init__(

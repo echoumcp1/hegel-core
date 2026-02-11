@@ -315,8 +315,8 @@ schema and a composed transform. If the original transform was `t`, the new
 transform is `x -> f(t(x))`. If there was no transform, the new transform
 is `f`.
 
-**On a non-basic generator:** Returns a `MappedGenerator` that wraps the
-source generator. The mapped generator is not basic (it has no schema).
+**On a non-basic generator:** Returns a non-basic generator that wraps the
+source generator and applies `f` to each generated value.
 Generation is wrapped in a span with label `MAPPED`.
 
 This is the key innovation of basic generators: `map()` preserves the
