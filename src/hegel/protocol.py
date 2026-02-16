@@ -43,7 +43,8 @@ import cbor2
 
 from hegel.utils import UniqueIdentifier, not_set
 
-_DEBUG = os.environ.get("HEGEL_DEBUG").lower()
+_DEBUG = os.environ.get("HEGEL_DEBUG")
+_DEBUG = _DEBUG.lower() if _DEBUG is not None else None
 if _DEBUG not in {None, "1", "0", "true", "false"}:
     raise ValueError(
         "invalid value for HEGEL_DEBUG: expected either '1', '0', 'true', "
