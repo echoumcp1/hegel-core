@@ -8,44 +8,25 @@ from threading import Thread
 
 import cbor2
 import pytest
+from client import Client
 
-import hegel.protocol as protocol
-from hegel.hegeld import run_server_on_connection
+import hegel.protocol
 from hegel.protocol import (
     HEADER_FORMAT,
     MAGIC,
-    NOT_SET,
     TERMINATOR,
     Connection,
     DeadChannel,
     Packet,
     PartialPacket,
     RequestError,
-    _NotSet,
+    not_set,
     read_packet,
     recv_exact,
     result_or_error,
     write_packet,
 )
-from hegel.sdk import Client
-
-# ---- Packet validation ----
-
-
-def test_packet_type_validation():
-    """Test that Packet validates field types."""
-    with pytest.raises(TypeError, match="channel must be int"):
-        Packet(channel="bad", message_id=1, is_reply=False, payload=b"")
-
-    with pytest.raises(TypeError, match="message_id must be int"):
-        Packet(channel=1, message_id="bad", is_reply=False, payload=b"")
-
-    with pytest.raises(TypeError, match="is_reply must be bool"):
-        Packet(channel=1, message_id=1, is_reply=1, payload=b"")
-
-    with pytest.raises(TypeError, match="payload must be bytes"):
-        Packet(channel=1, message_id=1, is_reply=False, payload="bad")
-
+from hegel.server import run_server_on_connection
 
 # ---- recv_exact error paths ----
 
@@ -147,7 +128,7 @@ def test_connection_debug_mode():
     try:
         conn = Connection(server_socket, name="DebugTest", debug=True)
         # Send a packet on the client side to trigger debug printing
-        packet = Packet(channel=0, message_id=1, is_reply=False, payload=b"hello")
+        packet = Packet(channel_id=0, message_id=1, is_reply=False, payload=b"hello")
         write_packet(client_socket, packet)
         # Give the reader time to process
         time.sleep(0.1)
@@ -164,7 +145,7 @@ def test_debug_packet_cbor_payload():
         # Send CBOR payload (non-ASCII)
         cbor_payload = cbor2.dumps({"hello": "world"})
         packet = Packet(
-            channel=0,
+            channel_id=0,
             message_id=1,
             is_reply=False,
             payload=cbor_payload,
@@ -184,7 +165,7 @@ def test_debug_packet_binary_payload():
         # Send raw binary that's neither ASCII nor valid CBOR
         raw_payload = bytes(range(128, 160))
         packet = Packet(
-            channel=0,
+            channel_id=0,
             message_id=1,
             is_reply=False,
             payload=raw_payload,
@@ -203,7 +184,7 @@ def test_debug_packet_unknown_channel():
         conn = Connection(server_socket, name="DebugUnk", debug=True)
         # Send to a channel that doesn't exist
         packet = Packet(
-            channel=999,
+            channel_id=999,
             message_id=1,
             is_reply=False,
             payload=b"hello",
@@ -237,7 +218,7 @@ def test_message_to_nonexistent_channel():
         # Send a request to a channel that doesn't exist on the server
         # The server should send back an error response
         packet = Packet(
-            channel=999,
+            channel_id=999,
             message_id=1,
             is_reply=False,
             payload=cbor2.dumps({"command": "test"}),
@@ -669,7 +650,7 @@ def test_bad_handshake_negotiation_inline():
 @pytest.mark.parametrize("create_channel_first", [False, True])
 def test_close_channel_creates_dead_channel(monkeypatch, create_channel_first):
     """Test that closing a channel creates a DeadChannel."""
-    monkeypatch.setattr(protocol, "_DEBUG", True)
+    monkeypatch.setattr(hegel.protocol, "_DEBUG", True)
     server_socket, client_socket = socket.socketpair()
     try:
         server_conn = Connection(server_socket, name="Server")
@@ -728,8 +709,8 @@ def test_duplicate_response_id_raises():
         ch = conn.control_channel
 
         # Manually inject two response packets for the same ID
-        ch.inbox.put(Packet(channel=0, message_id=1, is_reply=True, payload=b"a"))
-        ch.inbox.put(Packet(channel=0, message_id=1, is_reply=True, payload=b"b"))
+        ch.inbox.put(Packet(channel_id=0, message_id=1, is_reply=True, payload=b"a"))
+        ch.inbox.put(Packet(channel_id=0, message_id=1, is_reply=True, payload=b"b"))
 
         # First one should work
         result = ch.receive_response_raw(1)
@@ -936,7 +917,9 @@ def test_duplicate_response_error():
         ch.responses[42] = b"first"
 
         # Now try to process another reply with same ID
-        ch.inbox.put(Packet(channel=0, message_id=42, is_reply=True, payload=b"second"))
+        ch.inbox.put(
+            Packet(channel_id=0, message_id=42, is_reply=True, payload=b"second")
+        )
 
         with pytest.raises(ValueError, match="Got two responses"):
             ch._Channel__process_one_message()
@@ -965,32 +948,13 @@ def test_concurrent_connection_handshake():
         conn = Connection(client_socket, name="Client")
         client = Client(conn)
 
-        def my_test():
-            pass
-
-        client.run_test("test", my_test, test_cases=1)
+        client.run_test("test", lambda: None, test_cases=1)
         conn.close()
         t.join(timeout=5)
 
 
-def test_not_set_singleton():
-    """Test _NotSet singleton returns the same instance.
-
-    Tests the singleton branch in _NotSet.__new__ where _instance is already
-    set (second instantiation returns the existing instance).
-    """
-    instance1 = _NotSet()
-    instance2 = _NotSet()
-    assert instance1 is instance2
-    assert instance1 is NOT_SET
-
-
 def test_not_set_repr():
-    """Test _NotSet.__repr__ returns 'NOT_SET'.
-
-    Tests that _NotSet.__repr__ returns the string 'NOT_SET'.
-    """
-    assert repr(NOT_SET) == "NOT_SET"
+    assert repr(not_set) == "not_set"
 
 
 def test_channel_close_when_connection_not_live():

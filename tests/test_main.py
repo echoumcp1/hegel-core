@@ -7,10 +7,11 @@ import time
 from threading import Thread
 
 from click.testing import CliRunner
+from client import Client
+from hypothesis import Verbosity
 
 from hegel.__main__ import main, run_server
 from hegel.protocol import Connection
-from hegel.sdk import Client
 
 
 def _wait_and_connect(socket_path, timeout=5.0):
@@ -35,7 +36,7 @@ def test_run_server_accepts_connection():
         socket_path = os.path.join(d, "test.sock")
 
         def server():
-            run_server(socket_path, "quiet")
+            run_server(socket_path, verbosity=Verbosity.quiet)
 
         t = Thread(target=server, daemon=True)
         t.start()
@@ -44,10 +45,7 @@ def test_run_server_accepts_connection():
         conn = Connection(sock, name="Client")
         client = Client(conn)
 
-        def my_test():
-            pass
-
-        client.run_test("test", my_test, test_cases=1)
+        client.run_test("test", lambda: None, test_cases=1)
         conn.close()
         t.join(timeout=5)
 
@@ -58,7 +56,7 @@ def test_run_server_verbose():
         socket_path = os.path.join(d, "test.sock")
 
         def server():
-            run_server(socket_path, "verbose")
+            run_server(socket_path, verbosity=Verbosity.verbose)
 
         t = Thread(target=server, daemon=True)
         t.start()
@@ -67,10 +65,7 @@ def test_run_server_verbose():
         conn = Connection(sock, name="Client")
         client = Client(conn)
 
-        def my_test():
-            pass
-
-        client.run_test("test", my_test, test_cases=1)
+        client.run_test("test", lambda: None, test_cases=1)
         conn.close()
         t.join(timeout=5)
 
@@ -87,7 +82,7 @@ def test_run_server_cleans_up_stale_socket():
         os.unlink(socket_path)
 
         def server():
-            run_server(socket_path, "quiet")
+            run_server(socket_path, verbosity=Verbosity.quiet)
 
         t = Thread(target=server, daemon=True)
         t.start()
@@ -96,10 +91,7 @@ def test_run_server_cleans_up_stale_socket():
         conn = Connection(sock, name="Client")
         client = Client(conn)
 
-        def my_test():
-            pass
-
-        client.run_test("test", my_test, test_cases=1)
+        client.run_test("test", lambda: None, test_cases=1)
         conn.close()
         t.join(timeout=5)
 
@@ -124,10 +116,7 @@ def test_main_cli_debug_mode():
         conn = Connection(sock, name="Client")
         client = Client(conn)
 
-        def my_test():
-            pass
-
-        client.run_test("test", my_test, test_cases=1)
+        client.run_test("test", lambda: None, test_cases=1)
         conn.close()
         t.join(timeout=5)
 
@@ -152,9 +141,6 @@ def test_main_cli_normal_mode():
         conn = Connection(sock, name="Client")
         client = Client(conn)
 
-        def my_test():
-            pass
-
-        client.run_test("test", my_test, test_cases=1)
+        client.run_test("test", lambda: None, test_cases=1)
         conn.close()
         t.join(timeout=5)

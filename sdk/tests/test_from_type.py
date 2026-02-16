@@ -1,15 +1,9 @@
-"""Tests for from_type and sampled_from functionality.
-
-These tests demonstrate both the expected behavior and current broken behavior
-of the Python SDK.
-"""
-
 from dataclasses import dataclass
 from enum import Enum
 
 import pytest
 
-from hegel.sdk import (
+from hegel_sdk import (
     DataclassGenerator,
     dicts,
     from_type,

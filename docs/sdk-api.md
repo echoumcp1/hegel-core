@@ -568,15 +568,6 @@ Unix domain sockets.
 5. A single persistent connection is maintained per program run.
 6. Multiple tests run over the same connection.
 
-### Environment Variables
-
-Test binaries receive these environment variables from Hegel:
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `HEGEL_SOCKET` | Yes | Path to Unix socket for communication |
-| `HEGEL_DEBUG` | No | Enable debug logging when set |
-
 ### Packet Format
 
 Each packet has a 20-byte header:
@@ -908,7 +899,6 @@ fn test_sorting() {
 - [ ] CBOR binary packet serialization (20-byte header + CBOR payload)
 - [ ] Request ID counter (atomic)
 - [ ] `assume()` function
-- [ ] Environment variable reading (`HEGEL_SOCKET`)
 - [ ] Basic `Generator<T>` type with `generate()` and `as_basic()`
 
 ### Phase 2: Primitive Generators

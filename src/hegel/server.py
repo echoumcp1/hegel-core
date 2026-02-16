@@ -26,18 +26,15 @@ from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import many
 
-from hegel.parser import from_schema
 from hegel.protocol import Channel, Connection
+from hegel.schema import from_schema
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
-# Schema cache for performance
-CACHE_SIZE = 1024
-FROM_SCHEMA_CACHE: LRUCache = LRUCache(CACHE_SIZE)
+FROM_SCHEMA_CACHE: LRUCache = LRUCache(1024)
 
 
 def cached_from_schema(schema: dict) -> Any:
-    """Convert schema to strategy with LRU caching by SHA1 hash."""
     key = hashlib.sha1(json.dumps(schema, sort_keys=True).encode("utf-8")).digest()[:32]
     try:
         return FROM_SCHEMA_CACHE[key]
@@ -180,7 +177,7 @@ def run_server_on_connection(connection: Connection) -> None:
 
                     pending_futures.append(
                         thread_pool.submit(
-                            handle_run_test,
+                            _run_one,
                             connection,
                             channel,
                             test_name=test_name,
@@ -203,6 +200,7 @@ def run_server_on_connection(connection: Connection) -> None:
         traceback.print_exc()
     finally:
         connection.close()
+
     for f in pending_futures:
         try:
             f.result(timeout=0.5)
@@ -210,9 +208,10 @@ def run_server_on_connection(connection: Connection) -> None:
             f.cancel()
 
 
-def handle_run_test(
+def _run_one(
     connection: Connection,
     channel: Channel,
+    *,
     test_name: str,
     test_cases: int,
 ) -> dict[str, Any]:
@@ -226,19 +225,14 @@ def handle_run_test(
     - failure: optional dict with failure details
     """
     try:
-        db_key = test_name.encode("utf-8")
-
-        # Create and run the ConjectureRunner
-        test_function = make_test_function(connection, channel, is_final=False)
-
         runner = ConjectureRunner(
-            test_function,
+            make_test_function(connection, channel, is_final=False),
             settings=settings(
                 deadline=None,
                 database=DATABASE,
                 max_examples=test_cases,
             ),
-            database_key=db_key,
+            database_key=test_name.encode("utf-8"),
         )
         runner.run()
 
@@ -264,13 +258,7 @@ def handle_run_test(
             key=lambda d: sort_key(d.nodes),
         ):
             with contextlib.suppress(StopTest):
-                final_test_function(
-                    ConjectureData(
-                        prefix=v.choices,
-                        max_choices=len(v.choices),
-                        random=None,
-                    ),
-                )
+                final_test_function(ConjectureData.for_choices(v.choices))
 
         return result
     except Exception:

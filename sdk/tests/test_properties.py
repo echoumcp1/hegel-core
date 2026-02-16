@@ -1,9 +1,3 @@
-"""
-Comprehensive property-based tests demonstrating the Python SDK.
-
-These tests show the SDK being used with the @hegel decorator.
-"""
-
 import base64
 import itertools
 import json
@@ -13,7 +7,7 @@ from time import time
 
 import pytest
 
-from hegel.sdk import (
+from hegel_sdk import (
     assume,
     booleans,
     floats,

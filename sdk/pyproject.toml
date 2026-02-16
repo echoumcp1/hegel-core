@@ -1,15 +1,15 @@
 [project]
-name = "hegel"
+name = "hegel-sdk"
 version = "0.1.0"
-description = "Prototype universal property-based testing implementation"
+description = "Python SDK for Hegel property-based testing"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "cbor2>=5.8.0",
-    "click>=8.3.1",
-    "exceptiongroup>=1.0.0; python_version < '3.11'",
-    "hypothesis>=6.148.5",
+    "hegel",
 ]
+
+[tool.uv.sources]
+hegel = { path = ".." }
 
 [build-system]
 requires = ["setuptools", "wheel"]
@@ -18,15 +18,11 @@ build-backend = "setuptools.build_meta"
 [dependency-groups]
 dev = [
     "pytest>=9.0.1",
-    "pytest-asyncio>=0.24.0",
-    "mypy>=1.19.0",
     "coverage",
     "ruff>=0.14.10",
     "shed",
+    "mypy>=1.19.0",
 ]
-
-[project.scripts]
-hegel = "hegel.__main__:main"
 
 # tools
 # =====
@@ -73,9 +69,6 @@ ignore = [
     "COM812",
     "DJ007",
     "DJ008",
-    # "line too long". ruff uses tool.ruff.line-length both for this rule, and for `ruff format`.
-    # We want ruff format to match black's 88 line length, so we set tool.ruff.line-length = 88. But
-    # this is a formatter suggestion, not a rule, so we also disable the E501 lint.
     "E501",
     "E721",
     "E731",
@@ -83,7 +76,7 @@ ignore = [
     "FBT001",
     "FBT003",
     "PD011",
-    "PIE790",  # See https://github.com/astral-sh/ruff/issues/10538
+    "PIE790",
     "PT001",
     "PT003",
     "PT006",
@@ -135,7 +128,7 @@ disable_error_code = "annotation-unchecked"
 [tool.coverage.run]
 branch = true
 parallel = true
-source = ["hegel"]
+source = ["hegel_sdk"]
 
 [tool.coverage.report]
 fail_under = 100
