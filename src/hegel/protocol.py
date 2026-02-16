@@ -51,7 +51,7 @@ if _DEBUG not in {
     "0",
     "true",
     "false",
-}:  # pragma: no branch # tested in subprocess
+}:  # pragma: no cover # tested in subprocess
     raise ValueError(
         "invalid value for HEGEL_DEBUG: expected either '1', '0', 'true', "
         f"'false', or unset, but got {_DEBUG!r}"
