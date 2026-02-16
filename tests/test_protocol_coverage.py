@@ -1,7 +1,10 @@
 """Tests for protocol.py uncovered paths."""
 
+import os
 import socket
 import struct
+import subprocess
+import sys
 import time
 import zlib
 from threading import Thread
@@ -1024,3 +1027,15 @@ def test_reader_loop_clean_exit():
     # Now clean up
     client_conn.close()
     server_conn._Connection__socket.close()
+
+
+def test_invalid_hegel_debug_env_var():
+    """Test that an invalid HEGEL_DEBUG value raises ValueError at import time."""
+    result = subprocess.run(
+        [sys.executable, "-c", "import hegel.protocol"],
+        env={**os.environ, "HEGEL_DEBUG": "invalid"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "invalid value for HEGEL_DEBUG" in result.stderr

@@ -141,6 +141,22 @@ def test_unsatisfied_assumption_handled_gracefully(client):
         client.run_test("test_unsatisfied", my_test, test_cases=10)
 
 
+def test_collection_with_no_max_size(client):
+    """Test collection with max_size=None (unbounded)."""
+
+    def my_test():
+        c = sdk_collection("test_unbounded", min_size=1)
+        result = []
+        while c.more():
+            val = generate_from_schema(
+                {"type": "integer", "minimum": 0, "maximum": 100},
+            )
+            result.append(val)
+        assert len(result) >= 1
+
+    client.run_test("test_collection_no_max", my_test, test_cases=10)
+
+
 def test_collection_reject_on_server(client):
     """Test collection_reject command is handled by the server.
 
