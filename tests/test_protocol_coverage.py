@@ -13,7 +13,6 @@ import cbor2
 import pytest
 from client import Client
 
-from hegel.hegeld import run_server_on_connection
 from hegel.protocol import (
     HEADER_FORMAT,
     MAGIC,
@@ -1029,12 +1028,12 @@ def test_reader_loop_clean_exit():
 
 
 def test_invalid_hegel_debug_env_var():
-    """Test that an invalid HEGEL_DEBUG value raises ValueError at import time."""
+    """Test that an invalid HEGEL_PROTOCOL_DEBUG value raises ValueError."""
     result = subprocess.run(
-        [sys.executable, "-c", "import hegel.protocol"],
-        env={**os.environ, "HEGEL_DEBUG": "invalid"},
+        [sys.executable, "-c", "from hegel.protocol import _is_protocol_debug; _is_protocol_debug()"],
+        env={**os.environ, "HEGEL_PROTOCOL_DEBUG": "invalid"},
         capture_output=True,
         text=True,
     )
     assert result.returncode != 0
-    assert "invalid value for HEGEL_DEBUG" in result.stderr
+    assert "invalid value for HEGEL_PROTOCOL_DEBUG" in result.stderr

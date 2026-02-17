@@ -43,20 +43,15 @@ import cbor2
 
 from hegel.utils import UniqueIdentifier, not_set
 
-_DEBUG = os.environ.get("HEGEL_PROTOCOL_DEBUG")
-_DEBUG = _DEBUG.lower() if _DEBUG is not None else None
-if _DEBUG not in {
-    None,
-    "1",
-    "0",
-    "true",
-    "false",
-}:  # pragma: no cover # tested in subprocess
-    raise ValueError(
-        "invalid value for HEGEL_DEBUG: expected either '1', '0', 'true', "
-        f"'false', or unset, but got {_DEBUG!r}"
-    )
-_DEBUG = _DEBUG in {"1", "true"}
+def _is_protocol_debug():
+    value = os.environ.get("HEGEL_PROTOCOL_DEBUG")
+    value = value.lower() if value is not None else None
+    if value not in {None, "1", "0", "true", "false"}:
+        raise ValueError(
+            "invalid value for HEGEL_PROTOCOL_DEBUG: expected either '1', '0', 'true', "
+            f"'false', or unset, but got {value!r}"
+        )
+    return value in {"1", "true"}
 
 CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
 
