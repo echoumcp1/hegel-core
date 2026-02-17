@@ -13,7 +13,7 @@ import cbor2
 import pytest
 from client import Client
 
-import hegel.protocol
+from hegel.hegeld import run_server_on_connection
 from hegel.protocol import (
     HEADER_FORMAT,
     MAGIC,
@@ -651,13 +651,12 @@ def test_bad_handshake_negotiation_inline():
 
 
 @pytest.mark.parametrize("create_channel_first", [False, True])
-def test_close_channel_creates_dead_channel(monkeypatch, create_channel_first):
+def test_close_channel_creates_dead_channel(create_channel_first):
     """Test that closing a channel creates a DeadChannel."""
-    monkeypatch.setattr(hegel.protocol, "_DEBUG", True)
     server_socket, client_socket = socket.socketpair()
     try:
-        server_conn = Connection(server_socket, name="Server")
-        client_conn = Connection(client_socket, name="Client")
+        server_conn = Connection(server_socket, name="Server", debug=True)
+        client_conn = Connection(client_socket, name="Client", debug=True)
 
         def server_side():
             server_conn.receive_handshake()

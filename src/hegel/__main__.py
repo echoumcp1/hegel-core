@@ -13,25 +13,17 @@ from hegel.server import run_server_on_connection
 @click.command()
 @click.argument("socket_path")
 @click.option(
-    "--test-cases",
-    type=int,
-    default=100,
-    show_default=True,
-    help="Maximum number of test cases to run",
-)
-@click.option(
     "--verbosity",
     type=click.Choice(["quiet", "normal", "verbose", "debug"]),
     default="normal",
     help="Verbosity level. Corresponds to hypothesis.Verbosity.",
 )
-def main(socket_path, test_cases, verbosity):
+def main(socket_path, verbosity):
     """Run the Hegel test server, binding to socket_path."""
     verbosity = Verbosity(verbosity)
 
     if verbosity >= Verbosity.debug:
-        os.environ["HEGEL_DEBUG"] = "1"
-    os.environ["HEGEL_TEST_CASES"] = str(test_cases)
+        os.environ["HEGEL_PROTOCOL_DEBUG"] = "1"
 
     # Clean up any existing socket before starting
     with contextlib.suppress(FileNotFoundError):

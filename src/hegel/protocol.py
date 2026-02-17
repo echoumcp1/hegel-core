@@ -43,7 +43,7 @@ import cbor2
 
 from hegel.utils import UniqueIdentifier, not_set
 
-_DEBUG = os.environ.get("HEGEL_DEBUG")
+_DEBUG = os.environ.get("HEGEL_PROTOCOL_DEBUG")
 _DEBUG = _DEBUG.lower() if _DEBUG is not None else None
 if _DEBUG not in {
     None,
@@ -194,7 +194,7 @@ class ConnectionState(Enum):
 class Connection:
     """Thread-safe multiplexed socket connection to a Hegel peer."""
 
-    def __init__(self, socket, *, name=None, debug=_DEBUG):
+    def __init__(self, socket, *, name=None, debug=None):
         """Initialize connection and start the reader thread."""
         self.name = name
         self.__socket = socket
@@ -202,7 +202,9 @@ class Connection:
         self.channels = {}
         self.__running = True
         self.__lock = Lock()
-        self.__debug = debug
+        if debug is None:
+            debug = _is_protocol_debug()
+        self._debug = debug
         self.__connection_state = ConnectionState.UNRESOLVED
         # Control channel must be created before the reader thread starts,
         # otherwise an incoming packet for channel 0 could arrive before
@@ -223,7 +225,7 @@ class Connection:
         return cls(socket.create_server(address, **kwargs))
 
     def _debug_print(self, *args):
-        if not self.__debug:
+        if not self._debug:
             return
         print(
             *args,
@@ -232,7 +234,7 @@ class Connection:
 
     def _debug_packet(self, direction: str, packet: Packet) -> None:
         """Print packet info for debugging."""
-        if not self.__debug:
+        if not self._debug:
             return
         try:
             payload_repr: object = packet.payload.decode("ascii")
@@ -273,7 +275,7 @@ class Connection:
                     # Dead channel markers only exist for debugging purposes to help
                     # distinguish messages sent to channels after they were closed
                     # from messages sent before they were opened.
-                    if _DEBUG:
+                    if self._debug:
                         self.channels[packet.channel_id] = DeadChannel(
                             channel_id=packet.channel_id,
                             name=(
@@ -468,7 +470,7 @@ class Channel:
             self.__closed = True
             return
         self.__closed = True
-        if _DEBUG:
+        if self.connection._debug:
             self.connection.channels[self.channel_id] = DeadChannel(
                 name=self.name,
                 channel_id=self.channel_id,
