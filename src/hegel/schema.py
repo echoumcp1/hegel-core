@@ -8,8 +8,6 @@ from hypothesis.strategies import SearchStrategy
 
 
 class BooleansStrategy(SearchStrategy[bool]):
-    """Hypothesis strategy for booleans with configurable probability."""
-
     def __init__(self, p: float):
         super().__init__()
         self.p = p
@@ -19,7 +17,6 @@ class BooleansStrategy(SearchStrategy[bool]):
 
 
 def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
-    """Convert a JSON schema to a Hypothesis strategy."""
     if "const" in schema:
         return st.just(schema["const"])
     if "sampled_from" in schema:

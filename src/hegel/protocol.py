@@ -33,31 +33,47 @@ import sys
 import traceback
 import zlib
 from collections import deque
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from enum import Enum
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread, current_thread
-from typing import Any
+from typing import Any, NewType
 
 import cbor2
 
+from hegel.utils import UniqueIdentifier, not_set
+
 
 def _is_protocol_debug():
-    return os.environ.get("HEGEL_PROTOCOL_DEBUG", "").lower() in ("1", "true")
+    value = os.environ.get("HEGEL_PROTOCOL_DEBUG")
+    value = value.lower() if value is not None else None
+    if value not in {
+        None,
+        "1",
+        "0",
+        "true",
+        "false",
+    }:  # pragma: no cover # tested in subprocess
+        raise ValueError(
+            "invalid value for HEGEL_PROTOCOL_DEBUG: expected either '1', '0', 'true', "
+            f"'false', or unset, but got {value!r}"
+        )
+    return value in {"1", "true"}
+
+
+CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
 
 
 VERSION = "0.1"
-
 VERSION_NEGOTIATION_MESSAGE = b"Hegel/1.0"
 VERSION_NEGOTIATION_OK = b"Ok"
 
-# HEGL
+# HEGL in hex
 MAGIC = 0x4845474C
 
 # 5 unsigned 32-bit integers, big-endian:
 # magic cookie, checksum, channel, message ID, payload length
 HEADER_FORMAT = ">5I"
-HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 TERMINATOR = 0x0A  # '\n'
 
 # If this is set in the ID, this is a reply to a previous message
@@ -72,24 +88,20 @@ REPLY_BIT = 1 << 31
 CLOSE_CHANNEL_MESSAGE_ID = (1 << 31) - 1
 CLOSE_CHANNEL_PAYLOAD = bytes([0b11111110])
 
+SHUTDOWN = UniqueIdentifier("shutdown")
 
-Id = int
+ChannelId = NewType("ChannelId", int)
+MessageId = NewType("MessageId", int)
 
 
 @dataclass(frozen=True, slots=True)
 class Packet:
     """A single message in the wire protocol."""
 
-    channel: Id
-    message_id: Id
+    channel_id: ChannelId
+    message_id: MessageId
     is_reply: bool
     payload: bytes
-
-    def __post_init__(self):
-        for field in fields(self):
-            value = getattr(self, field.name)
-            if not isinstance(value, field.type):
-                raise TypeError(f"{field.name} must be {field.type.__name__}")
 
 
 class PartialPacket(ConnectionError):
@@ -107,33 +119,26 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
         if not chunk:
             if data:
                 raise ConnectionError("Connection closed while reading data")
-            else:
-                raise PartialPacket("Connection closed partway through reading packet.")
+            raise PartialPacket("Connection closed partway through reading packet.")
         data.extend(chunk)
     return bytes(data)
 
 
 def read_packet(sock: socket.socket) -> Packet:
     """Read and parse a single packet from the socket."""
-    # Read fixed header
-    header = recv_exact(sock, HEADER_SIZE)
+    header = recv_exact(sock, struct.calcsize(HEADER_FORMAT))
     magic, checksum, channel, message_id, length = struct.unpack(HEADER_FORMAT, header)
 
     is_reply = message_id & REPLY_BIT != 0
-
     if is_reply:
         message_id ^= REPLY_BIT
 
-    # Validate magic number
     if magic != MAGIC:
         raise ValueError(
             f"Invalid magic number: expected 0x{MAGIC:08X}, got 0x{magic:08X}",
         )
 
-    # Read payload
     payload = recv_exact(sock, length)
-
-    # Read terminator
     terminator = recv_exact(sock, 1)[0]
     if terminator != TERMINATOR:
         raise ValueError(
@@ -141,7 +146,6 @@ def read_packet(sock: socket.socket) -> Packet:
         )
 
     # Verify checksum (CRC32 over header with checksum field zeroed + payload)
-    # This matches the Rust implementation
     header_for_check = header[:4] + b"\x00\x00\x00\x00" + header[8:]
     computed_crc = zlib.crc32(header_for_check + payload) & 0xFFFFFFFF
     if computed_crc != checksum:
@@ -150,7 +154,7 @@ def read_packet(sock: socket.socket) -> Packet:
         )
 
     return Packet(
-        channel=channel,
+        channel_id=channel,
         message_id=message_id,
         payload=payload,
         is_reply=is_reply,
@@ -158,36 +162,32 @@ def read_packet(sock: socket.socket) -> Packet:
 
 
 def write_packet(sock: socket.socket, packet: Packet) -> None:
-    """Serialize and write a packet to the socket."""
-    magic = MAGIC
-    channel = packet.channel
-    message_id = packet.message_id
+    message_id: int = packet.message_id
     if packet.is_reply:
         message_id |= REPLY_BIT
-    length = len(packet.payload)
 
-    # Build header with checksum field zeroed for checksum calculation
-    header_for_check = struct.pack(">5I", magic, 0, channel, message_id, length)
-    checksum = zlib.crc32(header_for_check + packet.payload) & 0xFFFFFFFF
+    # build a fake header to calculate the checksum
+    header = struct.pack(
+        ">5I", MAGIC, 0, packet.channel_id, message_id, len(packet.payload)
+    )
+    checksum = zlib.crc32(header + packet.payload) & 0xFFFFFFFF
 
-    # Build final header with real checksum
-    header = struct.pack(">5I", magic, checksum, channel, message_id, length)
+    header = struct.pack(
+        ">5I", MAGIC, checksum, packet.channel_id, message_id, len(packet.payload)
+    )
     sock.sendall(header + packet.payload + bytes([TERMINATOR]))
-
-
-SHUTDOWN = object()
 
 
 @dataclass(frozen=True, slots=True)
 class DeadChannel:
     """Marker for a closed channel, used for debugging."""
 
-    channel_id: Id
+    channel_id: ChannelId
     name: str
 
 
 class ConnectionState(Enum):
-    """Connection role after handshake."""
+    """Connection state after handshake."""
 
     UNRESOLVED = 0
     CLIENT = 1
@@ -235,7 +235,7 @@ class Connection:
             file=sys.stderr,
         )
 
-    def _debug_packet(self, direction: str, packet: "Packet") -> None:
+    def _debug_packet(self, direction: str, packet: Packet) -> None:
         """Print packet info for debugging."""
         if not self._debug:
             return
@@ -248,14 +248,14 @@ class Connection:
                 payload_repr = packet.payload
         reply = "reply" if packet.is_reply else "request"
 
-        if packet.channel == 0:
+        if packet.channel_id == 0:
             ch = "Control"
         else:
             try:
-                channel = self.channels[packet.channel]
+                channel = self.channels[packet.channel_id]
                 ch = channel.name
             except KeyError:
-                ch = f"Unknown channel {packet.channel}"
+                ch = f"Unknown channel {packet.channel_id}"
         name = self.name or "?"
         self._debug_print(
             f"[{name}] {direction} ch={ch}"
@@ -267,9 +267,9 @@ class Connection:
         try:
             while self.__running:
                 packet = read_packet(self.__socket)
-                channel = self.channels.get(packet.channel)
+                channel = self.channels.get(packet.channel_id)
                 channel_name = (
-                    f"channel {packet.channel}" if channel is None else channel.name
+                    f"channel {packet.channel_id}" if channel is None else channel.name
                 )
                 self._debug_packet("RECV", packet)
                 if packet.payload == CLOSE_CHANNEL_PAYLOAD:
@@ -279,11 +279,11 @@ class Connection:
                     # distinguish messages sent to channels after they were closed
                     # from messages sent before they were opened.
                     if self._debug:
-                        self.channels[packet.channel] = DeadChannel(
-                            channel_id=packet.channel,
+                        self.channels[packet.channel_id] = DeadChannel(
+                            channel_id=packet.channel_id,
                             name=(
-                                self.channels[packet.channel].name
-                                if packet.channel in self.channels
+                                self.channels[packet.channel_id].name
+                                if packet.channel_id in self.channels
                                 else "Never opened!"
                             ),
                         )
@@ -299,7 +299,7 @@ class Connection:
                         if not packet.is_reply:
                             self.send_packet(
                                 Packet(
-                                    channel=packet.channel,
+                                    channel_id=packet.channel_id,
                                     message_id=packet.message_id,
                                     is_reply=True,
                                     payload=cbor2.dumps({"error": error}),
@@ -324,26 +324,31 @@ class Connection:
         """Close the connection and clean up resources."""
         if not self.__running:
             return
+
         self.__running = False
         with contextlib.suppress(OSError):
             self.__socket.shutdown(socket.SHUT_RDWR)
         self.__socket.close()
+
         current = current_thread()
         for t in self.__threads:
             if t is not current:
                 t.join(timeout=0.1)
+
         for v in self.channels.values():
             if not isinstance(v, DeadChannel):
                 v.inbox.put(SHUTDOWN)
+
         assert self.__socket._closed
 
     def send_handshake(self):
         """Initiate handshake as a client."""
         if self.__connection_state != ConnectionState.UNRESOLVED:
             raise ValueError("Handshake already established")
+
         self.__connection_state = ConnectionState.CLIENT
-        id = self.control_channel.send_request_raw(VERSION_NEGOTIATION_MESSAGE)
-        response = self.control_channel.receive_response_raw(id)
+        message_id = self.control_channel.send_request_raw(VERSION_NEGOTIATION_MESSAGE)
+        response = self.control_channel.receive_response_raw(message_id)
         if response != VERSION_NEGOTIATION_OK:
             raise ConnectionError(f"Bad handshake result {response!r}")
 
@@ -351,6 +356,7 @@ class Connection:
         """Accept handshake as a server."""
         if self.__connection_state != ConnectionState.UNRESOLVED:
             raise ValueError("Handshake already established")
+
         self.__connection_state = ConnectionState.SERVER
         control = self.control_channel
         # Version negotiation
@@ -362,7 +368,6 @@ class Connection:
                 id,
                 f"Error: Unrecognised negotiation string {payload!r}".encode(),
             )
-            return
 
     @property
     def control_channel(self) -> "Channel":
@@ -372,27 +377,30 @@ class Connection:
     def new_channel(self, *, role: str | None = None) -> "Channel":
         """Create a new logical channel on this connection."""
         if not self.channels:
-            channel_id = 0
+            channel_id = ChannelId(0)
         elif self.__connection_state == ConnectionState.UNRESOLVED:
             raise ValueError(
                 "Cannot create a new channel before handshake has been performed.",
             )
         else:
-            channel_id = (self.__next_channel_id << 1) | int(
-                self.__connection_state == ConnectionState.CLIENT,
+            channel_id = ChannelId(
+                (self.__next_channel_id << 1)
+                | int(self.__connection_state == ConnectionState.CLIENT)
             )
             self.__next_channel_id += 1
+
         result = Channel(connection=self, channel_id=channel_id, role=role)
         with self.__lock:
             self.channels[result.channel_id] = result
         return result
 
-    def connect_channel(self, id: Id, *, role: str | None = None) -> "Channel":
+    def connect_channel(self, id: ChannelId, *, role: str | None = None) -> "Channel":
         """Connect to a channel created by the peer."""
         if self.__connection_state == ConnectionState.UNRESOLVED:
             raise ValueError(
                 "Cannot create a new channel before handshake has been performed.",
             )
+
         if id in self.channels:
             raise ValueError(f"Channel already connected as {self.channels[id]}.")
         assert id & 1 != int(self.__connection_state == ConnectionState.CLIENT)
@@ -401,23 +409,6 @@ class Connection:
         with self.__lock:
             self.channels[result.channel_id] = result
         return result
-
-
-class _NotSet:
-    """Sentinel for values that have not been set yet."""
-
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __repr__(self):
-        return "NOT_SET"
-
-
-NOT_SET = _NotSet()
 
 
 class RequestError(Exception):
@@ -430,22 +421,19 @@ class RequestError(Exception):
 
 
 def result_or_error(body: dict[str, Any]) -> Any:
-    """Extract result from response or raise RequestError."""
-    assert isinstance(body, dict), body
     if "error" in body:
         raise RequestError(body)
-    else:
-        assert "result" in body, body
-        return body["result"]
+
+    return body["result"]
 
 
 class PendingRequest:
     """Future-like handle for an in-flight request."""
 
-    def __init__(self, channel: "Channel", id: Id) -> None:
+    def __init__(self, channel: "Channel", message_id: MessageId) -> None:
         self.__channel = channel
-        self.__id = id
-        self.__value: Any = NOT_SET
+        self.__message_id = message_id
+        self.__value: Any = not_set
 
     def get(self) -> Any:
         """Block until response arrives and return the result.
@@ -453,12 +441,11 @@ class PendingRequest:
         We cache the decoded response so that if it contains an error,
         the same error is raised consistently on every call to get().
         """
-        if self.__value is NOT_SET:
-            self.__value = cbor2.loads(self.__channel.receive_response_raw(self.__id))
+        if self.__value is not_set:
+            self.__value = cbor2.loads(
+                self.__channel.receive_response_raw(self.__message_id)
+            )
         return result_or_error(self.__value)
-
-
-CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
 
 
 class Channel:
@@ -466,18 +453,18 @@ class Channel:
 
     def __init__(
         self,
-        connection: "Connection",
-        channel_id: Id,
+        connection: Connection,
+        channel_id: ChannelId,
         role: str | None = None,
     ) -> None:
         self.channel_id = channel_id
         self.connection = connection
         self.inbox: SimpleQueue[Any] = SimpleQueue()
         self.requests: deque[Packet] = deque()
-        self.responses: dict[Id, bytes] = {}
+        self.responses: dict[MessageId, bytes] = {}
         self.role = role
         assert channel_id != 0 or role == "Control"
-        self.next_message_id = 1
+        self.next_message_id = MessageId(1)
         self.__closed = False
 
     def close(self):
@@ -496,7 +483,7 @@ class Channel:
                 Packet(
                     payload=CLOSE_CHANNEL_PAYLOAD,
                     message_id=CLOSE_CHANNEL_MESSAGE_ID,
-                    channel=self.channel_id,
+                    channel_id=self.channel_id,
                     is_reply=False,
                 ),
             )
@@ -535,8 +522,8 @@ class Channel:
 
     def request(self, message: Any) -> PendingRequest:
         """Send a CBOR request and return a future for the response."""
-        id = self.send_request(message)
-        return PendingRequest(self, id)
+        message_id = self.send_request(message)
+        return PendingRequest(self, message_id)
 
     def __repr__(self):
         if self.role is None:
@@ -554,26 +541,28 @@ class Channel:
             except BaseException as e:
                 self.send_response_error(id, e)
 
-    def send_request(self, message: Any) -> Id:
+    def send_request(self, message: Any) -> MessageId:
         """Send a CBOR-encoded request, return message ID."""
         assert isinstance(message, dict)
         return self.send_request_raw(cbor2.dumps(message))
 
-    def send_request_raw(self, message: bytes) -> Id:
+    def send_request_raw(self, message: bytes) -> MessageId:
         """Send raw bytes as request, return message ID for response."""
-        id = self.next_message_id
-        self.next_message_id += 1
+        message_id = self.next_message_id
+        self.next_message_id = MessageId(self.next_message_id + 1)
         self.connection.send_packet(
             Packet(
                 payload=message,
-                channel=self.channel_id,
+                channel_id=self.channel_id,
                 is_reply=False,
-                message_id=id,
+                message_id=message_id,
             ),
         )
-        return id
+        return message_id
 
-    def receive_response(self, id: Id, timeout: float | None = CHANNEL_TIMEOUT) -> Any:
+    def receive_response(
+        self, id: MessageId, timeout: float | None = CHANNEL_TIMEOUT
+    ) -> Any:
         """Wait for and decode response to a request."""
         return result_or_error(
             cbor2.loads(self.receive_response_raw(id, timeout=timeout)),
@@ -581,50 +570,50 @@ class Channel:
 
     def receive_response_raw(
         self,
-        id: Id,
+        message_id: MessageId,
         timeout: float | None = CHANNEL_TIMEOUT,
     ) -> bytes:
         """Wait for raw response bytes to a request."""
-        while id not in self.responses:
+        while message_id not in self.responses:
             self.__process_one_message(timeout=timeout)
-        return self.responses.pop(id)
+        return self.responses.pop(message_id)
 
     def receive_request(
         self,
         timeout: float | None = CHANNEL_TIMEOUT,
-    ) -> tuple[Id, Any]:
+    ) -> tuple[MessageId, Any]:
         """Receive and decode a request from the peer."""
-        id, body = self.receive_request_raw(timeout=timeout)
-        return id, cbor2.loads(body)
+        message_id, body = self.receive_request_raw(timeout=timeout)
+        return message_id, cbor2.loads(body)
 
     def receive_request_raw(
         self,
         timeout: float | None = CHANNEL_TIMEOUT,
-    ) -> tuple[Id, bytes]:
+    ) -> tuple[MessageId, bytes]:
         """Receive raw request bytes and message ID for responding."""
         while not self.requests:
             self.__process_one_message(timeout=timeout)
         result = self.requests.popleft()
         return (result.message_id, result.payload)
 
-    def send_response_raw(self, id: Id, message: bytes) -> None:
+    def send_response_raw(self, message_id: MessageId, message: bytes) -> None:
         """Send raw bytes as response to a request."""
         self.connection.send_packet(
             Packet(
                 payload=message,
-                channel=self.channel_id,
+                channel_id=self.channel_id,
                 is_reply=True,
-                message_id=id,
+                message_id=message_id,
             ),
         )
 
-    def send_response_value(self, id: Id, message: Any) -> None:
+    def send_response_value(self, id: MessageId, message: Any) -> None:
         """Send a success response with the given value."""
         self.send_response_raw(id, cbor2.dumps({"result": message}))
 
     def send_response_error(
         self,
-        id: Id,
+        message_id: MessageId,
         message: Exception | None = None,
         *,
         error: str | None = None,
@@ -642,6 +631,6 @@ class Channel:
         if message is not None:
             response["detail"] = "".join(traceback.format_exception(message))
         self.send_response_raw(
-            id,
+            message_id,
             cbor2.dumps(response),
         )

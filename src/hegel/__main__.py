@@ -1,13 +1,3 @@
-"""
-Hegel CLI - Property-based testing server.
-
-This module provides the command-line interface for running the Hegel server,
-which drives property-based test execution via Hypothesis.
-
-The SDK creates a socket path and spawns hegeld with that path. Hegeld binds to
-the socket and serves requests. The SDK then connects to the socket as a client.
-"""
-
 import contextlib
 import os
 import socket
@@ -16,8 +6,8 @@ import sys
 import click
 from hypothesis import Verbosity
 
-from hegel.hegeld import run_server_on_connection
 from hegel.protocol import Connection
+from hegel.server import run_server_on_connection
 
 
 @click.command()
@@ -26,33 +16,23 @@ from hegel.protocol import Connection
     "--verbosity",
     type=click.Choice(["quiet", "normal", "verbose", "debug"]),
     default="normal",
-    help="Verbosity level: quiet, normal, verbose, or debug",
+    help="Verbosity level. Corresponds to hypothesis.Verbosity.",
 )
 def main(socket_path, verbosity):
-    """Run the Hegel test server, binding to SOCKET_PATH.
-
-    The server binds to the Unix socket and waits for the SDK to connect.
-    Once connected, it handles test execution requests over a single persistent
-    connection.
-    """
-    verbosity = Verbosity[verbosity]
+    """Run the Hegel test server, binding to socket_path."""
+    verbosity = Verbosity(verbosity)
 
     if verbosity >= Verbosity.debug:
-        os.environ["HEGEL_PROTOCOL_DEBUG"] = "true"
+        os.environ["HEGEL_PROTOCOL_DEBUG"] = "1"
 
     # Clean up any existing socket before starting
     with contextlib.suppress(FileNotFoundError):
         os.unlink(socket_path)
 
-    run_server(socket_path, verbosity)
+    run_server(socket_path, verbosity=verbosity)
 
 
-def run_server(socket_path, verbosity):
-    """Bind to the socket and serve test execution requests."""
-    if isinstance(verbosity, str):
-        verbosity = Verbosity[verbosity]
-
-    # Create and bind server socket
+def run_server(socket_path: str, *, verbosity: Verbosity) -> None:
     server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server_sock.bind(socket_path)
     server_sock.listen(1)
@@ -61,13 +41,11 @@ def run_server(socket_path, verbosity):
         print(f"Listening on {socket_path}", file=sys.stderr)
 
     try:
-        # Accept a single connection from the SDK
         client_sock, _ = server_sock.accept()
 
         if verbosity >= Verbosity.verbose:
             print("SDK connected", file=sys.stderr)
 
-        # Handle the connection
         connection = Connection(client_sock, name="Server")
         run_server_on_connection(connection)
 

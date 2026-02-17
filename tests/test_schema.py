@@ -1,3 +1,4 @@
+import base64
 import re
 
 import pytest
@@ -5,7 +6,7 @@ from hypothesis import given, settings as Settings, strategies as st
 from hypothesis._settings import local_settings
 from hypothesis.control import _current_build_context
 
-from hegel.parser import from_schema
+from hegel.schema import from_schema
 
 
 def assert_all_examples(strategy, predicate, settings=None):
@@ -247,12 +248,9 @@ def test_datetime():
     assert_all_examples(from_schema({"type": "datetime"}), lambda x: "T" in x)
 
 
-def test_const_int():
-    assert_all_examples(from_schema({"const": 42}), lambda x: x == 42)
-
-
-def test_const_str():
-    assert_all_examples(from_schema({"const": "hello"}), lambda x: x == "hello")
+@given(st.integers() | st.text())
+def test_const(v):
+    assert_all_examples(from_schema({"const": v}), lambda x: x == v)
 
 
 def test_sampled_from():
@@ -435,11 +433,49 @@ def test_nested_dict_of_lists():
     )
 
 
-def test_empty_schema():
+@given(schemas())
+def test_from_schema(schema):
+    from_schema(schema)
+
+
+def test_invalid_schema():
     with pytest.raises(ValueError, match="Unsupported schema"):
         from_schema({})
-
-
-def test_unsupported_type():
     with pytest.raises(ValueError, match="Unsupported schema"):
         from_schema({"type": "unknown"})
+
+
+@given(from_schema({"type": "binary", "min_size": 1, "max_size": 10}))
+def test_binary_schema(example):
+    assert 1 <= len(base64.b64decode(example)) <= 10
+
+
+@given(
+    from_schema(
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "min_size": 0},
+                "age": {"type": "integer", "minimum": 0, "maximum": 100},
+            },
+        }
+    ),
+)
+def test_object_schema(example):
+    assert isinstance(example["name"], str)
+    assert isinstance(example["age"], int)
+
+
+@given(from_schema({"type": "url"}))
+def test_url_schema(example):
+    assert "://" in example
+
+
+@given(from_schema({"type": "domain", "max_length": 255}))
+def test_domain_schema(example):
+    assert "." in example or len(example) > 0
+
+
+@given(from_schema({"type": "domain", "max_length": 50}))
+def test_domain_with_max_length(example):
+    assert len(example) <= 50
