@@ -1020,7 +1020,7 @@ def test_unrecognised_event_in_run_test():
                 "event": "test_done",
                 "results": {
                     "passed": True,
-                    "examples_run": 0,
+                    "test_cases": 0,
                     "valid_test_cases": 0,
                     "invalid_test_cases": 0,
                     "interesting_test_cases": 0,

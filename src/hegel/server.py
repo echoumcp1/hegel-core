@@ -219,7 +219,7 @@ def _run_one(
 
     Returns a dict with test results including:
     - passed: bool
-    - examples_run: int
+    - test_cases: int
     - valid_examples: int
     - invalid_examples: int
     - failure: optional dict with failure details
@@ -238,7 +238,7 @@ def _run_one(
 
         result: dict[str, Any] = {
             "passed": len(runner.interesting_examples) == 0,
-            "examples_run": runner.call_count,
+            "test_cases": runner.call_count,
             "valid_test_cases": runner.valid_examples,
             "invalid_test_cases": runner.invalid_examples,
             "interesting_test_cases": len(runner.interesting_examples),
