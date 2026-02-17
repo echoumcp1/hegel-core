@@ -9,7 +9,6 @@ from threading import Thread
 import cbor2
 import pytest
 
-import hegel.protocol as protocol
 from hegel.hegeld import run_server_on_connection
 from hegel.protocol import (
     HEADER_FORMAT,
