@@ -43,6 +43,7 @@ import cbor2
 
 from hegel.utils import UniqueIdentifier, not_set
 
+
 def _is_protocol_debug():
     value = os.environ.get("HEGEL_PROTOCOL_DEBUG")
     value = value.lower() if value is not None else None
@@ -52,6 +53,7 @@ def _is_protocol_debug():
             f"'false', or unset, but got {value!r}"
         )
     return value in {"1", "true"}
+
 
 CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
 

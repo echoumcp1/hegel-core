@@ -1030,7 +1030,11 @@ def test_reader_loop_clean_exit():
 def test_invalid_hegel_debug_env_var():
     """Test that an invalid HEGEL_PROTOCOL_DEBUG value raises ValueError."""
     result = subprocess.run(
-        [sys.executable, "-c", "from hegel.protocol import _is_protocol_debug; _is_protocol_debug()"],
+        [
+            sys.executable,
+            "-c",
+            "from hegel.protocol import _is_protocol_debug; _is_protocol_debug()",
+        ],
         env={**os.environ, "HEGEL_PROTOCOL_DEBUG": "invalid"},
         capture_output=True,
         text=True,
