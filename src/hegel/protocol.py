@@ -47,7 +47,13 @@ from hegel.utils import UniqueIdentifier, not_set
 def _is_protocol_debug():
     value = os.environ.get("HEGEL_PROTOCOL_DEBUG")
     value = value.lower() if value is not None else None
-    if value not in {None, "1", "0", "true", "false"}:
+    if value not in {
+        None,
+        "1",
+        "0",
+        "true",
+        "false",
+    }:  # pragma: no cover # tested in subprocess
         raise ValueError(
             "invalid value for HEGEL_PROTOCOL_DEBUG: expected either '1', '0', 'true', "
             f"'false', or unset, but got {value!r}"
