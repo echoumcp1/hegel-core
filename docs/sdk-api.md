@@ -575,7 +575,7 @@ Test binaries receive these environment variables from Hegel:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `HEGEL_SOCKET` | Yes | Path to Unix socket for communication |
-| `HEGEL_DEBUG` | No | Enable debug logging when set |
+| `HEGEL_PROTOCOL_DEBUG` | No | Enable protocol packet tracing when set to "1" or "true" (case-insensitive) |
 
 ### Packet Format
 

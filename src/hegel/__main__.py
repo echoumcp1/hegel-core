@@ -37,7 +37,7 @@ def main(socket_path, verbosity):
     verbosity = Verbosity[verbosity]
 
     if verbosity >= Verbosity.debug:
-        os.environ["HEGEL_DEBUG"] = "true"
+        os.environ["HEGEL_PROTOCOL_DEBUG"] = "true"
 
     # Clean up any existing socket before starting
     with contextlib.suppress(FileNotFoundError):
