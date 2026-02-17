@@ -21,20 +21,13 @@ from hegel.protocol import Connection
 
 
 @click.command()
-@click.argument("socket_path")
-@click.option(
-    "--test-cases",
-    type=int,
-    default=100,
-    help="Maximum number of test cases to run (default: 100)",
-)
 @click.option(
     "--verbosity",
     type=click.Choice(["quiet", "normal", "verbose", "debug"]),
     default="normal",
     help="Verbosity level: quiet, normal, verbose, or debug",
 )
-def main(socket_path, test_cases, verbosity):
+def main(socket_path, verbosity):
     """Run the Hegel test server, binding to SOCKET_PATH.
 
     The server binds to the Unix socket and waits for the SDK to connect.
@@ -45,9 +38,6 @@ def main(socket_path, test_cases, verbosity):
 
     if verbosity >= Verbosity.debug:
         os.environ["HEGEL_DEBUG"] = "true"
-
-    # Store test_cases in environment for hegeld to pick up
-    os.environ["HEGEL_TEST_CASES"] = str(test_cases)
 
     # Clean up any existing socket before starting
     with contextlib.suppress(FileNotFoundError):

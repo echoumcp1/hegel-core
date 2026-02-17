@@ -113,7 +113,7 @@ def test_main_cli_debug_mode():
         def run_cli():
             runner.invoke(
                 main,
-                [socket_path, "--verbosity", "debug", "--test-cases", "5"],
+                [socket_path, "--verbosity", "debug"],
                 catch_exceptions=False,
             )
 
