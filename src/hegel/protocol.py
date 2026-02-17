@@ -41,6 +41,7 @@ from typing import Any
 
 import cbor2
 
+
 def _is_protocol_debug():
     return os.environ.get("HEGEL_PROTOCOL_DEBUG", "").lower() in ("1", "true")
 

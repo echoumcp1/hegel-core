@@ -21,6 +21,7 @@ from hegel.protocol import Connection
 
 
 @click.command()
+@click.argument("socket_path")
 @click.option(
     "--verbosity",
     type=click.Choice(["quiet", "normal", "verbose", "debug"]),
