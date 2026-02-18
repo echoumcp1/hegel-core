@@ -9,13 +9,15 @@ import pytest
 from client import (
     Client,
     _get_channel,
-    collection as sdk_collection,
+    assume,
+    collection,
     generate_from_schema,
     start_span,
     stop_span,
     target,
 )
 from hypothesis import strategies as st
+from hypothesis.errors import UnsatisfiedAssumption
 
 from hegel.protocol import Connection, RequestError
 from hegel.server import (
@@ -26,53 +28,24 @@ from hegel.server import (
 
 
 def test_start_and_stop_span(client):
-    """Test start_span and stop_span commands."""
-
-    def my_test():
+    def test():
         start_span(1)
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
+        _x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
         stop_span()
-        assert isinstance(x, int)
 
-    client.run_test("test_spans", my_test, test_cases=10)
+    client.run_test("test_spans", test, test_cases=10)
 
 
 def test_stop_span_with_discard(client):
-    """Test stop_span with discard=True."""
-
-    def my_test():
+    def test():
         start_span(1)
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
+        _x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
         stop_span(discard=True)
-        assert isinstance(x, int)
 
-    client.run_test("test_spans_discard", my_test, test_cases=10)
-
-
-def test_target_observations_on_server(client):
-    """Test target command is handled by server."""
-
-    def my_test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
-        target(float(x), "maximize_x")
-        assert x >= 0
-
-    client.run_test("test_target", my_test, test_cases=10)
+    client.run_test("test_spans_discard", test, test_cases=10)
 
 
-def test_mark_interesting(client):
-    """Test that failing test cases are marked as INTERESTING."""
-
-    def my_test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
-        assert x < 50
-
-    with pytest.raises(AssertionError):
-        client.run_test("test_interesting", my_test, test_cases=100)
-
-
-def test_unknown_command_on_server(client):
-    """Test server responds with error to unknown commands on control channel."""
+def test_unknown_command(client):
     with pytest.raises(RequestError, match="Unknown command"):
         client._control.request({"command": "bogus"}).get()
 
@@ -89,63 +62,19 @@ def test_cache_eviction():
 def test_unknown_command_in_test_case(client):
     """Test that an unknown command in test case handler raises ValueError."""
 
-    def my_test():
+    def test():
         channel = _get_channel()
         # Send an unknown command on the test case channel
         with pytest.raises(RequestError):
             channel.request({"command": "bogus_command"}).get()
 
     # The test should still complete even though the command fails
-    client.run_test("test_unknown_cmd", my_test, test_cases=1)
-
-
-def test_mark_interesting_status(client):
-    """Test that INTERESTING status is handled by the server."""
-    call_count = [0]
-
-    def my_test():
-        call_count[0] += 1
-        generate_from_schema(
-            {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 1000,
-            },
-        )
-        # Always fail - this will mark test cases as INTERESTING
-        raise AssertionError
-
-    with pytest.raises(AssertionError):
-        client.run_test("test_mark_interesting", my_test, test_cases=20)
-
-
-def test_unsatisfied_assumption_handled_gracefully(client):
-    """Test that UnsatisfiedAssumption from data.draw() is handled as invalid.
-
-    When a Hypothesis strategy raises UnsatisfiedAssumption (e.g., st.nothing()),
-    the server should call data.mark_invalid() instead of crashing. This converts
-    it to a StopTest which the SDK handles as DataExhausted.
-    """
-
-    def my_test():
-        # st.nothing() always raises UnsatisfiedAssumption when drawn.
-        # The server should handle this gracefully by marking the test
-        # case as invalid rather than crashing.
-        generate_from_schema({"type": "integer"})
-
-    # Mock cached_from_schema to return st.nothing(), which always
-    # raises UnsatisfiedAssumption on draw.
-    with patch("hegel.server.cached_from_schema", return_value=st.nothing()):
-        # All test cases will be marked invalid (UnsatisfiedAssumption),
-        # so no interesting examples are found and the test "passes".
-        client.run_test("test_unsatisfied", my_test, test_cases=10)
+    client.run_test("test_unknown_cmd", test, test_cases=1)
 
 
 def test_collection_with_no_max_size(client):
-    """Test collection with max_size=None (unbounded)."""
-
-    def my_test():
-        c = sdk_collection("test_unbounded", min_size=1)
+    def test():
+        c = collection("test_unbounded", min_size=1)
         result = []
         while c.more():
             val = generate_from_schema(
@@ -154,7 +83,7 @@ def test_collection_with_no_max_size(client):
             result.append(val)
         assert len(result) >= 1
 
-    client.run_test("test_collection_no_max", my_test, test_cases=10)
+    client.run_test("test_collection_no_max", test, test_cases=10)
 
 
 def test_collection_reject_on_server(client):
@@ -164,10 +93,10 @@ def test_collection_reject_on_server(client):
     collection.reject() with the provided reason.
     """
 
-    def my_test():
+    def test():
         # Explicitly use collection.reject() to trigger the server-side
         # collection_reject handler.
-        c = sdk_collection("test_coll", min_size=1, max_size=5)
+        c = collection("test_coll", min_size=1, max_size=5)
         result = []
         while c.more():
             val = generate_from_schema(
@@ -178,45 +107,31 @@ def test_collection_reject_on_server(client):
             else:
                 result.append(val)
 
-    client.run_test("test_collection_reject", my_test, test_cases=20)
+    client.run_test("test_collection_reject", test, test_cases=20)
 
 
-def test_mark_complete_unknown_status(client):
-    """Test mark_complete with an unknown status (not VALID/INVALID/INTERESTING).
-
-    Tests the fallthrough branch in mark_complete where status is not
-    VALID, INVALID, or INTERESTING (no conclude/mark method is called).
-    """
-
-    def my_test():
+def test_mark_complete_bad_status(client):
+    def test():
         generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
-        # Send mark_complete with an unknown status
         channel = _get_channel()
-        channel.request(
-            {"command": "mark_complete", "status": "UNKNOWN_STATUS"},
-        ).get()
+        with pytest.raises(RequestError):
+            channel.request(
+                {"command": "mark_complete", "status": "NOT_A_VALID_STATUS"},
+            ).get()
 
-    client.run_test("test_unknown_status", my_test, test_cases=1)
+    client.run_test("test_unknown_status", test, test_cases=1)
 
 
 def test_unsatisfied_assumption_in_handler(client):
-    """Test UnsatisfiedAssumption from strategy draw is handled as invalid.
-
-    Tests the except UnsatisfiedAssumption handler in handle_sdk_request
-    which catches the exception and marks the test case as invalid.
-    Uses a custom strategy that raises UnsatisfiedAssumption directly in do_draw().
-    """
-    from hypothesis.errors import UnsatisfiedAssumption
-
     class AlwaysRejectStrategy(st.SearchStrategy):
         def do_draw(self, data):
             raise UnsatisfiedAssumption
 
-    def my_test():
+    def test():
         generate_from_schema({"type": "integer"})
 
     with patch("hegel.server.cached_from_schema", return_value=AlwaysRejectStrategy()):
-        client.run_test("test_unsatisfied_in_handler", my_test, test_cases=10)
+        client.run_test("test_unsatisfied_in_handler", test, test_cases=10)
 
 
 def test_future_cancel_on_connection_error():
@@ -287,3 +202,53 @@ def test_base_exception_in_server():
     time.sleep(0.3)
     client_conn.close()
     thread.join(timeout=5)
+
+
+def test_passing(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
+        assert x >= 0
+        assert x <= 100
+
+    client.run_test("test_simple", test, test_cases=50)
+
+
+def test_failing(client):
+    def test():
+        assert (
+            generate_from_schema({"type": "integer", "minimum": 0, "maximum": 1000})
+            <= 10
+        )
+
+    with pytest.raises(AssertionError):
+        client.run_test("test_fail", test, test_cases=100)
+
+
+def test_assume(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
+        assume(x % 2 == 0)
+        assert x % 2 == 0
+
+    client.run_test("test_assume", test, test_cases=100)
+
+
+def test_multiple_tests_on_connection(client):
+    def test1():
+        x = generate_from_schema({"type": "integer"})
+        assert isinstance(x, int)
+
+    def test2():
+        s = generate_from_schema({"type": "string", "min_size": 0, "max_size": 10})
+        assert isinstance(s, str)
+
+    client.run_test("test1", test1, test_cases=20)
+    client.run_test("test2", test2, test_cases=20)
+
+
+def test_target(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
+        target(float(x), "size")
+
+    client.run_test("test_target", test, test_cases=50)

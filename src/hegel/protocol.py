@@ -213,9 +213,7 @@ class Connection:
         # otherwise an incoming packet for channel 0 could arrive before
         # the channel is registered and be treated as a non-existent channel.
         self.__control_channel = self.new_channel(role="Control")
-        self.__threads = [
-            Thread(target=self.__run_reader, daemon=True),
-        ]
+        self.__threads = [Thread(target=self.__run_reader, daemon=True)]
         for t in self.__threads:
             t.start()
 
@@ -230,15 +228,13 @@ class Connection:
     def _debug_print(self, *args):
         if not self._debug:
             return
-        print(
-            *args,
-            file=sys.stderr,
-        )
+        print(*args, file=sys.stderr)
 
     def _debug_packet(self, direction: str, packet: Packet) -> None:
         """Print packet info for debugging."""
         if not self._debug:
             return
+
         try:
             payload_repr: object = packet.payload.decode("ascii")
         except UnicodeDecodeError:
@@ -256,9 +252,9 @@ class Connection:
                 ch = channel.name
             except KeyError:
                 ch = f"Unknown channel {packet.channel_id}"
-        name = self.name or "?"
+
         self._debug_print(
-            f"[{name}] {direction} ch={ch}"
+            f"[{self.name or '?'}] {direction} ch={ch}"
             f" message_id={packet.message_id}"
             f" {reply}: {payload_repr!r:.200}",
         )
@@ -467,6 +463,12 @@ class Channel:
         self.next_message_id = MessageId(1)
         self.__closed = False
 
+    def __repr__(self):
+        if self.role is None:
+            return f"Channel({self.channel_id})"
+        else:
+            return f"Channel({self.channel_id}, role={self.role})"
+
     def close(self):
         """Close this channel and notify the peer."""
         if self.__closed or self.connection.channels.get(self.channel_id) is not self:
@@ -499,7 +501,7 @@ class Channel:
                 f"{self.connection.name} channel [id={self.channel_id}] ({self.role})"
             )
 
-    def __process_one_message(self, timeout=CHANNEL_TIMEOUT):
+    def __process_one_message(self, *, timeout=CHANNEL_TIMEOUT):
         """Route an incoming message to responses or requests queue."""
         if self.__closed:
             raise ConnectionError(f"{self.name} is closed")
@@ -520,16 +522,10 @@ class Channel:
         else:
             self.requests.append(packet)
 
-    def request(self, message: Any) -> PendingRequest:
+    def request(self, message: dict) -> PendingRequest:
         """Send a CBOR request and return a future for the response."""
         message_id = self.send_request(message)
         return PendingRequest(self, message_id)
-
-    def __repr__(self):
-        if self.role is None:
-            return f"Channel({self.channel_id})"
-        else:
-            return f"Channel({self.channel_id}, role={self.role})"
 
     def handle_requests(self, handler, until=lambda: False):
         """Process incoming requests with handler until condition is met."""
@@ -541,9 +537,8 @@ class Channel:
             except BaseException as e:
                 self.send_response_error(id, e)
 
-    def send_request(self, message: Any) -> MessageId:
+    def send_request(self, message: dict) -> MessageId:
         """Send a CBOR-encoded request, return message ID."""
-        assert isinstance(message, dict)
         return self.send_request_raw(cbor2.dumps(message))
 
     def send_request_raw(self, message: bytes) -> MessageId:

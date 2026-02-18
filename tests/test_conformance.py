@@ -7,7 +7,7 @@ import tempfile
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import find, given, settings, strategies as st
+from hypothesis import HealthCheck, find, given, settings, strategies as st
 
 from hegel.conformance import (
     BinaryConformance,
@@ -80,654 +80,554 @@ def _make_conformance_binary(script_body):
     return f.name
 
 
+@pytest.fixture
+def conformance_binary():
+    paths = []
+
+    def make(script_body):
+        path = _make_conformance_binary(script_body)
+        paths.append(path)
+        return path
+
+    yield make
+    for p in paths:
+        os.unlink(p)
+
+
 # --- BooleanConformance ---
 
 
-def test_boolean_conformance_params_strategy():
+def test_boolean_conformance_params_strategy(conformance_binary):
     """Test BooleanConformance generates empty params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': True}) + '\\n')",
     )
-    try:
-        bc = BooleanConformance(binary_path, test_cases=1)
-        # params_strategy returns st.just({})
-        result = bc.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    bc = BooleanConformance(binary_path, test_cases=1)
+    # params_strategy returns st.just({})
+    result = bc.params_strategy()
+    assert result is not None
 
 
-def test_boolean_conformance_validate():
+def test_boolean_conformance_validate(conformance_binary):
     """Test BooleanConformance validate."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': True}) + '\\n')",
     )
-    try:
-        bc = BooleanConformance(binary_path, test_cases=1)
-        bc.validate([{"value": True}, {"value": False}], {})
-    finally:
-        os.unlink(binary_path)
+    bc = BooleanConformance(binary_path, test_cases=1)
+    bc.validate([{"value": True}, {"value": False}], {})
 
 
-def test_boolean_conformance_validate_fails():
+def test_boolean_conformance_validate_fails(conformance_binary):
     """Test BooleanConformance validate fails on bad data."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': True}) + '\\n')",
     )
-    try:
-        bc = BooleanConformance(binary_path, test_cases=1)
-        with pytest.raises(AssertionError):
-            bc.validate([{"value": 42}], {})
-    finally:
-        os.unlink(binary_path)
+    bc = BooleanConformance(binary_path, test_cases=1)
+    with pytest.raises(AssertionError):
+        bc.validate([{"value": 42}], {})
 
 
-def test_boolean_conformance_run():
+def test_boolean_conformance_run(conformance_binary):
     """Test BooleanConformance.run()."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': True}) + '\\n')",
     )
-    try:
-        bc = BooleanConformance(binary_path, test_cases=1)
-        bc.run({})
-    finally:
-        os.unlink(binary_path)
+    bc = BooleanConformance(binary_path, test_cases=1)
+    bc.run({})
 
 
-def test_conformance_run_failure():
+def test_conformance_run_failure(conformance_binary):
     """Test ConformanceTest.run() raises on non-zero exit code."""
-    binary_path = _make_conformance_binary("sys.exit(1)")
-    try:
-        bc = BooleanConformance(binary_path, test_cases=1)
-        with pytest.raises(RuntimeError, match="exit code"):
-            bc.run({})
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary("sys.exit(1)")
+    bc = BooleanConformance(binary_path, test_cases=1)
+    with pytest.raises(RuntimeError, match="exit code"):
+        bc.run({})
 
 
 # --- IntegerConformance ---
 
 
-def test_integer_conformance_params_strategy():
+def test_integer_conformance_params_strategy(conformance_binary):
     """Test IntegerConformance generates valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 5}) + '\\n')",
     )
-    try:
-        ic = IntegerConformance(binary_path, test_cases=1, min_value=0, max_value=100)
-        result = ic.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    ic = IntegerConformance(binary_path, test_cases=1, min_value=0, max_value=100)
+    result = ic.params_strategy()
+    assert result is not None
 
 
-def test_integer_conformance_validate():
+def test_integer_conformance_validate(conformance_binary):
     """Test IntegerConformance validate with bounds."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 5}) + '\\n')",
     )
-    try:
-        ic = IntegerConformance(binary_path, test_cases=1)
-        ic.validate(
-            [{"value": 5}, {"value": 10}],
-            {"min_value": 0, "max_value": 100},
-        )
-    finally:
-        os.unlink(binary_path)
+    ic = IntegerConformance(binary_path, test_cases=1)
+    ic.validate(
+        [{"value": 5}, {"value": 10}],
+        {"min_value": 0, "max_value": 100},
+    )
 
 
-def test_integer_conformance_validate_no_bounds():
+def test_integer_conformance_validate_no_bounds(conformance_binary):
     """Test IntegerConformance validate without bounds."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 5}) + '\\n')",
     )
-    try:
-        ic = IntegerConformance(binary_path, test_cases=1)
-        ic.validate(
-            [{"value": 5}],
-            {"min_value": None, "max_value": None},
-        )
-    finally:
-        os.unlink(binary_path)
+    ic = IntegerConformance(binary_path, test_cases=1)
+    ic.validate(
+        [{"value": 5}],
+        {"min_value": None, "max_value": None},
+    )
 
 
-def test_integer_conformance_validate_fails_min():
+def test_integer_conformance_validate_fails_min(conformance_binary):
     """Test IntegerConformance validate fails when below min."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 5}) + '\\n')",
     )
-    try:
-        ic = IntegerConformance(binary_path, test_cases=1)
-        with pytest.raises(AssertionError):
-            ic.validate([{"value": -1}], {"min_value": 0, "max_value": 100})
-    finally:
-        os.unlink(binary_path)
+    ic = IntegerConformance(binary_path, test_cases=1)
+    with pytest.raises(AssertionError):
+        ic.validate([{"value": -1}], {"min_value": 0, "max_value": 100})
 
 
-def test_integer_conformance_validate_fails_max():
+def test_integer_conformance_validate_fails_max(conformance_binary):
     """Test IntegerConformance validate fails when above max."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 5}) + '\\n')",
     )
-    try:
-        ic = IntegerConformance(binary_path, test_cases=1)
-        with pytest.raises(AssertionError):
-            ic.validate([{"value": 101}], {"min_value": 0, "max_value": 100})
-    finally:
-        os.unlink(binary_path)
+    ic = IntegerConformance(binary_path, test_cases=1)
+    with pytest.raises(AssertionError):
+        ic.validate([{"value": 101}], {"min_value": 0, "max_value": 100})
 
 
-def test_integer_conformance_run():
+def test_integer_conformance_run(conformance_binary):
     """Test IntegerConformance run with output."""
     script = (
         "for i in range(test_cases):\n"
         "        mf.write(json.dumps({'value': 5}) + '\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        ic = IntegerConformance(binary_path, test_cases=2, min_value=0, max_value=10)
-        ic.run({"min_value": 0, "max_value": 10})
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary(script)
+    ic = IntegerConformance(binary_path, test_cases=2, min_value=0, max_value=10)
+    ic.run({"min_value": 0, "max_value": 10})
 
 
 # --- FloatConformance ---
 
 
-def test_float_conformance_params_strategy():
+def test_float_conformance_params_strategy(conformance_binary):
     """Test FloatConformance generates valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 1.5}) + '\\n')",
     )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
-        result = fc.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    fc = FloatConformance(binary_path, test_cases=1)
+    result = fc.params_strategy()
+    assert result is not None
 
 
-def test_float_conformance_params_min_equals_max():
+def test_float_conformance_params_min_equals_max(conformance_binary):
     """Test FloatConformance strategy when min == max resets exclude flags."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 1.0}) + '\\n')",
     )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
+    fc = FloatConformance(binary_path, test_cases=1)
 
-        # Draw from the strategy many times until we hit the min==max path
-        params = find(
-            fc.params_strategy(),
-            lambda p: (
-                p["min_value"] is not None
-                and p["max_value"] is not None
-                and p["min_value"] == p["max_value"]
-            ),
-        )
-        # When min==max, excludes must be False
-        assert params["exclude_min"] is False
-        assert params["exclude_max"] is False
-    finally:
-        os.unlink(binary_path)
+    # Draw from the strategy many times until we hit the min==max path
+    params = find(
+        fc.params_strategy(),
+        lambda p: (
+            p["min_value"] is not None
+            and p["max_value"] is not None
+            and p["min_value"] == p["max_value"]
+        ),
+    )
+    # When min==max, excludes must be False
+    assert params["exclude_min"] is False
+    assert params["exclude_max"] is False
 
 
-def test_float_conformance_validate():
+def test_float_conformance_validate(conformance_binary):
     """Test FloatConformance validate with bounds."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 1.5}) + '\\n')",
     )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
+    fc = FloatConformance(binary_path, test_cases=1)
+    fc.validate(
+        [{"value": 1.5}, {"value": 2.0}],
+        {
+            "min_value": 0.0,
+            "max_value": 10.0,
+            "exclude_min": False,
+            "exclude_max": False,
+            "allow_nan": False,
+            "allow_infinity": False,
+        },
+    )
+
+
+def test_float_conformance_validate_nan(conformance_binary):
+    """Test FloatConformance validate with NaN."""
+    binary_path = conformance_binary(
+        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
+    )
+    fc = FloatConformance(binary_path, test_cases=1)
+    fc.validate(
+        [{"value": 1.5, "is_nan": True}],
+        {
+            "min_value": None,
+            "max_value": None,
+            "exclude_min": False,
+            "exclude_max": False,
+            "allow_nan": True,
+            "allow_infinity": False,
+        },
+    )
+
+
+def test_float_conformance_validate_infinity(conformance_binary):
+    """Test FloatConformance validate with infinity."""
+    binary_path = conformance_binary(
+        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
+    )
+    fc = FloatConformance(binary_path, test_cases=1)
+    fc.validate(
+        [{"value": 1.5, "is_infinite": True}],
+        {
+            "min_value": None,
+            "max_value": None,
+            "exclude_min": False,
+            "exclude_max": False,
+            "allow_nan": False,
+            "allow_infinity": True,
+        },
+    )
+
+
+def test_float_conformance_validate_no_bounds(conformance_binary):
+    """Test FloatConformance validate with no bounds (min/max are None)."""
+    binary_path = conformance_binary(
+        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
+    )
+    fc = FloatConformance(binary_path, test_cases=1)
+    fc.validate(
+        [{"value": 1.5}, {"value": -999.0}],
+        {
+            "min_value": None,
+            "max_value": None,
+            "exclude_min": False,
+            "exclude_max": False,
+            "allow_nan": False,
+            "allow_infinity": False,
+        },
+    )
+
+
+def test_float_conformance_validate_exclude_min(conformance_binary):
+    """Test FloatConformance validate with exclude_min."""
+    binary_path = conformance_binary(
+        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
+    )
+    fc = FloatConformance(binary_path, test_cases=1)
+    with pytest.raises(AssertionError):
         fc.validate(
-            [{"value": 1.5}, {"value": 2.0}],
+            [{"value": 0.0}],
+            {
+                "min_value": 0.0,
+                "max_value": 10.0,
+                "exclude_min": True,
+                "exclude_max": False,
+                "allow_nan": False,
+                "allow_infinity": False,
+            },
+        )
+
+
+def test_float_conformance_validate_exclude_max(conformance_binary):
+    """Test FloatConformance validate with exclude_max."""
+    binary_path = conformance_binary(
+        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
+    )
+    fc = FloatConformance(binary_path, test_cases=1)
+    with pytest.raises(AssertionError):
+        fc.validate(
+            [{"value": 10.0}],
             {
                 "min_value": 0.0,
                 "max_value": 10.0,
                 "exclude_min": False,
-                "exclude_max": False,
+                "exclude_max": True,
                 "allow_nan": False,
                 "allow_infinity": False,
             },
         )
-    finally:
-        os.unlink(binary_path)
-
-
-def test_float_conformance_validate_nan():
-    """Test FloatConformance validate with NaN."""
-    binary_path = _make_conformance_binary(
-        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
-    )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
-        fc.validate(
-            [{"value": 1.5, "is_nan": True}],
-            {
-                "min_value": None,
-                "max_value": None,
-                "exclude_min": False,
-                "exclude_max": False,
-                "allow_nan": True,
-                "allow_infinity": False,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
-
-
-def test_float_conformance_validate_infinity():
-    """Test FloatConformance validate with infinity."""
-    binary_path = _make_conformance_binary(
-        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
-    )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
-        fc.validate(
-            [{"value": 1.5, "is_infinite": True}],
-            {
-                "min_value": None,
-                "max_value": None,
-                "exclude_min": False,
-                "exclude_max": False,
-                "allow_nan": False,
-                "allow_infinity": True,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
-
-
-def test_float_conformance_validate_no_bounds():
-    """Test FloatConformance validate with no bounds (min/max are None)."""
-    binary_path = _make_conformance_binary(
-        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
-    )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
-        fc.validate(
-            [{"value": 1.5}, {"value": -999.0}],
-            {
-                "min_value": None,
-                "max_value": None,
-                "exclude_min": False,
-                "exclude_max": False,
-                "allow_nan": False,
-                "allow_infinity": False,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
-
-
-def test_float_conformance_validate_exclude_min():
-    """Test FloatConformance validate with exclude_min."""
-    binary_path = _make_conformance_binary(
-        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
-    )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
-        with pytest.raises(AssertionError):
-            fc.validate(
-                [{"value": 0.0}],
-                {
-                    "min_value": 0.0,
-                    "max_value": 10.0,
-                    "exclude_min": True,
-                    "exclude_max": False,
-                    "allow_nan": False,
-                    "allow_infinity": False,
-                },
-            )
-    finally:
-        os.unlink(binary_path)
-
-
-def test_float_conformance_validate_exclude_max():
-    """Test FloatConformance validate with exclude_max."""
-    binary_path = _make_conformance_binary(
-        "mf.write(json.dumps({'value': 1.5}) + '\\n')",
-    )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
-        with pytest.raises(AssertionError):
-            fc.validate(
-                [{"value": 10.0}],
-                {
-                    "min_value": 0.0,
-                    "max_value": 10.0,
-                    "exclude_min": False,
-                    "exclude_max": True,
-                    "allow_nan": False,
-                    "allow_infinity": False,
-                },
-            )
-    finally:
-        os.unlink(binary_path)
 
 
 # --- TextConformance ---
 
 
-def test_text_conformance_params_strategy():
+def test_text_conformance_params_strategy(conformance_binary):
     """Test TextConformance generates valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        tc = TextConformance(binary_path, test_cases=1)
-        result = tc.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    tc = TextConformance(binary_path, test_cases=1)
+    result = tc.params_strategy()
+    assert result is not None
 
 
-def test_text_conformance_validate():
+def test_text_conformance_validate(conformance_binary):
     """Test TextConformance validate."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        tc = TextConformance(binary_path, test_cases=1)
-        tc.validate(
-            [{"length": 5}, {"length": 10}],
-            {"min_size": 0, "max_size": 20},
-        )
-    finally:
-        os.unlink(binary_path)
+    tc = TextConformance(binary_path, test_cases=1)
+    tc.validate(
+        [{"length": 5}, {"length": 10}],
+        {"min_size": 0, "max_size": 20},
+    )
 
 
-def test_text_conformance_validate_no_max():
+def test_text_conformance_validate_no_max(conformance_binary):
     """Test TextConformance validate without max_size."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        tc = TextConformance(binary_path, test_cases=1)
-        tc.validate(
-            [{"length": 5}],
-            {"min_size": 0, "max_size": None},
-        )
-    finally:
-        os.unlink(binary_path)
+    tc = TextConformance(binary_path, test_cases=1)
+    tc.validate(
+        [{"length": 5}],
+        {"min_size": 0, "max_size": None},
+    )
 
 
-def test_text_conformance_validate_fails_min():
+def test_text_conformance_validate_fails_min(conformance_binary):
     """Test TextConformance validate fails below min."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        tc = TextConformance(binary_path, test_cases=1)
-        with pytest.raises(AssertionError):
-            tc.validate([{"length": 1}], {"min_size": 5, "max_size": None})
-    finally:
-        os.unlink(binary_path)
+    tc = TextConformance(binary_path, test_cases=1)
+    with pytest.raises(AssertionError):
+        tc.validate([{"length": 1}], {"min_size": 5, "max_size": None})
 
 
 # --- BinaryConformance ---
 
 
-def test_binary_conformance_validate():
+def test_binary_conformance_validate(conformance_binary):
     """Test BinaryConformance validate."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        bc = BinaryConformance(binary_path, test_cases=1)
-        bc.validate(
-            [{"length": 5}],
-            {"min_size": 0, "max_size": 10},
-        )
-    finally:
-        os.unlink(binary_path)
+    bc = BinaryConformance(binary_path, test_cases=1)
+    bc.validate(
+        [{"length": 5}],
+        {"min_size": 0, "max_size": 10},
+    )
 
 
-def test_binary_conformance_validate_no_max():
+def test_binary_conformance_validate_no_max(conformance_binary):
     """Test BinaryConformance validate without max."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        bc = BinaryConformance(binary_path, test_cases=1)
-        bc.validate([{"length": 5}], {"min_size": 0, "max_size": None})
-    finally:
-        os.unlink(binary_path)
+    bc = BinaryConformance(binary_path, test_cases=1)
+    bc.validate([{"length": 5}], {"min_size": 0, "max_size": None})
 
 
-def test_binary_conformance_params_strategy():
+def test_binary_conformance_params_strategy(conformance_binary):
     """Test BinaryConformance generates valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        bc = BinaryConformance(binary_path, test_cases=1)
-        result = bc.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    bc = BinaryConformance(binary_path, test_cases=1)
+    result = bc.params_strategy()
+    assert result is not None
 
 
 # --- ListConformance ---
 
 
-def test_list_conformance_params_strategy():
+def test_list_conformance_params_strategy(conformance_binary):
     """Test ListConformance generates valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 1, 'min_element': 5, 'max_element': 5}) + '\\n')",
     )
-    try:
-        lc = ListConformance(binary_path, test_cases=1, min_value=0, max_value=100)
-        result = lc.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    lc = ListConformance(binary_path, test_cases=1, min_value=0, max_value=100)
+    result = lc.params_strategy()
+    assert result is not None
 
 
-def test_list_conformance_validate():
+def test_list_conformance_validate(conformance_binary):
     """Test ListConformance validate."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 1, 'min_element': 5, 'max_element': 5}) + '\\n')",
     )
-    try:
-        lc = ListConformance(binary_path, test_cases=1)
-        lc.validate(
-            [{"size": 2, "min_element": 3, "max_element": 7}],
-            {"min_size": 0, "max_size": 10, "min_value": 0, "max_value": 100},
-        )
-    finally:
-        os.unlink(binary_path)
+    lc = ListConformance(binary_path, test_cases=1)
+    lc.validate(
+        [{"size": 2, "min_element": 3, "max_element": 7}],
+        {"min_size": 0, "max_size": 10, "min_value": 0, "max_value": 100},
+    )
 
 
-def test_list_conformance_validate_empty():
+def test_list_conformance_validate_empty(conformance_binary):
     """Test ListConformance validate with empty list."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 0}) + '\\n')",
     )
-    try:
-        lc = ListConformance(binary_path, test_cases=1)
-        lc.validate(
-            [{"size": 0}],
-            {"min_size": 0, "max_size": 10, "min_value": None, "max_value": None},
-        )
-    finally:
-        os.unlink(binary_path)
+    lc = ListConformance(binary_path, test_cases=1)
+    lc.validate(
+        [{"size": 0}],
+        {"min_size": 0, "max_size": 10, "min_value": None, "max_value": None},
+    )
 
 
-def test_list_conformance_validate_no_max_size():
+def test_list_conformance_validate_no_max_size(conformance_binary):
     """Test ListConformance validate without max_size."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 1, 'min_element': 5, 'max_element': 5}) + '\\n')",
     )
-    try:
-        lc = ListConformance(binary_path, test_cases=1)
-        lc.validate(
-            [{"size": 2, "min_element": 3, "max_element": 7}],
-            {"min_size": 0, "max_size": None, "min_value": None, "max_value": None},
-        )
-    finally:
-        os.unlink(binary_path)
+    lc = ListConformance(binary_path, test_cases=1)
+    lc.validate(
+        [{"size": 2, "min_element": 3, "max_element": 7}],
+        {"min_size": 0, "max_size": None, "min_value": None, "max_value": None},
+    )
 
 
 # --- SampledFromConformance ---
 
 
-def test_sampled_from_conformance_validate():
+def test_sampled_from_conformance_validate(conformance_binary):
     """Test SampledFromConformance validate."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 5}) + '\\n')",
     )
-    try:
-        sc = SampledFromConformance(binary_path, test_cases=1)
-        sc.validate([{"value": 5}], {"options": [1, 5, 10]})
-    finally:
-        os.unlink(binary_path)
+    sc = SampledFromConformance(binary_path, test_cases=1)
+    sc.validate([{"value": 5}], {"options": [1, 5, 10]})
 
 
-def test_sampled_from_conformance_params_strategy():
+def test_sampled_from_conformance_params_strategy(conformance_binary):
     """Test SampledFromConformance generates valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 5}) + '\\n')",
     )
-    try:
-        sc = SampledFromConformance(binary_path, test_cases=1)
-        result = sc.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    sc = SampledFromConformance(binary_path, test_cases=1)
+    result = sc.params_strategy()
+    assert result is not None
 
 
 # --- DictConformance ---
 
 
-def test_dict_conformance_params_strategy():
+def test_dict_conformance_params_strategy(conformance_binary):
     """Test DictConformance generates valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({"
         "'size': 1, 'min_key': 1, 'max_key': 1, "
         "'min_value': 5, 'max_value': 5}) + '\\n')",
     )
-    try:
-        dc = DictConformance(binary_path, test_cases=1)
-        result = dc.params_strategy()
-        assert result is not None
-    finally:
-        os.unlink(binary_path)
+    dc = DictConformance(binary_path, test_cases=1)
+    result = dc.params_strategy()
+    assert result is not None
 
 
-def test_dict_conformance_validate():
+def test_dict_conformance_validate(conformance_binary):
     """Test DictConformance validate."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({"
         "'size': 1, 'min_key': 1, 'max_key': 1, "
         "'min_value': 5, 'max_value': 5}) + '\\n')",
     )
-    try:
-        dc = DictConformance(binary_path, test_cases=1)
-        dc.validate(
-            [
-                {
-                    "size": 2,
-                    "min_key": 1,
-                    "max_key": 3,
-                    "min_value": 5,
-                    "max_value": 10,
-                },
-            ],
+    dc = DictConformance(binary_path, test_cases=1)
+    dc.validate(
+        [
             {
-                "min_size": 0,
-                "max_size": 10,
-                "key_type": "integer",
-                "min_key": 0,
-                "max_key": 100,
-                "min_value": 0,
-                "max_value": 100,
+                "size": 2,
+                "min_key": 1,
+                "max_key": 3,
+                "min_value": 5,
+                "max_value": 10,
             },
-        )
-    finally:
-        os.unlink(binary_path)
+        ],
+        {
+            "min_size": 0,
+            "max_size": 10,
+            "key_type": "integer",
+            "min_key": 0,
+            "max_key": 100,
+            "min_value": 0,
+            "max_value": 100,
+        },
+    )
 
 
-def test_dict_conformance_validate_string_keys():
+def test_dict_conformance_validate_string_keys(conformance_binary):
     """Test DictConformance validate with string keys."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 1, 'min_value': 5, 'max_value': 5}) + '\\n')",
     )
-    try:
-        dc = DictConformance(binary_path, test_cases=1)
-        dc.validate(
-            [{"size": 1, "min_value": 5, "max_value": 10}],
-            {
-                "min_size": 0,
-                "max_size": 10,
-                "key_type": "string",
-                "min_key": 0,
-                "max_key": 100,
-                "min_value": 0,
-                "max_value": 100,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
+    dc = DictConformance(binary_path, test_cases=1)
+    dc.validate(
+        [{"size": 1, "min_value": 5, "max_value": 10}],
+        {
+            "min_size": 0,
+            "max_size": 10,
+            "key_type": "string",
+            "min_key": 0,
+            "max_key": 100,
+            "min_value": 0,
+            "max_value": 100,
+        },
+    )
 
 
-def test_dict_conformance_validate_empty():
+def test_dict_conformance_validate_empty(conformance_binary):
     """Test DictConformance validate with empty dict."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 0}) + '\\n')",
     )
-    try:
-        dc = DictConformance(binary_path, test_cases=1)
-        dc.validate(
-            [{"size": 0}],
-            {
-                "min_size": 0,
-                "max_size": 10,
-                "key_type": "integer",
-                "min_key": 0,
-                "max_key": 100,
-                "min_value": 0,
-                "max_value": 100,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
+    dc = DictConformance(binary_path, test_cases=1)
+    dc.validate(
+        [{"size": 0}],
+        {
+            "min_size": 0,
+            "max_size": 10,
+            "key_type": "integer",
+            "min_key": 0,
+            "max_key": 100,
+            "min_value": 0,
+            "max_value": 100,
+        },
+    )
 
 
-def test_dict_conformance_custom_bounds():
+def test_dict_conformance_custom_bounds(conformance_binary):
     """Test DictConformance with custom key/value bounds."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 0}) + '\\n')",
     )
-    try:
-        dc = DictConformance(
-            binary_path,
-            test_cases=1,
-            min_key=-10,
-            max_key=10,
-            min_value=-5,
-            max_value=5,
-        )
-        assert dc.min_key == -10
-        assert dc.max_key == 10
-        assert dc.min_value == -5
-        assert dc.max_value == 5
-    finally:
-        os.unlink(binary_path)
+    dc = DictConformance(
+        binary_path,
+        test_cases=1,
+        min_key=-10,
+        max_key=10,
+        min_value=-5,
+        max_value=5,
+    )
+    assert dc.min_key == -10
+    assert dc.max_key == 10
+    assert dc.min_value == -5
+    assert dc.max_value == 5
 
 
 # --- ConformanceTest base class ---
 
 
-def test_conformance_test_default_test_cases():
+def test_conformance_test_default_test_cases(conformance_binary):
     """Test ConformanceTest uses default_test_cases when none specified."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': True}) + '\\n')",
     )
-    try:
-        bc = BooleanConformance(binary_path)
-        assert bc.test_cases == BooleanConformance.default_test_cases
-    finally:
-        os.unlink(binary_path)
+    bc = BooleanConformance(binary_path)
+    assert bc.test_cases == BooleanConformance.default_test_cases
 
 
 def test_conformance_test_nonexistent_binary():
@@ -760,113 +660,113 @@ def test_float_conformance_default_test_cases():
 
 
 @given(st.data())
-@settings(max_examples=5)
-def test_float_strategy_draws(data):
+@settings(
+    max_examples=5,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_float_strategy_draws(conformance_binary, data):
     """Test FloatConformance.params_strategy() produces valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 1.0}) + '\\n')",
     )
-    try:
-        fc = FloatConformance(binary_path, test_cases=1)
-        params = data.draw(fc.params_strategy())
-        assert "min_value" in params
-        assert "max_value" in params
-        assert "exclude_min" in params
-        assert "exclude_max" in params
-        assert "allow_nan" in params
-        assert "allow_infinity" in params
-    finally:
-        os.unlink(binary_path)
+    fc = FloatConformance(binary_path, test_cases=1)
+    params = data.draw(fc.params_strategy())
+    assert "min_value" in params
+    assert "max_value" in params
+    assert "exclude_min" in params
+    assert "exclude_max" in params
+    assert "allow_nan" in params
+    assert "allow_infinity" in params
 
 
 @given(st.data())
-@settings(max_examples=5)
-def test_text_strategy_draws(data):
+@settings(
+    max_examples=5,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_text_strategy_draws(conformance_binary, data):
     """Test TextConformance.params_strategy() produces valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        tc = TextConformance(binary_path, test_cases=1)
-        params = data.draw(tc.params_strategy())
-        assert "min_size" in params
-        assert "max_size" in params
-    finally:
-        os.unlink(binary_path)
+    tc = TextConformance(binary_path, test_cases=1)
+    params = data.draw(tc.params_strategy())
+    assert "min_size" in params
+    assert "max_size" in params
 
 
 @given(st.data())
-@settings(max_examples=5)
-def test_binary_strategy_draws(data):
+@settings(
+    max_examples=5,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_binary_strategy_draws(conformance_binary, data):
     """Test BinaryConformance.params_strategy() produces valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'length': 5}) + '\\n')",
     )
-    try:
-        bc = BinaryConformance(binary_path, test_cases=1)
-        params = data.draw(bc.params_strategy())
-        assert "min_size" in params
-        assert "max_size" in params
-    finally:
-        os.unlink(binary_path)
+    bc = BinaryConformance(binary_path, test_cases=1)
+    params = data.draw(bc.params_strategy())
+    assert "min_size" in params
+    assert "max_size" in params
 
 
 @given(st.data())
-@settings(max_examples=5)
-def test_list_strategy_draws(data):
+@settings(
+    max_examples=5,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_list_strategy_draws(conformance_binary, data):
     """Test ListConformance.params_strategy() produces valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 1, 'min_element': 5, 'max_element': 5}) + '\\n')",
     )
-    try:
-        lc = ListConformance(binary_path, test_cases=1, min_value=0, max_value=100)
-        params = data.draw(lc.params_strategy())
-        assert "min_size" in params
-        assert "max_size" in params
-        assert "min_value" in params
-        assert "max_value" in params
-    finally:
-        os.unlink(binary_path)
+    lc = ListConformance(binary_path, test_cases=1, min_value=0, max_value=100)
+    params = data.draw(lc.params_strategy())
+    assert "min_size" in params
+    assert "max_size" in params
+    assert "min_value" in params
+    assert "max_value" in params
 
 
 @given(st.data())
-@settings(max_examples=5)
-def test_sampled_from_strategy_draws(data):
+@settings(
+    max_examples=5,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_sampled_from_strategy_draws(conformance_binary, data):
     """Test SampledFromConformance.params_strategy() produces valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': 1}) + '\\n')",
     )
-    try:
-        sc = SampledFromConformance(binary_path, test_cases=1)
-        params = data.draw(sc.params_strategy())
-        assert "options" in params
-        assert len(params["options"]) >= 1
-    finally:
-        os.unlink(binary_path)
+    sc = SampledFromConformance(binary_path, test_cases=1)
+    params = data.draw(sc.params_strategy())
+    assert "options" in params
+    assert len(params["options"]) >= 1
 
 
 @given(st.data())
-@settings(max_examples=5)
-def test_dict_strategy_draws(data):
+@settings(
+    max_examples=5,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_dict_strategy_draws(conformance_binary, data):
     """Test DictConformance.params_strategy() produces valid params."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'size': 0}) + '\\n')",
     )
-    try:
-        dc = DictConformance(binary_path, test_cases=1)
-        params = data.draw(dc.params_strategy())
-        assert "min_size" in params
-        assert "max_size" in params
-        assert "key_type" in params
-        assert "min_key" in params
-        assert "max_key" in params
-        assert "min_value" in params
-        assert "max_value" in params
-    finally:
-        os.unlink(binary_path)
+    dc = DictConformance(binary_path, test_cases=1)
+    params = data.draw(dc.params_strategy())
+    assert "min_size" in params
+    assert "max_size" in params
+    assert "key_type" in params
+    assert "min_key" in params
+    assert "max_key" in params
+    assert "min_value" in params
+    assert "max_value" in params
 
 
-def test_run_conformance_tests_function():
+def test_run_conformance_tests_function(conformance_binary):
     """Test run_conformance_tests function end-to-end."""
     # Create a binary that handles all conformance test types
     script = (
@@ -884,113 +784,98 @@ def test_run_conformance_tests_function():
         "            'max_value': 10,\\n"
         "        }) + '\\\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        tests = [
-            BooleanConformance(binary_path, test_cases=2),
-            IntegerConformance(binary_path, test_cases=2, min_value=0, max_value=10),
-            FloatConformance(binary_path, test_cases=2),
-            TextConformance(binary_path, test_cases=2),
-            BinaryConformance(binary_path, test_cases=2),
-            ListConformance(binary_path, test_cases=2, min_value=0, max_value=10),
-            SampledFromConformance(binary_path, test_cases=2),
-            DictConformance(binary_path, test_cases=2),
-        ]
+    binary_path = conformance_binary(script)
+    tests = [
+        BooleanConformance(binary_path, test_cases=2),
+        IntegerConformance(binary_path, test_cases=2, min_value=0, max_value=10),
+        FloatConformance(binary_path, test_cases=2),
+        TextConformance(binary_path, test_cases=2),
+        BinaryConformance(binary_path, test_cases=2),
+        ListConformance(binary_path, test_cases=2, min_value=0, max_value=10),
+        SampledFromConformance(binary_path, test_cases=2),
+        DictConformance(binary_path, test_cases=2),
+    ]
 
-        # run_conformance_tests needs pytest.Subtests, which is hard to mock.
-        # Instead test the assertion check for registered tests.
-        assert {type(t) for t in tests} == ConformanceTest.registered_tests
-    finally:
-        os.unlink(binary_path)
+    # run_conformance_tests needs pytest.Subtests, which is hard to mock.
+    # Instead test the assertion check for registered tests.
+    assert {type(t) for t in tests} == ConformanceTest.registered_tests
 
 
-def test_run_conformance_tests_full(subtests):
+def test_run_conformance_tests_full(subtests, conformance_binary):
     """Test run_conformance_tests exercises the function structure."""
-    binary_path = _make_conformance_binary(
+    binary_path = conformance_binary(
         "mf.write(json.dumps({'value': True}) + '\\n')",
     )
-    try:
-        tests = [
-            BooleanConformance(binary_path, test_cases=1),
-            IntegerConformance(
-                binary_path,
-                test_cases=1,
-                min_value=None,
-                max_value=None,
-            ),
-            FloatConformance(binary_path, test_cases=1),
-            TextConformance(binary_path, test_cases=1),
-            BinaryConformance(binary_path, test_cases=1),
-            ListConformance(binary_path, test_cases=1, min_value=None, max_value=None),
-            SampledFromConformance(binary_path, test_cases=1),
-            DictConformance(binary_path, test_cases=1),
-        ]
+    tests = [
+        BooleanConformance(binary_path, test_cases=1),
+        IntegerConformance(
+            binary_path,
+            test_cases=1,
+            min_value=None,
+            max_value=None,
+        ),
+        FloatConformance(binary_path, test_cases=1),
+        TextConformance(binary_path, test_cases=1),
+        BinaryConformance(binary_path, test_cases=1),
+        ListConformance(binary_path, test_cases=1, min_value=None, max_value=None),
+        SampledFromConformance(binary_path, test_cases=1),
+        DictConformance(binary_path, test_cases=1),
+    ]
 
-        # Mock the run method on each test to avoid binary execution
-        for t in tests:
-            t.run = MagicMock()
+    # Mock the run method on each test to avoid binary execution
+    for t in tests:
+        t.run = MagicMock()
 
-        run_conformance_tests(
-            tests,
-            subtests,
-            settings=settings(max_examples=1, deadline=None),
-        )
-    finally:
-        os.unlink(binary_path)
+    run_conformance_tests(
+        tests,
+        subtests,
+        settings=settings(max_examples=1, deadline=None),
+    )
 
 
-def test_float_conformance_run():
+def test_float_conformance_run(conformance_binary):
     """Test FloatConformance.run() with actual binary."""
     script = (
         "for i in range(test_cases):\n"
         "        mf.write(json.dumps({'value': 1.5}) + '\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        fc = FloatConformance(binary_path, test_cases=2)
-        fc.run(
-            {
-                "min_value": 0.0,
-                "max_value": 10.0,
-                "exclude_min": False,
-                "exclude_max": False,
-                "allow_nan": False,
-                "allow_infinity": False,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary(script)
+    fc = FloatConformance(binary_path, test_cases=2)
+    fc.run(
+        {
+            "min_value": 0.0,
+            "max_value": 10.0,
+            "exclude_min": False,
+            "exclude_max": False,
+            "allow_nan": False,
+            "allow_infinity": False,
+        },
+    )
 
 
-def test_text_conformance_run():
+def test_text_conformance_run(conformance_binary):
     """Test TextConformance.run() with actual binary."""
     script = (
         "for i in range(test_cases):\n"
         "        mf.write(json.dumps({'length': 5}) + '\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        tc = TextConformance(binary_path, test_cases=2)
-        tc.run({"min_size": 0, "max_size": 20})
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary(script)
+    tc = TextConformance(binary_path, test_cases=2)
+    tc.run({"min_size": 0, "max_size": 20})
 
 
-def test_binary_conformance_run():
+def test_binary_conformance_run(conformance_binary):
     """Test BinaryConformance.run() with actual binary."""
     script = (
         "for i in range(test_cases):\n"
         "        mf.write(json.dumps({'length': 5}) + '\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        bc = BinaryConformance(binary_path, test_cases=2)
-        bc.run({"min_size": 0, "max_size": 20})
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary(script)
+    bc = BinaryConformance(binary_path, test_cases=2)
+    bc.run({"min_size": 0, "max_size": 20})
 
 
-def test_list_conformance_run():
+def test_list_conformance_run(conformance_binary):
     """Test ListConformance.run() with actual binary."""
     script = (
         "for i in range(test_cases):\n"
@@ -998,36 +883,30 @@ def test_list_conformance_run():
         "'size': 2, 'min_element': 3, "
         "'max_element': 7}) + '\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        lc = ListConformance(binary_path, test_cases=2, min_value=0, max_value=100)
-        lc.run(
-            {
-                "min_size": 0,
-                "max_size": 10,
-                "min_value": 0,
-                "max_value": 100,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary(script)
+    lc = ListConformance(binary_path, test_cases=2, min_value=0, max_value=100)
+    lc.run(
+        {
+            "min_size": 0,
+            "max_size": 10,
+            "min_value": 0,
+            "max_value": 100,
+        },
+    )
 
 
-def test_sampled_from_conformance_run():
+def test_sampled_from_conformance_run(conformance_binary):
     """Test SampledFromConformance.run() with actual binary."""
     script = (
         "for i in range(test_cases):\n"
         "        mf.write(json.dumps({'value': 5}) + '\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        sc = SampledFromConformance(binary_path, test_cases=2)
-        sc.run({"options": [1, 5, 10]})
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary(script)
+    sc = SampledFromConformance(binary_path, test_cases=2)
+    sc.run({"options": [1, 5, 10]})
 
 
-def test_dict_conformance_run():
+def test_dict_conformance_run(conformance_binary):
     """Test DictConformance.run() with actual binary."""
     script = (
         "for i in range(test_cases):\n"
@@ -1035,19 +914,16 @@ def test_dict_conformance_run():
         "'size': 1, 'min_key': 1, 'max_key': 1, "
         "'min_value': 5, 'max_value': 5}) + '\\n')"
     )
-    binary_path = _make_conformance_binary(script)
-    try:
-        dc = DictConformance(binary_path, test_cases=2)
-        dc.run(
-            {
-                "min_size": 0,
-                "max_size": 10,
-                "key_type": "integer",
-                "min_key": 0,
-                "max_key": 100,
-                "min_value": 0,
-                "max_value": 100,
-            },
-        )
-    finally:
-        os.unlink(binary_path)
+    binary_path = conformance_binary(script)
+    dc = DictConformance(binary_path, test_cases=2)
+    dc.run(
+        {
+            "min_size": 0,
+            "max_size": 10,
+            "key_type": "integer",
+            "min_key": 0,
+            "max_key": 100,
+            "min_value": 0,
+            "max_value": 100,
+        },
+    )
