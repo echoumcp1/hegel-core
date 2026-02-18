@@ -97,19 +97,20 @@ def make_test_function(
                         data.stop_span(discard=discard)
                         return None
                     elif command == "target":
-                        value = message.get("value", 0.0)
-                        label = message.get("label", "")
+                        value = message["value"]
+                        label = message["label"]
                         data.target_observations[label] = value
                         return None
                     elif command == "mark_complete":
                         done = True
-                        status = message.get("status", "VALID")
+                        status = Status[message["status"]]
                         origin = message.get("origin")
-                        if status == "VALID":
+                        if status is Status.VALID:
                             data.conclude_test(Status.VALID)
-                        elif status == "INVALID":
+                        elif status is Status.INVALID:
                             data.mark_invalid()
-                        elif status == "INTERESTING":
+                        else:
+                            assert status is Status.INTERESTING
                             data.mark_interesting(
                                 origin,  # type: ignore[arg-type]
                             )
@@ -219,7 +220,7 @@ def _run_one(
 
     Returns a dict with test results including:
     - passed: bool
-    - examples_run: int
+    - test_cases: int
     - valid_examples: int
     - invalid_examples: int
     - failure: optional dict with failure details
@@ -238,7 +239,7 @@ def _run_one(
 
         result: dict[str, Any] = {
             "passed": len(runner.interesting_examples) == 0,
-            "examples_run": runner.call_count,
+            "test_cases": runner.call_count,
             "valid_test_cases": runner.valid_examples,
             "invalid_test_cases": runner.invalid_examples,
             "interesting_test_cases": len(runner.interesting_examples),

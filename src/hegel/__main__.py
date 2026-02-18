@@ -1,7 +1,9 @@
 import contextlib
+import importlib.metadata
 import os
 import socket
 import sys
+from pathlib import Path
 
 import click
 from hypothesis import Verbosity
@@ -11,6 +13,9 @@ from hegel.server import run_server_on_connection
 
 
 @click.command()
+@click.version_option(
+    version=importlib.metadata.version("hegel"), message="hegel (version %(version)s)"
+)
 @click.argument("socket_path")
 @click.option(
     "--verbosity",
@@ -21,20 +26,21 @@ from hegel.server import run_server_on_connection
 def main(socket_path, verbosity):
     """Run the Hegel test server, binding to socket_path."""
     verbosity = Verbosity(verbosity)
-
-    if verbosity >= Verbosity.debug:
-        os.environ["HEGEL_PROTOCOL_DEBUG"] = "1"
+    socket_path = Path(socket_path)
 
     # Clean up any existing socket before starting
     with contextlib.suppress(FileNotFoundError):
-        os.unlink(socket_path)
+        socket_path.unlink()
 
     run_server(socket_path, verbosity=verbosity)
 
 
-def run_server(socket_path: str, *, verbosity: Verbosity) -> None:
+def run_server(socket_path: Path, *, verbosity: Verbosity = Verbosity.normal) -> None:
+    if verbosity >= Verbosity.debug:
+        os.environ["HEGEL_PROTOCOL_DEBUG"] = "1"
+
     server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server_sock.bind(socket_path)
+    server_sock.bind(str(socket_path))
     server_sock.listen(1)
 
     if verbosity >= Verbosity.verbose:

@@ -1,146 +1,85 @@
-"""Tests for __main__.py CLI and run_server."""
+"""Tests for __main__.py CLI."""
 
-import os
+import contextlib
+import importlib.metadata
 import socket
 import tempfile
 import time
+from pathlib import Path
 from threading import Thread
 
+import pytest
 from click.testing import CliRunner
 from client import Client
-from hypothesis import Verbosity
 
-from hegel.__main__ import main, run_server
+from hegel.__main__ import main
 from hegel.protocol import Connection
 
 
-def _wait_and_connect(socket_path, timeout=5.0):
-    """Wait for a Unix socket to appear and connect to it."""
+@pytest.fixture
+def socket_path():
+    # Socket paths are limit to 104 characters on macos. This precludes using
+    # the tmp_dir pytest fixture, which creates a longer path. We'll handroll
+    # our own fixture that provides a shorter path.
+    #
+    # See https://unix.stackexchange.com/questions/367008.
+    with tempfile.TemporaryDirectory() as d:
+        yield Path(d) / "test.sock"
 
-    deadline = time.time() + timeout
+
+@contextlib.contextmanager
+def _client_and_server(socket_path, *args):
+    """Start the CLI server and yield a connected Client."""
+
+    def run_cli():
+        CliRunner().invoke(
+            main,
+            [str(socket_path), *args],
+            catch_exceptions=False,
+        )
+
+    t = Thread(target=run_cli, daemon=True)
+    t.start()
+
+    deadline = time.time() + 5.0
     while time.time() < deadline:
-        if os.path.exists(socket_path):
-            try:
-                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                sock.connect(socket_path)
-                return sock
-            except (ConnectionRefusedError, FileNotFoundError, OSError):
-                sock.close()
-        time.sleep(0.05)
-    raise RuntimeError(f"Timeout waiting for socket at {socket_path}")
+        if not socket_path.exists():
+            time.sleep(0.01)
+            continue
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(str(socket_path))
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
+            sock.close()
+            time.sleep(0.01)
+            continue
+
+        conn = Connection(sock)
+        try:
+            yield Client(conn)
+        finally:
+            conn.close()
+            t.join(timeout=5)
+        return
+
+    raise RuntimeError(f"timed out waiting for socket at {socket_path}")
 
 
-def test_run_server_accepts_connection():
-    """Test run_server accepts a connection and handles it."""
-    with tempfile.TemporaryDirectory() as d:
-        socket_path = os.path.join(d, "test.sock")
+def test_version():
+    result = CliRunner().invoke(main, ["--version"])
+    version = importlib.metadata.version("hegel")
+    assert result.output.strip() == f"hegel (version {version})"
 
-        def server():
-            run_server(socket_path, verbosity=Verbosity.quiet)
 
-        t = Thread(target=server, daemon=True)
-        t.start()
-
-        sock = _wait_and_connect(socket_path)
-        conn = Connection(sock, name="Client")
-        client = Client(conn)
-
+@pytest.mark.parametrize("verbosity", ["normal", "verbose", "debug"])
+def test_cli(socket_path, verbosity):
+    with _client_and_server(socket_path, "--verbosity", verbosity) as client:
         client.run_test("test", lambda: None, test_cases=1)
-        conn.close()
-        t.join(timeout=5)
 
 
-def test_run_server_verbose():
-    """Test run_server with verbose output."""
-    with tempfile.TemporaryDirectory() as d:
-        socket_path = os.path.join(d, "test.sock")
+def test_cli_cleans_up_stale_socket(socket_path):
+    socket_path.touch()
 
-        def server():
-            run_server(socket_path, verbosity=Verbosity.verbose)
-
-        t = Thread(target=server, daemon=True)
-        t.start()
-
-        sock = _wait_and_connect(socket_path)
-        conn = Connection(sock, name="Client")
-        client = Client(conn)
-
+    with _client_and_server(socket_path) as client:
         client.run_test("test", lambda: None, test_cases=1)
-        conn.close()
-        t.join(timeout=5)
-
-
-def test_run_server_cleans_up_stale_socket():
-    """Test caller must clean up stale socket before run_server."""
-    with tempfile.TemporaryDirectory() as d:
-        socket_path = os.path.join(d, "test.sock")
-        # Create stale socket file
-        with open(socket_path, "w"):
-            pass
-
-        # Clean up the stale socket (caller's responsibility)
-        os.unlink(socket_path)
-
-        def server():
-            run_server(socket_path, verbosity=Verbosity.quiet)
-
-        t = Thread(target=server, daemon=True)
-        t.start()
-
-        sock = _wait_and_connect(socket_path)
-        conn = Connection(sock, name="Client")
-        client = Client(conn)
-
-        client.run_test("test", lambda: None, test_cases=1)
-        conn.close()
-        t.join(timeout=5)
-
-
-def test_main_cli_debug_mode():
-    """Test the main CLI sets debug env var."""
-    runner = CliRunner()
-    with tempfile.TemporaryDirectory() as d:
-        socket_path = os.path.join(d, "test.sock")
-
-        def run_cli():
-            runner.invoke(
-                main,
-                [socket_path, "--verbosity", "debug"],
-                catch_exceptions=False,
-            )
-
-        t = Thread(target=run_cli, daemon=True)
-        t.start()
-
-        sock = _wait_and_connect(socket_path)
-        conn = Connection(sock, name="Client")
-        client = Client(conn)
-
-        client.run_test("test", lambda: None, test_cases=1)
-        conn.close()
-        t.join(timeout=5)
-
-
-def test_main_cli_normal_mode():
-    """Test the main CLI with normal verbosity."""
-    runner = CliRunner()
-    with tempfile.TemporaryDirectory() as d:
-        socket_path = os.path.join(d, "test.sock")
-
-        def run_cli():
-            runner.invoke(
-                main,
-                [socket_path],
-                catch_exceptions=False,
-            )
-
-        t = Thread(target=run_cli, daemon=True)
-        t.start()
-
-        sock = _wait_and_connect(socket_path)
-        conn = Connection(sock, name="Client")
-        client = Client(conn)
-
-        client.run_test("test", lambda: None, test_cases=1)
-        conn.close()
-        t.join(timeout=5)

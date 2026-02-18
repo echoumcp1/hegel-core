@@ -32,7 +32,7 @@ from hegel_sdk import (
     collection,
     dicts,
     from_type,
-    generate_from_schema as draw,
+    generate_from_schema,
     integers,
     just,
     lists,
@@ -60,12 +60,12 @@ from hegel_sdk.session import _find_hegeld, _HegelSession
 def test_note_when_not_final(client, capsys):
     """Test note() is a no-op when not in final run."""
 
-    def my_test():
+    def test():
         note("should not print")
-        x = draw({"type": "integer", "minimum": 0, "maximum": 10})
+        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
         assert isinstance(x, int)
 
-    client.run_test("test_note", my_test, test_cases=5)
+    client.run_test("test_note", test, test_cases=5)
 
 
 def test_note_on_final_run():
@@ -85,10 +85,10 @@ def test_note_on_final_run():
 def test_assume_true_passes(client):
     """Test assume(True) does not raise."""
 
-    def my_test():
+    def test():
         assume(condition=True)
 
-    client.run_test("test_assume_true", my_test, test_cases=5)
+    client.run_test("test_assume_true", test, test_cases=5)
 
 
 # ---- Generator combinators ----
@@ -97,19 +97,19 @@ def test_assume_true_passes(client):
 def test_mapped_generator(client):
     """Test mapping on BasicGenerator preserves schema."""
 
-    def my_test():
+    def test():
         gen = integers(min_value=0, max_value=10).map(lambda x: x * 2)
         assert isinstance(gen, BasicGenerator)
         v = gen.generate()
         assert v % 2 == 0
 
-    client.run_test("test_map", my_test, test_cases=10)
+    client.run_test("test_map", test, test_cases=10)
 
 
 def test_flat_mapped_generator(client):
     """Test FlatMappedGenerator."""
 
-    def my_test():
+    def test():
         gen = integers(min_value=1, max_value=5).flat_map(
             lambda n: lists(integers(min_value=0, max_value=10), max_size=n),
         )
@@ -117,38 +117,38 @@ def test_flat_mapped_generator(client):
         v = gen.generate()
         assert isinstance(v, list)
 
-    client.run_test("test_flatmap", my_test, test_cases=10)
+    client.run_test("test_flatmap", test, test_cases=10)
 
 
 def test_filtered_generator(client):
     """Test FilteredGenerator."""
 
-    def my_test():
+    def test():
         gen = integers(min_value=0, max_value=100).filter(lambda x: x % 2 == 0)
         assert not isinstance(gen, BasicGenerator)
         v = gen.generate()
         assert v % 2 == 0
 
-    client.run_test("test_filter", my_test, test_cases=10)
+    client.run_test("test_filter", test, test_cases=10)
 
 
 def test_filtered_generator_max_attempts_exhausted(client):
     """Test FilteredGenerator when all attempts fail calls assume(False)."""
 
-    def my_test():
+    def test():
         gen = FilteredGenerator(
             integers(min_value=0, max_value=10),
             lambda x: False,
         )
         gen.generate()
 
-    client.run_test("test_filter_exhaust", my_test, test_cases=10)
+    client.run_test("test_filter_exhaust", test, test_cases=10)
 
 
 def test_basic_generator_double_map(client):
     """Test BasicGenerator.map() when already has a transform (compose transforms)."""
 
-    def my_test():
+    def test():
         gen = (
             integers(min_value=1, max_value=5).map(lambda x: x * 2).map(lambda x: x + 1)
         )
@@ -158,7 +158,7 @@ def test_basic_generator_double_map(client):
         # 1*2+1=3, 2*2+1=5, 3*2+1=7, 4*2+1=9, 5*2+1=11
         assert v in [3, 5, 7, 9, 11]
 
-    client.run_test("test_double_map", my_test, test_cases=10)
+    client.run_test("test_double_map", test, test_cases=10)
 
 
 def test_mapped_generator_schema():
@@ -190,7 +190,7 @@ def test_filtered_generator_not_basic():
 def test_composite_list_generator(client):
     """Test CompositeListGenerator (elements without BasicGenerator schema)."""
 
-    def my_test():
+    def test():
         elem = integers(min_value=0, max_value=10).filter(lambda x: x % 2 == 0)
         gen = lists(elem, min_size=1, max_size=3)
         assert isinstance(gen, CompositeListGenerator)
@@ -198,26 +198,26 @@ def test_composite_list_generator(client):
         assert isinstance(v, list)
         assert 1 <= len(v) <= 3
 
-    client.run_test("test_comp_list", my_test, test_cases=5)
+    client.run_test("test_comp_list", test, test_cases=5)
 
 
 def test_composite_list_no_max(client):
     """Test CompositeListGenerator with no max_size."""
 
-    def my_test():
+    def test():
         elem = integers(min_value=0, max_value=10).filter(lambda x: True)
         gen = lists(elem)
         assert isinstance(gen, CompositeListGenerator)
         v = gen.generate()
         assert isinstance(v, list)
 
-    client.run_test("test_comp_list_nomax", my_test, test_cases=5)
+    client.run_test("test_comp_list_nomax", test, test_cases=5)
 
 
 def test_composite_tuple_generator(client):
     """Test CompositeTupleGenerator (elements without BasicGenerator schema)."""
 
-    def my_test():
+    def test():
         elem = integers(min_value=0, max_value=10).filter(lambda x: True)
         gen = tuples(elem, integers())
         assert isinstance(gen, CompositeTupleGenerator)
@@ -225,13 +225,13 @@ def test_composite_tuple_generator(client):
         assert isinstance(v, tuple)
         assert len(v) == 2
 
-    client.run_test("test_comp_tuple", my_test, test_cases=5)
+    client.run_test("test_comp_tuple", test, test_cases=5)
 
 
 def test_tuple_with_mapped_basic_generators(client):
     """Test tuples where all elements are BasicGenerators with transforms."""
 
-    def my_test():
+    def test():
         gen1 = integers(min_value=0, max_value=10).map(lambda x: x * 2)
         gen2 = just(5).map(lambda x: x + 1)
         assert isinstance(gen1, BasicGenerator)
@@ -248,13 +248,13 @@ def test_tuple_with_mapped_basic_generators(client):
         assert v[0] % 2 == 0
         assert v[1] == 6
 
-    client.run_test("test_tuple_mapped", my_test, test_cases=5)
+    client.run_test("test_tuple_mapped", test, test_cases=5)
 
 
 def test_composite_one_of_generator(client):
     """Test CompositeOneOfGenerator (generators without BasicGenerator schema)."""
 
-    def my_test():
+    def test():
         gen = one_of(
             integers(min_value=0, max_value=10).filter(lambda x: True),
             text(),
@@ -263,45 +263,45 @@ def test_composite_one_of_generator(client):
         v = gen.generate()
         assert isinstance(v, int | str)
 
-    client.run_test("test_comp_oneof", my_test, test_cases=10)
+    client.run_test("test_comp_oneof", test, test_cases=10)
 
 
 def test_composite_dict_generator(client):
     """Test CompositeDictGenerator (keys/values without BasicGenerator schema)."""
 
-    def my_test():
+    def test():
         key_gen = text(min_size=1, max_size=3).filter(lambda x: True)
         gen = dicts(key_gen, integers(), min_size=0, max_size=2)
         assert isinstance(gen, CompositeDictGenerator)
         v = gen.generate()
         assert isinstance(v, dict)
 
-    client.run_test("test_comp_dict", my_test, test_cases=5)
+    client.run_test("test_comp_dict", test, test_cases=5)
 
 
 def test_composite_dict_no_max(client):
     """Test CompositeDictGenerator with no max_size."""
 
-    def my_test():
+    def test():
         key_gen = text(min_size=1).filter(lambda x: True)
         gen = dicts(key_gen, integers())
         assert isinstance(gen, CompositeDictGenerator)
         v = gen.generate()
         assert isinstance(v, dict)
 
-    client.run_test("test_comp_dict_nomax", my_test, test_cases=5)
+    client.run_test("test_comp_dict_nomax", test, test_cases=5)
 
 
 def test_schema_dict_generator(client):
     """Test dicts with BasicGenerator keys and values."""
 
-    def my_test():
+    def test():
         gen = dicts(text(min_size=1), integers(), min_size=0, max_size=2)
         assert isinstance(gen, BasicGenerator)
         v = gen.generate()
         assert isinstance(v, dict)
 
-    client.run_test("test_schema_dict", my_test, test_cases=5)
+    client.run_test("test_schema_dict", test, test_cases=5)
 
 
 def test_basic_dict_generator_schema():
@@ -328,14 +328,14 @@ def test_one_of_with_mapped_basic_generators():
 def test_one_of_with_mapped_basic_generators_through_server(client):
     """Test one_of with tagged_one_of actually applies transforms correctly."""
 
-    def my_test():
+    def test():
         gen1 = just(1).map(lambda x: x * 2)  # -> 2
         gen2 = just(2).map(lambda x: x * 3)  # -> 6
         combined = one_of(gen1, gen2)
         v = combined.generate()
         assert v in [2, 6]
 
-    client.run_test("test_tagged_one_of", my_test, test_cases=10)
+    client.run_test("test_tagged_one_of", test, test_cases=10)
 
 
 def test_one_of_with_non_basic_generators():
@@ -358,13 +358,13 @@ def test_sampled_from_non_primitive(client):
 
     items = [Custom(1), Custom(2), Custom(3)]
 
-    def my_test():
+    def test():
         gen = sampled_from(items)
         assert isinstance(gen, BasicGenerator)
         v = gen.generate()
         assert v in items
 
-    client.run_test("test_sampled_nonprim", my_test, test_cases=10)
+    client.run_test("test_sampled_nonprim", test, test_cases=10)
 
 
 def test_sampled_from_empty_raises():
@@ -391,23 +391,23 @@ def test_sampled_from_with_objects():
 def test_binary_generator(client):
     """Test binary() generator."""
 
-    def my_test():
+    def test():
         gen = binary(min_size=1, max_size=10)
         v = gen.generate()
         assert isinstance(v, str)
 
-    client.run_test("test_binary_gen", my_test, test_cases=5)
+    client.run_test("test_binary_gen", test, test_cases=5)
 
 
 def test_binary_generator_no_max(client):
     """Test binary() generator without max_size."""
 
-    def my_test():
+    def test():
         gen = binary()
         v = gen.generate()
         assert isinstance(v, str)
 
-    client.run_test("test_binary_nomax", my_test, test_cases=5)
+    client.run_test("test_binary_nomax", test, test_cases=5)
 
 
 def test_binary_generator_schema():
@@ -428,12 +428,12 @@ def test_binary_generator_schema():
 def test_optional_generator(client):
     """Test optional() generator."""
 
-    def my_test():
+    def test():
         gen = optional(integers(min_value=0, max_value=10))
         v = gen.generate()
         assert v is None or isinstance(v, int)
 
-    client.run_test("test_optional", my_test, test_cases=20)
+    client.run_test("test_optional", test, test_cases=20)
 
 
 # ---- just() ----
@@ -442,12 +442,12 @@ def test_optional_generator(client):
 def test_just_generator(client):
     """Test just() generator."""
 
-    def my_test():
+    def test():
         gen = just(42)
         v = gen.generate()
         assert v == 42
 
-    client.run_test("test_just", my_test, test_cases=5)
+    client.run_test("test_just", test, test_cases=5)
 
 
 # ---- DataclassGenerator ----
@@ -461,13 +461,13 @@ def test_dataclass_generator(client):
         x: int
         y: int
 
-    def my_test():
+    def test():
         gen = from_type(Point)
         assert isinstance(gen, BasicGenerator)
         v = gen.generate()
         assert isinstance(v, Point)
 
-    client.run_test("test_dataclass", my_test, test_cases=5)
+    client.run_test("test_dataclass", test, test_cases=5)
 
 
 def test_dataclass_generator_with_field():
@@ -494,7 +494,7 @@ def test_dataclass_generator_compositional(client):
         x: int
         label: str
 
-    def my_test():
+    def test():
         gen = DataclassGenerator(Thing)
         gen = gen.with_field("label", text().filter(lambda s: True))
         built = gen.build()
@@ -502,7 +502,7 @@ def test_dataclass_generator_compositional(client):
         v = built.generate()
         assert isinstance(v, Thing)
 
-    client.run_test("test_dc_comp", my_test, test_cases=5)
+    client.run_test("test_dc_comp", test, test_cases=5)
 
 
 def test_dataclass_not_a_dataclass():
@@ -549,14 +549,14 @@ def test_dataclass_with_composite_field_through_server(client):
         x: int
         y: int
 
-    def my_test():
+    def test():
         gen = DataclassGenerator(Point)
         mapped_gen = integers().map(lambda x: x * 2)
         gen_with_override = gen.with_field("x", mapped_gen)
         result = gen_with_override.build().generate()
         assert isinstance(result, Point)
 
-    client.run_test("test_dataclass_composite", my_test, test_cases=5)
+    client.run_test("test_dataclass_composite", test, test_cases=5)
 
 
 # ---- from_type() paths ----
@@ -759,11 +759,11 @@ def test_hegel_session_run_test():
     session = _HegelSession()
     try:
 
-        def my_test():
-            x = draw({"type": "integer", "minimum": 0, "maximum": 10})
+        def test():
+            x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
             assert isinstance(x, int)
 
-        session.run_test(my_test, test_cases=5)
+        session.run_test(test, test_cases=5)
     finally:
         session._cleanup()
 
@@ -854,7 +854,7 @@ def test_start_stop_span_when_aborted():
 
 
 def test_strategy_helpers(client):
-    def my_test():
+    def test():
         n = integers(min_value=0, max_value=10).generate()
         assert 0 <= n <= 10
 
@@ -864,64 +864,64 @@ def test_strategy_helpers(client):
         b = booleans().generate()
         assert isinstance(b, bool)
 
-    client.run_test("test_helpers", my_test, test_cases=50)
+    client.run_test("test_helpers", test, test_cases=50)
 
 
 def test_lists_of_integers(client):
-    def my_test():
+    def test():
         xs = lists(integers(min_value=0, max_value=10), max_size=3).generate()
         assert isinstance(xs, list)
         assert len(xs) <= 3
         for x in xs:
             assert 0 <= x <= 10
 
-    client.run_test("test_lists", my_test, test_cases=10)
+    client.run_test("test_lists", test, test_cases=10)
 
 
 def test_composite_list_generator_through_server(client):
     """Test CompositeListGenerator with live server."""
 
-    def my_test():
+    def test():
         mapped = integers().map(lambda x: x * 2)
         result = lists(mapped, min_size=1, max_size=3).generate()
         assert isinstance(result, list)
         assert 1 <= len(result) <= 3
 
-    client.run_test("test_composite_list", my_test, test_cases=5)
+    client.run_test("test_composite_list", test, test_cases=5)
 
 
 def test_composite_tuple_generator_through_server(client):
     """Test CompositeTupleGenerator with live server."""
 
-    def my_test():
+    def test():
         filtered = integers().filter(lambda x: True)
         result = tuples(filtered, integers()).generate()
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-    client.run_test("test_composite_tuple", my_test, test_cases=5)
+    client.run_test("test_composite_tuple", test, test_cases=5)
 
 
 def test_composite_one_of_generator_through_server(client):
     """Test CompositeOneOfGenerator with live server."""
 
-    def my_test():
+    def test():
         filtered = integers().filter(lambda x: True)
         result = one_of(filtered, text()).generate()
         assert isinstance(result, int | str)
 
-    client.run_test("test_composite_one_of", my_test, test_cases=5)
+    client.run_test("test_composite_one_of", test, test_cases=5)
 
 
 def test_composite_dict_generator_through_server(client):
     """Test CompositeDictGenerator with live server."""
 
-    def my_test():
+    def test():
         mapped_keys = text().map(lambda x: x.upper())
         result = dicts(mapped_keys, integers(), min_size=0, max_size=3).generate()
         assert isinstance(result, dict)
 
-    client.run_test("test_composite_dict", my_test, test_cases=5)
+    client.run_test("test_composite_dict", test, test_cases=5)
 
 
 def test_sampled_from_non_primitive_through_server(client):
@@ -929,21 +929,21 @@ def test_sampled_from_non_primitive_through_server(client):
     obj_a = object()
     obj_b = object()
 
-    def my_test():
+    def test():
         result = sampled_from([obj_a, obj_b]).generate()
         assert result is obj_a or result is obj_b
 
-    client.run_test("test_sampled_non_primitive", my_test, test_cases=5)
+    client.run_test("test_sampled_non_primitive", test, test_cases=5)
 
 
 def test_schema_dict_generator_through_server(client):
     """Test SchemaDictGenerator with live server."""
 
-    def my_test():
+    def test():
         result = dicts(text(), integers(), min_size=0, max_size=2).generate()
         assert isinstance(result, dict)
 
-    client.run_test("test_schema_dict", my_test, test_cases=5)
+    client.run_test("test_schema_dict", test, test_cases=5)
 
 
 # ---- Error paths ----
@@ -952,46 +952,46 @@ def test_schema_dict_generator_through_server(client):
 def test_failing_test_single_interesting(client):
     """Test that a single failing test raises properly."""
 
-    def my_test():
-        x = draw({"type": "integer", "minimum": 0, "maximum": 100})
+    def test():
+        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
         assert x < 50
 
     with pytest.raises(AssertionError):
-        client.run_test("test_fail", my_test, test_cases=100)
+        client.run_test("test_fail", test, test_cases=100)
 
 
 def test_multiple_interesting_exception_group(client):
     """Test ExceptionGroup is raised when there are multiple interesting examples."""
 
-    def my_test():
-        x = draw({"type": "integer", "minimum": 0, "maximum": 1000})
+    def test():
+        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 1000})
         if x < 500:
             assert x < 0, "first origin"
         else:
             assert x < 500, "second origin"
 
     with pytest.raises(ExceptionGroup):
-        client.run_test("test_multi", my_test, test_cases=200)
+        client.run_test("test_multi", test, test_cases=200)
 
 
 def test_generate_from_schema_non_stop_test_error(client):
     """Test generate_from_schema re-raises non-StopTest RequestError."""
 
-    def my_test():
+    def test():
         with pytest.raises(RequestError):
-            draw({"type": "completely_invalid_schema_type"})
+            generate_from_schema({"type": "completely_invalid_schema_type"})
 
-    client.run_test("test_bad_schema", my_test, test_cases=1)
+    client.run_test("test_bad_schema", test, test_cases=1)
 
 
 def test_connection_error_in_test_function(client):
     """Test ConnectionError is re-raised from test function."""
 
-    def my_test():
+    def test():
         raise ConnectionError("test connection lost")
 
     with pytest.raises(ConnectionError, match="test connection lost"):
-        client.run_test("test_conn_err", my_test, test_cases=1)
+        client.run_test("test_conn_err", test, test_cases=1)
 
 
 def test_unrecognised_event_in_run_test():
@@ -1020,7 +1020,7 @@ def test_unrecognised_event_in_run_test():
                 "event": "test_done",
                 "results": {
                     "passed": True,
-                    "examples_run": 0,
+                    "test_cases": 0,
                     "valid_test_cases": 0,
                     "invalid_test_cases": 0,
                     "interesting_test_cases": 0,
@@ -1043,8 +1043,8 @@ def test_unrecognised_event_in_run_test():
 def test_is_final_pass_with_multiple_interesting(client):
     """Test the AssertionError when is_final test case passes with n_interesting > 1."""
 
-    def my_test():
-        x = draw({"type": "integer", "minimum": 0, "maximum": 1000})
+    def test():
+        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 1000})
         if x < 500:
             assert x < 0
         else:
@@ -1067,7 +1067,7 @@ def test_is_final_pass_with_multiple_interesting(client):
         patch.object(Client, "_run_test_case", patched_run_test_case),
         pytest.raises(ExceptionGroup),
     ):
-        client.run_test("test_final_pass", my_test, test_cases=200)
+        client.run_test("test_final_pass", test, test_cases=200)
 
     assert is_final_count[0] > 1
 
@@ -1075,12 +1075,12 @@ def test_is_final_pass_with_multiple_interesting(client):
 def test_nested_test_case_raises(client):
     """Test that nesting test cases raises RuntimeError."""
 
-    def my_test():
+    def test():
         channel = _get_channel()
         with pytest.raises(RuntimeError, match="Cannot nest test cases"):
             client._run_test_case(channel, lambda: None, is_final=False)
 
-    client.run_test("test_nested", my_test, test_cases=1)
+    client.run_test("test_nested", test, test_cases=1)
 
 
 def test_get_channel_outside_context():
@@ -1095,36 +1095,38 @@ def test_get_channel_outside_context():
 def test_collection_more_after_finished(client):
     """Test collection.more() returns False when already finished."""
 
-    def my_test():
+    def test():
         c = collection("test_coll", min_size=0, max_size=1)
         while c.more():
-            draw({"type": "integer"})
+            generate_from_schema({"type": "integer"})
         assert c.more() is False
 
-    client.run_test("test_more_finished", my_test, test_cases=5)
+    client.run_test("test_more_finished", test, test_cases=5)
 
 
 def test_collection_reject_while_active(client):
     """Test collection.reject() while collection is active."""
 
-    def my_test():
+    def test():
         c = collection("test_coll", min_size=1, max_size=5)
         while c.more():
-            val = draw({"type": "integer", "minimum": 0, "maximum": 100})
+            val = generate_from_schema(
+                {"type": "integer", "minimum": 0, "maximum": 100}
+            )
             if val % 2 != 0:
                 c.reject()
 
-    client.run_test("test_reject_active", my_test, test_cases=10)
+    client.run_test("test_reject_active", test, test_cases=10)
 
 
 def test_collection_reject_when_finished(client):
     """Test collection.reject() is a no-op when collection is finished."""
 
-    def my_test():
+    def test():
         c = collection("test_coll", min_size=0, max_size=1)
         while c.more():
-            draw({"type": "integer"})
+            generate_from_schema({"type": "integer"})
         result = c.reject()
         assert result is None
 
-    client.run_test("test_reject_finished", my_test, test_cases=5)
+    client.run_test("test_reject_finished", test, test_cases=5)

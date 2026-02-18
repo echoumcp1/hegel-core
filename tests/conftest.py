@@ -1,3 +1,4 @@
+import contextlib
 import socket
 from threading import Thread
 
@@ -6,6 +7,17 @@ from client import Client
 
 from hegel.protocol import Connection
 from hegel.server import run_server_on_connection
+
+
+@pytest.fixture
+def socket_pair():
+    s1, s2 = socket.socketpair()
+    yield s1, s2
+    # suppress because a test might already have closed the socket
+    with contextlib.suppress(OSError):
+        s1.close()
+    with contextlib.suppress(OSError):
+        s2.close()
 
 
 def _make_client():
