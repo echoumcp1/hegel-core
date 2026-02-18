@@ -32,18 +32,18 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         return BooleansStrategy(schema.get("p", 0.5))
     if schema_type == "integer":
         return st.integers(
-            min_value=schema.get("minimum"),
-            max_value=schema.get("maximum"),
+            min_value=schema.get("min_value"),
+            max_value=schema.get("max_value"),
         )
     if schema_type == "number":
         return st.floats(
-            schema.get("minimum"),
-            schema.get("maximum"),
+            schema.get("min_value"),
+            schema.get("max_value"),
             allow_nan=schema["allow_nan"],
             allow_infinity=schema["allow_infinity"],
             width=schema["width"],
-            exclude_min=schema["exclude_minimum"],
-            exclude_max=schema["exclude_maximum"],
+            exclude_min=schema["exclude_min"],
+            exclude_max=schema["exclude_max"],
         )
     if schema_type == "string":
         # Exclude null bytes due to reflect-cpp truncation bug:

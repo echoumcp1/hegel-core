@@ -91,7 +91,7 @@ A generator is basic (i.e. has a schema and optional transform) in these cases:
 | `text(...)` | Always | `{"type": "string", ...}` | None |
 | `binary(...)` | Always | `{"type": "binary", ...}` | None |
 | `just(value)` | Always | `{"const": <value>}` or `{"const": null}` | Returns the constant value, ignoring server input |
-| `sampled_from(values)` | Always | `{"type": "integer", "minimum": 0, "maximum": len-1}` | Returns `values[index]` |
+| `sampled_from(values)` | Always | `{"type": "integer", "min_value": 0, "max_value": len-1}` | Returns `values[index]` |
 | `basic.map(f)` | Always | Same schema as `basic` | `f` composed with existing transform |
 | `nonbasic.map(f)` | Never | — | — |
 | `gen.flat_map(f)` | Never | — | — |
@@ -128,10 +128,10 @@ Generate integer values.
 
 **Schema:**
 ```json
-{"type": "integer", "minimum": <min>, "maximum": <max>}
+{"type": "integer", "min_value": <min>, "max_value": <max>}
 ```
 
-`minimum` and `maximum` are omitted when no bound is specified (Python only;
+`min_value` and `max_value` are omitted when no bound is specified (Python only;
 typed languages always include bounds derived from the integer type).
 
 **Basic:** Always. No transform.
@@ -147,8 +147,8 @@ Generate floating-point numbers.
   `true` in Rust/C++.
 - `allow_infinity` (bool): Whether infinity can be generated. Default: `false`
   in Python, `true` in Rust/C++.
-- `exclude_minimum` (bool): Exclude the minimum from the range. Default: `false`.
-- `exclude_maximum` (bool): Exclude the maximum from the range. Default: `false`.
+- `exclude_min` (bool): Exclude the minimum from the range. Default: `false`.
+- `exclude_max` (bool): Exclude the maximum from the range. Default: `false`.
 - `width` (int): Bit width (32 or 64). Default: 64 in Python, inferred from
   type in Rust/C++.
 
@@ -156,10 +156,10 @@ Generate floating-point numbers.
 ```json
 {
   "type": "number",
-  "minimum": <min>,
-  "maximum": <max>,
-  "exclude_minimum": <bool>,
-  "exclude_maximum": <bool>,
+  "min_value": <min>,
+  "max_value": <max>,
+  "exclude_min": <bool>,
+  "exclude_max": <bool>,
   "allow_nan": <bool>,
   "allow_infinity": <bool>,
   "width": <int>
@@ -254,7 +254,7 @@ Sample uniformly from a fixed list of values.
 
 **Schema:**
 ```json
-{"type": "integer", "minimum": 0, "maximum": <len - 1>}
+{"type": "integer", "min_value": 0, "max_value": <len - 1>}
 ```
 
 The server generates an index; the client-side transform returns
@@ -791,7 +791,7 @@ Generate fields as a tuple and convert to object in generate():
   "type": "tuple",
   "elements": [
     {"type": "string", "max_size": 50},
-    {"type": "integer", "minimum": 0, "maximum": 120}
+    {"type": "integer", "min_value": 0, "max_value": 120}
   ]
 }
 ```

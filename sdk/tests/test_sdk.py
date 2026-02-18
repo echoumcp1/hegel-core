@@ -62,7 +62,7 @@ def test_note_when_not_final(client, capsys):
 
     def test():
         note("should not print")
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         assert isinstance(x, int)
 
     client.run_test("test_note", test, test_cases=5)
@@ -381,8 +381,8 @@ def test_sampled_from_with_objects():
     schema = gen.schema()
     assert schema is not None
     assert schema["type"] == "integer"
-    assert schema["minimum"] == 0
-    assert schema["maximum"] == 1
+    assert schema["min_value"] == 0
+    assert schema["max_value"] == 1
 
 
 # ---- binary() generator ----
@@ -760,7 +760,7 @@ def test_hegel_session_run_test():
     try:
 
         def test():
-            x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
+            x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
             assert isinstance(x, int)
 
         session.run_test(test, test_cases=5)
@@ -953,7 +953,7 @@ def test_failing_test_single_interesting(client):
     """Test that a single failing test raises properly."""
 
     def test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
         assert x < 50
 
     with pytest.raises(AssertionError):
@@ -964,7 +964,7 @@ def test_multiple_interesting_exception_group(client):
     """Test ExceptionGroup is raised when there are multiple interesting examples."""
 
     def test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 1000})
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
         if x < 500:
             assert x < 0, "first origin"
         else:
@@ -1044,7 +1044,7 @@ def test_is_final_pass_with_multiple_interesting(client):
     """Test the AssertionError when is_final test case passes with n_interesting > 1."""
 
     def test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 1000})
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
         if x < 500:
             assert x < 0
         else:
@@ -1111,7 +1111,7 @@ def test_collection_reject_while_active(client):
         c = collection("test_coll", min_size=1, max_size=5)
         while c.more():
             val = generate_from_schema(
-                {"type": "integer", "minimum": 0, "maximum": 100}
+                {"type": "integer", "min_value": 0, "max_value": 100}
             )
             if val % 2 != 0:
                 c.reject()

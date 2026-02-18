@@ -35,8 +35,8 @@ def primitive_hashable_schemas():
         | st.builds(
             lambda min_val, max_val: {
                 "type": "integer",
-                "minimum": min_val,
-                "maximum": max_val,
+                "min_value": min_val,
+                "max_value": max_val,
             },
             min_val=st.integers(min_value=-1000, max_value=0),
             max_val=st.integers(min_value=0, max_value=1000),
@@ -72,12 +72,12 @@ def schemas():
         | st.builds(
             lambda min_val, max_val: {
                 "type": "number",
-                "minimum": min_val,
-                "maximum": max_val,
+                "min_value": min_val,
+                "max_value": max_val,
                 "allow_nan": False,
                 "allow_infinity": False,
-                "exclude_minimum": False,
-                "exclude_maximum": False,
+                "exclude_min": False,
+                "exclude_max": False,
                 "width": 64,
             },
             min_val=st.floats(min_value=-1000, max_value=0, allow_nan=False),
@@ -159,7 +159,7 @@ def test_boolean():
 
 def test_integer():
     assert_all_examples(
-        from_schema({"type": "integer", "minimum": 0, "maximum": 10}),
+        from_schema({"type": "integer", "min_value": 0, "max_value": 10}),
         lambda x: isinstance(x, int) and 0 <= x <= 10,
     )
 
@@ -169,12 +169,12 @@ def test_number():
         from_schema(
             {
                 "type": "number",
-                "minimum": 0.0,
-                "maximum": 1.0,
+                "min_value": 0.0,
+                "max_value": 1.0,
                 "allow_nan": False,
                 "allow_infinity": False,
-                "exclude_minimum": False,
-                "exclude_maximum": False,
+                "exclude_min": False,
+                "exclude_max": False,
                 "width": 64,
             }
         ),
@@ -187,10 +187,10 @@ def test_number_exclusive():
         from_schema(
             {
                 "type": "number",
-                "minimum": 0.0,
-                "maximum": 1.0,
-                "exclude_minimum": True,
-                "exclude_maximum": True,
+                "min_value": 0.0,
+                "max_value": 1.0,
+                "exclude_min": True,
+                "exclude_max": True,
                 "allow_nan": False,
                 "allow_infinity": False,
                 "width": 64,
@@ -292,7 +292,7 @@ def test_set():
         from_schema(
             {
                 "type": "set",
-                "elements": {"type": "integer", "minimum": 0, "maximum": 100},
+                "elements": {"type": "integer", "min_value": 0, "max_value": 100},
                 "min_size": 5,
                 "max_size": 10,
             }
@@ -456,7 +456,7 @@ def test_binary_schema(example):
             "type": "object",
             "properties": {
                 "name": {"type": "string", "min_size": 0},
-                "age": {"type": "integer", "minimum": 0, "maximum": 100},
+                "age": {"type": "integer", "min_value": 0, "max_value": 100},
             },
         }
     ),

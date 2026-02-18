@@ -30,7 +30,7 @@ from hegel.server import (
 def test_start_and_stop_span(client):
     def test():
         start_span(1)
-        _x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
+        _x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span()
 
     client.run_test("test_spans", test, test_cases=10)
@@ -39,7 +39,7 @@ def test_start_and_stop_span(client):
 def test_stop_span_with_discard(client):
     def test():
         start_span(1)
-        _x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
+        _x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span(discard=True)
 
     client.run_test("test_spans_discard", test, test_cases=10)
@@ -53,7 +53,7 @@ def test_unknown_command(client):
 def test_cache_eviction():
     # Fill the cache beyond its max size
     for i in range(FROM_SCHEMA_CACHE.max_size + 10):
-        schema = {"type": "integer", "minimum": i, "maximum": i + 100}
+        schema = {"type": "integer", "min_value": i, "max_value": i + 100}
         cached_from_schema(schema)
 
     assert len(FROM_SCHEMA_CACHE) <= FROM_SCHEMA_CACHE.max_size
@@ -78,7 +78,7 @@ def test_collection_with_no_max_size(client):
         result = []
         while c.more():
             val = generate_from_schema(
-                {"type": "integer", "minimum": 0, "maximum": 100},
+                {"type": "integer", "min_value": 0, "max_value": 100},
             )
             result.append(val)
         assert len(result) >= 1
@@ -100,7 +100,7 @@ def test_collection_reject_on_server(client):
         result = []
         while c.more():
             val = generate_from_schema(
-                {"type": "integer", "minimum": 0, "maximum": 100},
+                {"type": "integer", "min_value": 0, "max_value": 100},
             )
             if val % 2 != 0:
                 c.reject()
@@ -112,7 +112,7 @@ def test_collection_reject_on_server(client):
 
 def test_mark_complete_bad_status(client):
     def test():
-        generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         channel = _get_channel()
         with pytest.raises(RequestError):
             channel.request(
@@ -206,7 +206,7 @@ def test_base_exception_in_server():
 
 def test_passing(client):
     def test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
         assert x >= 0
         assert x <= 100
 
@@ -216,7 +216,7 @@ def test_passing(client):
 def test_failing(client):
     def test():
         assert (
-            generate_from_schema({"type": "integer", "minimum": 0, "maximum": 1000})
+            generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
             <= 10
         )
 
@@ -226,7 +226,7 @@ def test_failing(client):
 
 def test_assume(client):
     def test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
         assume(x % 2 == 0)
         assert x % 2 == 0
 
@@ -248,7 +248,7 @@ def test_multiple_tests_on_connection(client):
 
 def test_target(client):
     def test():
-        x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 100})
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
         target(float(x), "size")
 
     client.run_test("test_target", test, test_cases=50)
