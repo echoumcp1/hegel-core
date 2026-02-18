@@ -833,30 +833,6 @@ C), you need codepoint-aware string handling.
 
 ## Testing Patterns
 
-### Test Selection Pattern
-
-Use `sampled_from` to let Hegel explore different test paths:
-
-```rust
-fn main() {
-    let tests: Vec<(&str, fn())> = vec![
-        ("test_integers", test_integers),
-        ("test_strings", test_strings),
-        ("test_lists", test_lists),
-    ];
-
-    let names: Vec<_> = tests.iter().map(|(n, _)| *n).collect();
-    let selected = sampled_from(names).generate();
-
-    for (name, test_fn) in &tests {
-        if *name == selected {
-            test_fn();
-            break;
-        }
-    }
-}
-```
-
 ### Property Test Structure
 
 ```rust
