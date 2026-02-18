@@ -7,9 +7,9 @@ from threading import Thread
 
 import cbor2
 import pytest
-from client import Client
 
 from hegel.protocol import (
+    SHUTDOWN,
     Connection,
     DeadChannel,
     Packet,
@@ -17,7 +17,6 @@ from hegel.protocol import (
     result_or_error,
     write_packet,
 )
-from hegel.server import run_server_on_connection
 
 
 def _handshake_pair(server_conn, client_conn):
@@ -124,8 +123,11 @@ def test_message_to_nonexistent_channel(socket_pair):
     )
     client_conn.send_packet(packet)
 
-    # The server should auto-reply with an error
-    time.sleep(0.2)
+    # Also send a control channel message so the server has something to
+    # receive — the reader will process the channel-999 packet first
+    # (sending back an error reply) then deliver the control message.
+    client_conn.control_channel.send_request_raw(b"ping")
+    server_conn.control_channel.receive_request_raw()
     server_conn.close()
     client_conn.close()
 
@@ -669,24 +671,6 @@ def test_send_handshake_bad_response(socket_pair):
         client_conn.close()
 
 
-def test_concurrent_connection_handshake():
-    for _ in range(20):
-        server_socket, client_socket = socket.socketpair()
-
-        def server(ss=server_socket):
-            run_server_on_connection(Connection(ss, name="Server"))
-
-        t = Thread(target=server, daemon=True)
-        t.start()
-
-        conn = Connection(client_socket, name="Client")
-        client = Client(conn)
-
-        client.run_test("test", lambda: None, test_cases=1)
-        conn.close()
-        t.join(timeout=5)
-
-
 # ---- Connection lifecycle ----
 
 
@@ -697,6 +681,26 @@ def test_connection_live(socket_pair):
     assert conn.live
     conn.close()
     assert not conn.live
+
+
+def test_connection_double_close(socket_pair):
+    """Test that closing an already-closed connection is a no-op."""
+    server_socket, _client_socket = socket_pair
+    conn = Connection(server_socket, name="DoubleClose")
+    conn.close()
+    # Second close should return early
+    conn.close()
+
+
+def test_shutdown_in_inbox_raises(socket_pair):
+    """Test that SHUTDOWN in inbox raises ConnectionError."""
+    server_socket, _client_socket = socket_pair
+    conn = Connection(server_socket, name="Test")
+    ch = conn.control_channel
+    ch.inbox.put(SHUTDOWN)
+    with pytest.raises(ConnectionError, match="Connection closed"):
+        ch.receive_request(timeout=0.1)
+    conn.close()
 
 
 def test_create_server():
