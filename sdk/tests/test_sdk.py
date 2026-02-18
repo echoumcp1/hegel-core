@@ -763,7 +763,7 @@ def test_hegel_session_run_test():
             x = generate_from_schema({"type": "integer", "minimum": 0, "maximum": 10})
             assert isinstance(x, int)
 
-        session.run_test(my_test, test_cases=5)
+        session.run_test(test, test_cases=5)
     finally:
         session._cleanup()
 
