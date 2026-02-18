@@ -256,7 +256,7 @@ class Connection:
         self._debug_print(
             f"[{self.name or '?'}] {direction} ch={ch}"
             f" message_id={packet.message_id}"
-            f" {reply}: {payload_repr!r:.200}",
+            f" {reply}: {payload_repr!r}",
         )
 
     def __run_reader(self):
