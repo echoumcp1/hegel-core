@@ -102,6 +102,7 @@ class Client:
 
         if n_interesting == 0:
             return
+
         exceptions: list[Exception] = []
         for i in range(n_interesting):
             try:
@@ -274,6 +275,7 @@ class collection:
         """Should we generate another element?"""
         if self.__finished:
             return False
+
         result = (
             _get_channel()
             .request({"command": "collection_more", "collection": self._server_name})

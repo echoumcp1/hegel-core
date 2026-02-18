@@ -363,12 +363,12 @@ class Connection:
         self.__connection_state = ConnectionState.SERVER
         control = self.control_channel
         # Version negotiation
-        id, payload = control.receive_request_raw()
+        message_id, payload = control.receive_request_raw()
         if payload == VERSION_NEGOTIATION_MESSAGE:
-            control.send_response_raw(id, b"Ok")
+            control.send_response_raw(message_id, b"Ok")
         else:
             control.send_response_raw(
-                id,
+                message_id,
                 f"Error: Unrecognised negotiation string {payload!r}".encode(),
             )
 
@@ -546,12 +546,12 @@ class Channel:
     def handle_requests(self, handler, until=lambda: False):
         """Process incoming requests with handler until condition is met."""
         while not until():
-            id, message = self.receive_request()
+            message_id, message = self.receive_request()
             try:
                 result = handler(message)
-                self.send_response_value(id, result)
+                self.send_response_value(message_id, result)
             except BaseException as e:
-                self.send_response_error(id, e)
+                self.send_response_error(message_id, e)
 
     def send_request(self, message: dict) -> MessageId:
         """Send a CBOR-encoded request, return message ID."""
@@ -572,11 +572,11 @@ class Channel:
         return message_id
 
     def receive_response(
-        self, id: MessageId, timeout: float | None = CHANNEL_TIMEOUT
+        self, message_id: MessageId, timeout: float | None = CHANNEL_TIMEOUT
     ) -> Any:
         """Wait for and decode response to a request."""
         return result_or_error(
-            cbor2.loads(self.receive_response_raw(id, timeout=timeout)),
+            cbor2.loads(self.receive_response_raw(message_id, timeout=timeout)),
         )
 
     def receive_response_raw(
@@ -618,9 +618,9 @@ class Channel:
             ),
         )
 
-    def send_response_value(self, id: MessageId, message: Any) -> None:
+    def send_response_value(self, message_id: MessageId, message: Any) -> None:
         """Send a success response with the given value."""
-        self.send_response_raw(id, cbor2.dumps({"result": message}))
+        self.send_response_raw(message_id, cbor2.dumps({"result": message}))
 
     def send_response_error(
         self,

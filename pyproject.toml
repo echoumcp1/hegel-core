@@ -136,6 +136,8 @@ disable_error_code = "annotation-unchecked"
 branch = true
 parallel = true
 source = ["hegel"]
+# intended primarily for consumers
+omit = ["src/hegel/conformance.py"]
 
 [tool.coverage.report]
 fail_under = 100

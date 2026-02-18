@@ -157,8 +157,7 @@ class FilteredGenerator(Generator):
 
 
 def integers(min_value: int | None = None, max_value: int | None = None) -> Generator:
-    """Generator for integers."""
-    schema: dict = {"type": "integer"}
+    schema = {"type": "integer"}
     if min_value is not None:
         schema["minimum"] = min_value
     if max_value is not None:
@@ -170,14 +169,20 @@ def floats(
     min_value: float | None = None,
     max_value: float | None = None,
     *,
-    allow_nan: bool = False,
-    allow_infinity: bool = False,
+    allow_nan: bool | None = None,
+    allow_infinity: bool | None = None,
 ) -> Generator:
-    """Generator for floating-point numbers."""
-    schema: dict = {"type": "number"}
-    if min_value is not None:
+    has_min = min_value is not None
+    has_max = max_value is not None
+    if allow_nan is None:
+        allow_nan = not has_min and not has_max
+    if allow_infinity is None:
+        allow_infinity = not has_min or not has_max
+
+    schema = {"type": "number"}
+    if has_min:
         schema["minimum"] = min_value
-    if max_value is not None:
+    if has_max:
         schema["maximum"] = max_value
     schema["allow_nan"] = allow_nan
     schema["allow_infinity"] = allow_infinity
@@ -188,21 +193,18 @@ def floats(
 
 
 def booleans(p: float = 0.5) -> Generator:
-    """Generator for booleans."""
     return BasicGenerator({"type": "boolean", "p": p})
 
 
 def text(min_size: int = 0, max_size: int | None = None) -> Generator:
-    """Generator for text strings."""
-    schema: dict = {"type": "string", "min_size": min_size}
+    schema = {"type": "string", "min_size": min_size}
     if max_size is not None:
         schema["max_size"] = max_size
     return BasicGenerator(schema)
 
 
 def binary(min_size: int = 0, max_size: int | None = None) -> Generator:
-    """Generator for binary data (returned as base64)."""
-    schema: dict = {"type": "binary", "min_size": min_size}
+    schema = {"type": "binary", "min_size": min_size}
     if max_size is not None:
         schema["max_size"] = max_size
     return BasicGenerator(schema)
@@ -213,10 +215,9 @@ def lists(
     min_size: int = 0,
     max_size: int | None = None,
 ) -> Generator:
-    """Generator for lists."""
     if isinstance(elements, BasicGenerator):
         # Element is BasicGenerator - compose into BasicGenerator
-        raw_schema: dict = {
+        raw_schema = {
             "type": "list",
             "elements": elements._raw_schema,
             "min_size": min_size,
@@ -415,7 +416,7 @@ def dicts(
         # Both are BasicGenerator - compose into BasicGenerator
         basic_keys: BasicGenerator = keys
         basic_values: BasicGenerator = values
-        raw_schema: dict = {
+        raw_schema = {
             "type": "dict",
             "keys": basic_keys._raw_schema,
             "values": basic_values._raw_schema,
