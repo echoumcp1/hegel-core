@@ -187,8 +187,7 @@ class FloatConformance(ConformanceTest):
             # disallowed when both bounds are set).
             allow_nan: bool | None = draw(
                 st.sampled_from(
-                    [None, False]
-                    + ([] if (use_min_value or use_max_value) else [True])
+                    [None, False] + ([] if (use_min_value or use_max_value) else [True])
                 ),
             )
             allow_infinity: bool | None = draw(
