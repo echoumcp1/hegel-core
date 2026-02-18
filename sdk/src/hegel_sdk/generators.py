@@ -393,7 +393,11 @@ class CompositeOneOfGenerator(Generator):
         try:
             # Pick which generator to use
             index = generate_from_schema(
-                {"type": "integer", "min_value": 0, "max_value": len(self._generators) - 1},
+                {
+                    "type": "integer",
+                    "min_value": 0,
+                    "max_value": len(self._generators) - 1,
+                },
             )
             return self._generators[index].generate()
         finally:
