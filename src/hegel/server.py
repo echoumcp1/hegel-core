@@ -97,19 +97,19 @@ def make_test_function(
                         data.stop_span(discard=discard)
                         return None
                     elif command == "target":
-                        value = message.get("value", 0.0)
-                        label = message.get("label", "")
+                        value = message["value"]
+                        label = message["label"]
                         data.target_observations[label] = value
                         return None
                     elif command == "mark_complete":
                         done = True
-                        status = message.get("status", "VALID")
+                        status = Status[message["status"]]
                         origin = message.get("origin")
-                        if status == "VALID":
+                        if status is Status.VALID:
                             data.conclude_test(Status.VALID)
-                        elif status == "INVALID":
+                        elif status is Status.INVALID:
                             data.mark_invalid()
-                        elif status == "INTERESTING":
+                        elif status is Status.INTERESTING:
                             data.mark_interesting(
                                 origin,  # type: ignore[arg-type]
                             )
