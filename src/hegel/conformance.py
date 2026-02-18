@@ -180,11 +180,22 @@ class FloatConformance(ConformanceTest):
                 exclude_min = False
                 exclude_max = False
 
-            allow_nan = (
-                False if (use_min_value or use_max_value) else draw(st.booleans())
+            # allow_nan/allow_infinity are ternary: True, False, or None.
+            # None means the conformance binary should not call the setter,
+            # letting the SDK apply its own defaults (which must match
+            # Hypothesis: nan disallowed when any bound is set, infinity
+            # disallowed when both bounds are set).
+            allow_nan: bool | None = draw(
+                st.sampled_from(
+                    [None, False]
+                    + ([] if (use_min_value or use_max_value) else [True])
+                ),
             )
-            allow_infinity = (
-                False if (use_min_value and use_max_value) else draw(st.booleans())
+            allow_infinity: bool | None = draw(
+                st.sampled_from(
+                    [None, False]
+                    + ([] if (use_min_value and use_max_value) else [True])
+                ),
             )
 
             return {
@@ -203,10 +214,20 @@ class FloatConformance(ConformanceTest):
         metrics_list: list[dict[str, Any]],
         params: dict[str, Any],
     ) -> None:
-        if params.get("allow_nan"):
+        has_min = params["min_value"] is not None
+        has_max = params["max_value"] is not None
+        allow_nan = params["allow_nan"]
+
+        if allow_nan is None:
+            allow_nan = not has_min and not has_max
+        allow_infinity = params["allow_infinity"]
+        if allow_infinity is None:
+            allow_infinity = not has_min or not has_max
+
+        if allow_nan:
             assert any(m.get("is_nan") for m in metrics_list)
 
-        if params.get("allow_infinity"):
+        if allow_infinity:
             assert any(m.get("is_infinite") for m in metrics_list)
 
         for metrics in metrics_list:
