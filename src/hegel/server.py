@@ -109,7 +109,8 @@ def make_test_function(
                             data.conclude_test(Status.VALID)
                         elif status is Status.INVALID:
                             data.mark_invalid()
-                        elif status is Status.INTERESTING:
+                        else:
+                            assert status is Status.INTERESTING
                             data.mark_interesting(
                                 origin,  # type: ignore[arg-type]
                             )
