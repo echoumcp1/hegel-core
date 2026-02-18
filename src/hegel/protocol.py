@@ -36,7 +36,8 @@ from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from queue import Empty, SimpleQueue
-from threading import Lock, Thread, current_thread
+from threading import Lock
+from time import sleep, time
 from typing import Any, NewType
 
 import cbor2
@@ -80,18 +81,18 @@ TERMINATOR = 0x0A  # '\n'
 REPLY_BIT = 1 << 31
 
 
+ChannelId = NewType("ChannelId", int)
+MessageId = NewType("MessageId", int)
+
 # Special payload that is sent on a channel when it is shut down. The shutdown
-# is not acked and is handled specifically
+# is not acked and is handled specifially.
 # Chosen to be invalid CBOR as per https://www.rfc-editor.org/rfc/rfc8949.html
 # It is currently also not the prefix of any valid CBOR (this is a reserved)
 # tag byte) but even if it became valid in future this would not be a problem.
-CLOSE_CHANNEL_MESSAGE_ID = (1 << 31) - 1
 CLOSE_CHANNEL_PAYLOAD = bytes([0b11111110])
+CLOSE_CHANNEL_MESSAGE_ID = MessageId((1 << 31) - 1)
 
 SHUTDOWN = UniqueIdentifier("shutdown")
-
-ChannelId = NewType("ChannelId", int)
-MessageId = NewType("MessageId", int)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,9 +125,11 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
     return bytes(data)
 
 
-def read_packet(sock: socket.socket) -> Packet:
+def read_packet(sock: socket.socket, timeout: float | None = None) -> Packet:
     """Read and parse a single packet from the socket."""
+    sock.settimeout(timeout)
     header = recv_exact(sock, struct.calcsize(HEADER_FORMAT))
+    sock.settimeout(None)
     magic, checksum, channel, message_id, length = struct.unpack(HEADER_FORMAT, header)
 
     is_reply = message_id & REPLY_BIT != 0
@@ -204,22 +207,17 @@ class Connection:
         self.__next_channel_id = 1
         self.channels = {}
         self.__running = True
-        self.__lock = Lock()
         if debug is None:
             debug = _is_protocol_debug()
         self._debug = debug
+        self.__writer_lock = Lock()
+        self.__reader_lock = Lock()
         self.__connection_state = ConnectionState.UNRESOLVED
-        # Control channel must be created before the reader thread starts,
-        # otherwise an incoming packet for channel 0 could arrive before
-        # the channel is registered and be treated as a non-existent channel.
         self.__control_channel = self.new_channel(role="Control")
-        self.__threads = [Thread(target=self.__run_reader, daemon=True)]
-        for t in self.__threads:
-            t.start()
 
     @property
     def live(self):
-        return self.__running and all(t.is_alive() for t in self.__threads)
+        return self.__running
 
     @classmethod
     def create_server(cls, address, **kwargs):
@@ -259,10 +257,26 @@ class Connection:
             f" {reply}: {payload_repr!r}",
         )
 
-    def __run_reader(self):
+    def run_reader(self, until):
+        if until():
+            return
+        acquired = False
         try:
-            while self.__running:
-                packet = read_packet(self.__socket)
+            while True:
+                acquired = self.__reader_lock.acquire(blocking=False)
+                if acquired:
+                    break
+                elif until():
+                    return
+                else:
+                    # Very short sleep to avoid busy waiting
+                    sleep(0.001)
+
+            while self.__running and not until():
+                try:
+                    packet = read_packet(self.__socket, timeout=0.1)
+                except TimeoutError:
+                    continue
                 channel = self.channels.get(packet.channel_id)
                 channel_name = (
                     f"channel {packet.channel_id}" if channel is None else channel.name
@@ -303,16 +317,14 @@ class Connection:
                             )
                     else:
                         channel.inbox.put(packet)
-        except ConnectionError:
-            pass
-        except Exception:
-            traceback.print_exc()
+                        assert not channel.inbox.empty()
         finally:
-            self.close()
+            if acquired:
+                self.__reader_lock.release()
 
     def send_packet(self, packet: Packet) -> None:
         """Send a packet to the peer, thread-safe."""
-        with self.__lock:
+        with self.__writer_lock:
             self._debug_packet("SEND", packet)
             write_packet(self.__socket, packet)
 
@@ -325,11 +337,6 @@ class Connection:
         with contextlib.suppress(OSError):
             self.__socket.shutdown(socket.SHUT_RDWR)
         self.__socket.close()
-
-        current = current_thread()
-        for t in self.__threads:
-            if t is not current:
-                t.join(timeout=0.1)
 
         for v in self.channels.values():
             if not isinstance(v, DeadChannel):
@@ -386,7 +393,7 @@ class Connection:
             self.__next_channel_id += 1
 
         result = Channel(connection=self, channel_id=channel_id, role=role)
-        with self.__lock:
+        with self.__writer_lock:
             self.channels[result.channel_id] = result
         return result
 
@@ -402,7 +409,7 @@ class Connection:
         assert id & 1 != int(self.__connection_state == ConnectionState.CLIENT)
 
         result = Channel(connection=self, channel_id=id, role=role)
-        with self.__lock:
+        with self.__writer_lock:
             self.channels[result.channel_id] = result
         return result
 
@@ -501,12 +508,21 @@ class Channel:
                 f"{self.connection.name} channel [id={self.channel_id}] ({self.role})"
             )
 
-    def __process_one_message(self, *, timeout=CHANNEL_TIMEOUT):
+    def __needs_messages(self):
+        return (not self.__closed) and self.inbox.empty()
+
+    def __process_one_message(self, timeout: float | None = CHANNEL_TIMEOUT) -> None:
         """Route an incoming message to responses or requests queue."""
+        start = time()
+        self.connection.run_reader(
+            until=lambda: self.__closed
+            or (timeout is not None and time() - start > timeout)
+            or not self.__needs_messages()
+        )
         if self.__closed:
             raise ConnectionError(f"{self.name} is closed")
         try:
-            packet = self.inbox.get(timeout=timeout)
+            packet = self.inbox.get_nowait()
         except Empty:
             raise TimeoutError(
                 f"Timed out after {timeout}s waiting for a message on {self.name}",
@@ -609,7 +625,7 @@ class Channel:
     def send_response_error(
         self,
         message_id: MessageId,
-        message: Exception | None = None,
+        message: BaseException | None = None,
         *,
         error: str | None = None,
         error_type: str | None = None,
