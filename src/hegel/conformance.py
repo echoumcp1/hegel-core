@@ -8,10 +8,10 @@ from typing import Any, ClassVar
 
 import pytest
 from hypothesis import (
+    Phase,
     currently_in_test_context,
     given,
     note,
-    Phase,
     settings as Settings,
     strategies as st,
 )
