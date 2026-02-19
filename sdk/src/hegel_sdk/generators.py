@@ -159,9 +159,9 @@ class FilteredGenerator(Generator):
 def integers(min_value: int | None = None, max_value: int | None = None) -> Generator:
     schema = {"type": "integer"}
     if min_value is not None:
-        schema["minimum"] = min_value
+        schema["min_value"] = min_value
     if max_value is not None:
-        schema["maximum"] = max_value
+        schema["max_value"] = max_value
     return BasicGenerator(schema)
 
 
@@ -181,13 +181,13 @@ def floats(
 
     schema = {"type": "number"}
     if has_min:
-        schema["minimum"] = min_value
+        schema["min_value"] = min_value
     if has_max:
-        schema["maximum"] = max_value
+        schema["max_value"] = max_value
     schema["allow_nan"] = allow_nan
     schema["allow_infinity"] = allow_infinity
-    schema["exclude_minimum"] = False
-    schema["exclude_maximum"] = False
+    schema["exclude_min"] = False
+    schema["exclude_max"] = False
     schema["width"] = 64
     return BasicGenerator(schema)
 
@@ -330,8 +330,8 @@ def sampled_from(values: list) -> BasicGenerator:
         raise ValueError("sampled_from requires at least one element")
     schema = {
         "type": "integer",
-        "minimum": 0,
-        "maximum": len(elements) - 1,
+        "min_value": 0,
+        "max_value": len(elements) - 1,
     }
     return BasicGenerator(schema, lambda idx: elements[idx])
 
@@ -393,7 +393,11 @@ class CompositeOneOfGenerator(Generator):
         try:
             # Pick which generator to use
             index = generate_from_schema(
-                {"type": "integer", "minimum": 0, "maximum": len(self._generators) - 1},
+                {
+                    "type": "integer",
+                    "min_value": 0,
+                    "max_value": len(self._generators) - 1,
+                },
             )
             return self._generators[index].generate()
         finally:
@@ -476,7 +480,7 @@ class CompositeDictGenerator(Generator):
                 self._max_size if self._max_size is not None else self._min_size + 10
             )
             size = generate_from_schema(
-                {"type": "integer", "minimum": self._min_size, "maximum": max_sz},
+                {"type": "integer", "min_value": self._min_size, "max_value": max_sz},
             )
             result = {}
             for _ in range(size):

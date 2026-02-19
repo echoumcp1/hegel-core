@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 
 import pytest
 from hypothesis import (
+    Phase,
     currently_in_test_context,
     given,
     note,
@@ -503,8 +504,14 @@ def run_conformance_tests(
 
     for test in tests:
         with subtests.test(msg=type(test).__name__):
-
-            @Settings(parent=settings, max_examples=5, deadline=None)
+            # When conformance tests fail, they take ages to shrink and tend to
+            # hit the 5 minute cap. Get ahead of that by disabling shrinking.
+            @Settings(
+                parent=settings,
+                max_examples=5,
+                deadline=None,
+                phases=set(Phase) - {Phase.shrink},
+            )
             @given(test.params_strategy())
             def run_test(params: dict[str, Any]) -> None:
                 test.run(params)
