@@ -7,7 +7,14 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
-from hypothesis import Phase, given, settings as Settings, strategies as st
+from hypothesis import (
+    currently_in_test_context,
+    given,
+    note,
+    Phase,
+    settings as Settings,
+    strategies as st,
+)
 
 
 @st.composite
@@ -102,6 +109,8 @@ class BooleanConformance(ConformanceTest):
         params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             assert metrics["value"] in (True, False)
 
 
@@ -127,6 +136,8 @@ class IntegerConformance(ConformanceTest):
         params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             value = metrics["value"]
             if params["min_value"] is not None:
                 assert value >= params["min_value"]
@@ -230,6 +241,8 @@ class FloatConformance(ConformanceTest):
             assert any(m.get("is_infinite") for m in metrics_list)
 
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             if metrics.get("is_nan") or metrics.get("is_infinite"):
                 continue
 
@@ -268,6 +281,8 @@ class TextConformance(ConformanceTest):
         params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             length = metrics["length"]
             assert length >= params["min_size"]
             if params["max_size"] is not None:
@@ -298,6 +313,8 @@ class BinaryConformance(ConformanceTest):
         params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             length = metrics["length"]
             assert length >= params["min_size"]
             if params["max_size"] is not None:
@@ -347,6 +364,8 @@ class ListConformance(ConformanceTest):
         params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             size = metrics["size"]
             assert size >= params["min_size"]
             if params["max_size"] is not None:
@@ -381,6 +400,8 @@ class SampledFromConformance(ConformanceTest):
         params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             assert metrics["value"] in params["options"]
 
 
@@ -455,6 +476,8 @@ class DictConformance(ConformanceTest):
         params: dict[str, Any],
     ) -> None:
         for metrics in metrics_list:
+            if currently_in_test_context():
+                note(f"metrics: {metrics}")
             size = metrics["size"]
             assert size >= params["min_size"]
             assert size <= params["max_size"]
