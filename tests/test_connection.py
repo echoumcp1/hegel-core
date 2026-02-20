@@ -599,49 +599,25 @@ def test_new_channel_before_handshake_raises(socket_pair):
     conn.close()
 
 
-def test_bad_handshake_negotiation_inline(socket_pair):
-    """Test handshake with bad version string (inline version)."""
+def test_bad_handshake_negotiation(socket_pair):
+    """Test receive_handshake raises on bad handshake string."""
     server_socket, client_socket = socket_pair
     server_conn = Connection(server_socket, name="Server")
     client_conn = Connection(client_socket, name="Client")
 
-    def server_side():
-        server_conn.receive_handshake()
+    def send_bad():
+        ch = client_conn.control_channel
+        ch.send_request_raw(b"BadVersion")
 
-    t = Thread(target=server_side, daemon=True)
+    t = Thread(target=send_bad, daemon=True)
     t.start()
 
-    # Send bad handshake manually
-    control = client_conn.control_channel
-    msg_id = control.send_request_raw(b"BadVersion")
-    response = control.receive_response_raw(msg_id)
-    assert b"Error" in response
+    with pytest.raises(ConnectionError, match="Bad handshake"):
+        server_conn.receive_handshake()
+
+    t.join(timeout=5)
     client_conn.close()
     server_conn.close()
-
-
-def test_bad_handshake_negotiation(socket_pair):
-    """Test handshake with wrong negotiation message."""
-    server_socket, client_socket = socket_pair
-    server_conn = Connection(server_socket, name="Server")
-    client_conn = Connection(client_socket, name="Client")
-    try:
-        # Manually send a bad negotiation message from a thread
-        def send_bad():
-            client_conn._Connection__is_client = True
-            ch = client_conn.control_channel
-            msg_id = ch.send_request_raw(b"BadVersion")
-            response = ch.receive_response_raw(msg_id)
-            assert b"Error" in response
-
-        t = Thread(target=send_bad, daemon=True)
-        t.start()
-
-        server_conn.receive_handshake()
-        t.join(timeout=5)
-    finally:
-        server_conn.close()
-        client_conn.close()
 
 
 def test_send_handshake_bad_response(socket_pair):
@@ -651,12 +627,10 @@ def test_send_handshake_bad_response(socket_pair):
     client_conn = Connection(client_socket, name="Client")
 
     try:
-        # Server receives the handshake but sends a bad response
         def bad_server():
             server_conn._Connection__is_client = False
             ch = server_conn.control_channel
             msg_id, _payload = ch.receive_request_raw()
-            # Send back a wrong response
             ch.send_response_raw(msg_id, b"NotOk")
 
         t = Thread(target=bad_server, daemon=True)
@@ -669,6 +643,23 @@ def test_send_handshake_bad_response(socket_pair):
     finally:
         server_conn.close()
         client_conn.close()
+
+
+def test_send_handshake_returns_server_version(socket_pair):
+    """Test send_handshake returns the server's protocol version."""
+    server_socket, client_socket = socket_pair
+    server_conn = Connection(server_socket, name="Server")
+    client_conn = Connection(client_socket, name="Client")
+
+    t = Thread(target=server_conn.receive_handshake, daemon=True)
+    t.start()
+
+    version = client_conn.send_handshake()
+    assert version == "0.1"
+
+    t.join(timeout=5)
+    client_conn.close()
+    server_conn.close()
 
 
 # ---- Connection lifecycle ----
