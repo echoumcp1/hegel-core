@@ -204,8 +204,8 @@ Generate Unicode text strings.
 
 ### `binary`
 
-Generate binary data. The server returns base64-encoded strings; SDKs
-decode to byte arrays.
+Generate binary data. The server returns CBOR byte strings directly;
+SDKs receive raw bytes with no additional decoding needed.
 
 **Parameters:**
 - `min_size` (int): Minimum size in bytes. Default: 0.
@@ -216,9 +216,9 @@ decode to byte arrays.
 {"type": "binary", "min_size": <int>, "max_size": <int>}
 ```
 
-**Basic:** Always. In Python, no explicit transform (base64 decoding is
-handled in the deserialization layer). In Rust and C++, a transform is used
-to decode base64 to bytes.
+**Basic:** Always. No transform needed in any SDK — CBOR byte strings
+are deserialized directly to the language's native byte type (`bytes` in
+Python, `Vec<u8>` in Rust, `json::binary_t` in C++).
 
 ### `just`
 
@@ -885,7 +885,7 @@ fn test_sorting() {
 - [ ] `integers()` with min/max
 - [ ] `floats()` with min/max and exclusions
 - [ ] `text()` with length bounds
-- [ ] `binary()` with min/max size (base64 decoding)
+- [ ] `binary()` with min/max size (CBOR byte strings)
 - [ ] `from_regex(pattern)`
 
 ### Phase 3: Format Strings

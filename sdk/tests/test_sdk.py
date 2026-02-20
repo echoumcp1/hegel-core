@@ -394,7 +394,7 @@ def test_binary_generator(client):
     def test():
         gen = binary(min_size=1, max_size=10)
         v = gen.generate()
-        assert isinstance(v, str)
+        assert isinstance(v, bytes)
 
     client.run_test("test_binary_gen", test, test_cases=5)
 
@@ -405,7 +405,7 @@ def test_binary_generator_no_max(client):
     def test():
         gen = binary()
         v = gen.generate()
-        assert isinstance(v, str)
+        assert isinstance(v, bytes)
 
     client.run_test("test_binary_nomax", test, test_cases=5)
 
