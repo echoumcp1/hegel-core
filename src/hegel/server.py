@@ -15,6 +15,7 @@ from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from random import Random, getrandbits
 
 from hypothesis import settings
 from hypothesis.control import BuildContext
@@ -183,6 +184,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             channel,
                             test_name=test_name,
                             test_cases=message["test_cases"],
+                            seed=message["seed"],
                         ),
                     )
                     connection.control_channel.send_response_value(
@@ -215,6 +217,7 @@ def _run_one(
     *,
     test_name: str,
     test_cases: int,
+    seed: int,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -226,6 +229,7 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
+        seed = seed or getrandbits(128)
         runner = ConjectureRunner(
             make_test_function(connection, channel, is_final=False),
             settings=settings(
@@ -233,6 +237,7 @@ def _run_one(
                 database=DATABASE,
                 max_examples=test_cases,
             ),
+            random=Random(seed),
             database_key=test_name.encode("utf-8"),
         )
         runner.run()
@@ -243,6 +248,7 @@ def _run_one(
             "valid_test_cases": runner.valid_examples,
             "invalid_test_cases": runner.invalid_examples,
             "interesting_test_cases": len(runner.interesting_examples),
+            "seed": seed, # debug for now
         }
 
         channel.request(

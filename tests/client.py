@@ -50,6 +50,7 @@ class Client:
         test_fn: Callable[[], None],
         *,
         test_cases: int,
+        seed: int,
     ) -> None:
         """Run a property test."""
 
@@ -61,6 +62,7 @@ class Client:
                     "command": "run_test",
                     "name": name,
                     "test_cases": test_cases,
+                    "seed": seed,
                     "channel": test_channel.channel_id,
                 },
             ).get()

@@ -125,13 +125,14 @@ class _HegelSession:
         self,
         test_fn: Callable[[], None],
         test_cases: int,
+        seed: int
     ) -> None:
         """Run a property test using the shared hegeld process."""
         self._start()
 
         assert self._client is not None
         test_name = test_fn.__name__ if hasattr(test_fn, "__name__") else "test"
-        self._client.run_test(test_name, test_fn, test_cases=test_cases)
+        self._client.run_test(test_name, test_fn, test_cases=test_cases, seed=seed)
 
 
 _session = _HegelSession()
@@ -141,6 +142,7 @@ def hegel(
     test_fn: Callable[[], None] | None = None,
     *,
     test_cases: int = 100,
+    seed: int = 0,
 ) -> Callable[[Callable[[], None]], Callable[[], None]] | Callable[[], None]:
     """Decorator for running property-based tests with Hegel.
 
@@ -161,7 +163,7 @@ def hegel(
     def decorator(fn: Callable[[], None]) -> Callable[[], None]:
         @functools.wraps(fn)
         def wrapper() -> None:
-            run_hegel_test(fn, test_cases=test_cases)
+            run_hegel_test(fn, test_cases=test_cases, seed=seed)
 
         return wrapper
 
@@ -175,6 +177,7 @@ def run_hegel_test(
     test_fn: Callable[[], None],
     *,
     test_cases: int = 100,
+    seed: int = 0,
 ) -> None:
     """Run a property test using the shared hegeld process.
 
@@ -182,4 +185,4 @@ def run_hegel_test(
     - Re-raises the original exception if there's exactly one minimal failing case
     - Raises an ExceptionGroup if there are multiple distinct minimal failing cases
     """
-    _session.run_test(test_fn, test_cases)
+    _session.run_test(test_fn, test_cases, seed)
