@@ -1,4 +1,3 @@
-import base64
 import re
 
 import pytest
@@ -447,7 +446,8 @@ def test_invalid_schema():
 
 @given(from_schema({"type": "binary", "min_size": 1, "max_size": 10}))
 def test_binary_schema(example):
-    assert 1 <= len(base64.b64decode(example)) <= 10
+    assert isinstance(example, bytes)
+    assert 1 <= len(example) <= 10
 
 
 @given(
