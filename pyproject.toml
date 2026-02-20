@@ -135,6 +135,7 @@ disable_error_code = "annotation-unchecked"
 [tool.coverage.run]
 branch = true
 parallel = true
+concurrency = ["thread"]
 source = ["hegel"]
 # intended primarily for consumers
 omit = ["src/hegel/conformance.py"]
