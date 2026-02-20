@@ -408,6 +408,12 @@ def test_run_conformance_tests(subtests, conformance_binary):
         ListConformance(binary_path, test_cases=1, min_value=None, max_value=None),
         SampledFromConformance(binary_path, test_cases=1),
         DictConformance(binary_path, test_cases=1),
+        StopTestOnGenerateConformance(binary_path, test_cases=1),
+        StopTestOnMarkCompleteConformance(binary_path, test_cases=1),
+        ErrorResponseConformance(binary_path, test_cases=1),
+        EmptyTestConformance(binary_path, test_cases=1),
+        StopTestOnCollectionMoreConformance(binary_path, test_cases=1),
+        StopTestOnNewCollectionConformance(binary_path, test_cases=1),
     ]
 
     for t in tests:
