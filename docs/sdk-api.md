@@ -807,13 +807,17 @@ labeled group.
 `properties` and `required` fields. This format is planned for future parser
 support.
 
-### Connection Threading Model
+### Thread Safety
 
-The Hegel protocol uses a **demand-driven reader** rather than a background
-reader thread. When a channel needs a message, it drives the connection's
-reader to read from the socket until the needed message arrives (or a timeout
-is reached). This avoids the complexity and race conditions of background
-threads.
+- Use thread-local storage for connection state.
+- Atomic operations for request ID counter.
+- Each thread maintains independent connection.
+
+### Reading packets from the Connection
+
+The Hegel protocol uses a **demand-driven reader** reader. When a channel needs
+a message, it drives the connection's reader to read from the socket until the
+needed message arrives (or a timeout is reached).
 
 **How it works:**
 
@@ -909,7 +913,7 @@ fn test_sorting() {
 
 ### Phase 1: Core Infrastructure
 
-- [ ] Socket connection management (demand-driven reader, no background thread)
+- [ ] Socket connection management (thread-local)
 - [ ] CBOR binary packet serialization (20-byte header + CBOR payload)
 - [ ] Request ID counter (atomic)
 - [ ] `assume()` function
