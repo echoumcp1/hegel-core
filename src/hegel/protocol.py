@@ -371,9 +371,7 @@ class Connection:
             raise ConnectionError(
                 f"Bad handshake: expected {HANDSHAKE_STRING!r}, got {payload!r}"
             )
-        control.send_response_raw(
-            message_id, f"Hegel/{PROTOCOL_VERSION}".encode()
-        )
+        control.send_response_raw(message_id, f"Hegel/{PROTOCOL_VERSION}".encode())
 
     @property
     def control_channel(self) -> "Channel":

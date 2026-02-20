@@ -627,6 +627,7 @@ def test_send_handshake_bad_response(socket_pair):
     client_conn = Connection(client_socket, name="Client")
 
     try:
+
         def bad_server():
             server_conn._Connection__is_client = False
             ch = server_conn.control_channel
