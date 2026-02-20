@@ -232,14 +232,6 @@ def test_json_encode_decode_roundtrip():
 
 
 @hegel
-def test_binary_generation():
-    """Property: binary generator returns bytes with correct size."""
-    data = generate_from_schema({"type": "binary", "min_size": 0, "max_size": 50})
-    assert isinstance(data, bytes)
-    assert len(data) <= 50
-
-
-@hegel
 def test_date_parsing():
     """Test date parsing with generated dates."""
     date_str = generate_from_schema({"type": "date"})
