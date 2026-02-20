@@ -171,8 +171,8 @@ def _handle_commands_until(
     """Handle commands normally until the specified command is received.
 
     Returns the message ID of the target command (so the caller can send
-    an error response). Handles generate, start_span, stop_span, and
-    new_collection commands normally along the way.
+    an error response). Responds to all intermediate commands with a
+    simple success value appropriate for the command type.
     """
     collection_counter = 0
     while True:
@@ -182,26 +182,13 @@ def _handle_commands_until(
         if command == stop_on:
             return msg_id
 
-        if command == "generate":
-            data_channel.send_response_value(msg_id, message=True)
-        elif command == "start_span":
-            data_channel.send_response_value(msg_id, message=None)
-        elif command == "stop_span":
-            data_channel.send_response_value(msg_id, message=None)
-        elif command == "new_collection":
+        if command == "new_collection":
             name = f"collection_{collection_counter}"
             collection_counter += 1
             data_channel.send_response_value(msg_id, message=name)
-        elif command == "collection_more":
-            data_channel.send_response_value(
-                msg_id,
-                message={"more": True, "channel": data_channel.channel_id},
-            )
-        elif command == "collection_reject":
-            data_channel.send_response_value(msg_id, message=None)
-        elif command == "mark_complete":
-            data_channel.send_response_value(msg_id, message=None)
         else:
+            # All other commands (generate, start_span, stop_span,
+            # mark_complete, etc.) get a simple None/True response.
             data_channel.send_response_value(msg_id, message=None)
 
 
