@@ -588,13 +588,16 @@ class DictConformance(ConformanceTest):
 
 
 def run_conformance_tests(
-    tests: list[ConformanceTest],
+    tests: Collection[ConformanceTest],
     subtests: pytest.Subtests,
     *,
     settings: Settings | None = None,
-    skip_tests: Collection[str] = frozenset(),
+    skip_tests: Collection[type[ConformanceTest]] = frozenset(),
 ) -> None:
-    assert {type(t).__name__ for t in tests} | set(skip_tests) == {
+    names = {type(t).__name__ for t in tests} | {
+        TestClass.__name__ for TestClass in skip_tests
+    }
+    assert names == {
         TestClass.__name__ for TestClass in ConformanceTest.registered_tests
     }
 
@@ -616,6 +619,6 @@ def run_conformance_tests(
 
     # gives callers visibility into skipped tests in pytest output (and a reminder to
     # implement them).
-    for test_name in skip_tests:
-        with subtests.test(msg=test_name):
-          pytest.skip("skipped by caller")
+    for TestClass in skip_tests:
+        with subtests.test(msg=TestClass.__name__):
+            pytest.skip("skipped by caller")
