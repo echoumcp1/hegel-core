@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -587,13 +588,18 @@ class DictConformance(ConformanceTest):
 
 
 def run_conformance_tests(
-    tests: list[ConformanceTest],
+    tests: Collection[ConformanceTest],
     subtests: pytest.Subtests,
     *,
     settings: Settings | None = None,
+    skip_tests: Collection[type[ConformanceTest]] = frozenset(),
 ) -> None:
-    """Run all conformance tests using pytest subtests."""
-    assert {type(t) for t in tests} == ConformanceTest.registered_tests
+    names = {type(t).__name__ for t in tests} | {
+        TestClass.__name__ for TestClass in skip_tests
+    }
+    assert names == {
+        TestClass.__name__ for TestClass in ConformanceTest.registered_tests
+    }
 
     for test in tests:
         with subtests.test(msg=type(test).__name__):
@@ -610,3 +616,9 @@ def run_conformance_tests(
                 test.run(params)
 
             run_test()
+
+    # gives callers visibility into skipped tests in pytest output (and a reminder to
+    # implement them).
+    for TestClass in skip_tests:
+        with subtests.test(msg=TestClass.__name__):
+            pytest.skip("skipped by caller")
