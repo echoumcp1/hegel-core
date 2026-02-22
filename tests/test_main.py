@@ -100,8 +100,8 @@ def test_cli_cleans_up_stale_socket(socket_path):
 
 
 def test_run_server_with_test_mode(socket_path):
-    """Test run_server routes to test_server when HEGEL_TEST_MODE is set."""
+    """Test run_server routes to test_server when HEGEL_PROTOCOL_TEST_MODE is set."""
     with _client_and_server(
-        socket_path, env={"HEGEL_TEST_MODE": "empty_test"}
+        socket_path, env={"HEGEL_PROTOCOL_TEST_MODE": "empty_test"}
     ) as client:
         client.run_test("test", lambda: None, test_cases=1)

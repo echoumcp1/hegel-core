@@ -10,6 +10,7 @@ from hypothesis import Verbosity
 
 from hegel.protocol import Connection
 from hegel.server import run_server_on_connection
+from hegel.test_server import run_test_server
 
 
 @click.command()
@@ -53,10 +54,8 @@ def run_server(socket_path: Path, *, verbosity: Verbosity = Verbosity.normal) ->
             print("SDK connected", file=sys.stderr)
 
         connection = Connection(client_sock, name="Server")
-        test_mode = os.environ.get("HEGEL_TEST_MODE")
+        test_mode = os.environ.get("HEGEL_PROTOCOL_TEST_MODE")
         if test_mode:
-            from hegel.test_server import run_test_server
-
             run_test_server(connection, test_mode)
         else:
             run_server_on_connection(connection)

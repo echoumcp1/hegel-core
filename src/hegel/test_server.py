@@ -1,7 +1,7 @@
 """
 Test server that simulates error conditions for SDK conformance testing.
 
-When HEGEL_TEST_MODE is set, the hegel binary runs this simplified server
+When HEGEL_PROTOCOL_TEST_MODE is set, the hegel binary runs this simplified server
 instead of the full ConjectureRunner-based server. Each mode injects a
 specific error condition to validate that SDKs handle errors correctly.
 
