@@ -43,8 +43,8 @@ class ConformanceTest(ABC):
     default_test_cases: int = 50
     registered_tests: ClassVar[set[type["ConformanceTest"]]] = set()
 
-    def __init_subclass__(cls, *, _register: bool = True) -> None:
-        if _register:
+    def __init_subclass__(cls) -> None:
+        if cls.__dict__.get("register_class", True):
             cls.registered_tests.add(cls)
 
     def __init__(
@@ -70,6 +70,10 @@ class ConformanceTest(ABC):
         """Validate that the SDK output matches the expected constraints."""
         ...
 
+    def extra_env(self) -> dict[str, str]:
+        """Return additional environment variables for the conformance binary."""
+        return {}
+
     def run(self, params: dict[str, Any]) -> None:
         """Run the conformance binary and validate its output."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl") as f:
@@ -82,6 +86,7 @@ class ConformanceTest(ABC):
                     **os.environ,
                     "CONFORMANCE_METRICS_FILE": str(metrics_file),
                     "CONFORMANCE_TEST_CASES": str(self.test_cases),
+                    **self.extra_env(),
                 },
                 capture_output=True,
                 text=True,
@@ -101,15 +106,19 @@ class ConformanceTest(ABC):
         self.validate(metrics_list, params)
 
 
-class ErrorHandlingConformance(ConformanceTest, ABC, _register=False):
+class ErrorHandlingConformance(ConformanceTest):
     """Base class for error handling conformance tests.
 
-    These tests set HEGEL_TEST_MODE to activate the test server,
+    These tests set HEGEL_PROTOCOL_TEST_MODE to activate the test server,
     which injects specific error conditions. The SDK binary is run
     with empty params and must exit cleanly (exit code 0).
     """
 
+    register_class: ClassVar[bool] = False
     test_mode: str
+
+    def extra_env(self) -> dict[str, str]:
+        return {"HEGEL_PROTOCOL_TEST_MODE": self.test_mode}
 
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
         return st.just({})
@@ -119,42 +128,7 @@ class ErrorHandlingConformance(ConformanceTest, ABC, _register=False):
         metrics_list: list[dict[str, Any]],
         params: dict[str, Any],
     ) -> None:
-        # No metrics validation needed — the test passes if the binary
-        # exits with code 0 (checked in run()).
         pass
-
-    def run(self, params: dict[str, Any]) -> None:
-        """Run the conformance binary with HEGEL_TEST_MODE set."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl") as f:
-            metrics_file = Path(f.name)
-            input_json = json.dumps(params)
-
-            result = subprocess.run(
-                [str(self.binary), input_json],
-                env={
-                    **os.environ,
-                    "CONFORMANCE_METRICS_FILE": str(metrics_file),
-                    "CONFORMANCE_TEST_CASES": str(self.test_cases),
-                    "HEGEL_TEST_MODE": self.test_mode,
-                },
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"Conformance binary failed with exit code {result.returncode}\n"
-                    f"stdout: {result.stdout}\n"
-                    f"stderr: {result.stderr}",
-                )
-
-            metrics_list = [
-                json.loads(line)
-                for line in metrics_file.read_text().splitlines()
-                if line.strip()
-            ]
-
-        self.validate(metrics_list, params)
 
 
 class StopTestOnGenerateConformance(ErrorHandlingConformance):
