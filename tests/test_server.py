@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from client import (
     Client,
+    _request,
     assume,
     collection,
     generate_from_schema,
@@ -18,7 +19,7 @@ from client import (
 from hypothesis import strategies as st
 from hypothesis.errors import UnsatisfiedAssumption
 
-from hegel.protocol import ProtocolError
+from hegel.protocol import ProtocolError, RequestError
 from hegel.protocol.connection import Connection
 from hegel.server import (
     FROM_SCHEMA_CACHE,
@@ -48,6 +49,16 @@ def test_stop_span_with_discard(client):
 def test_unknown_command(client):
     with pytest.raises(ProtocolError):
         client._control.send_request({"command": "bogus"}).get()
+
+
+def test_unknown_command_on_data_channel(client):
+    """Unknown command on data channel raises RequestError via handle_requests."""
+
+    def test():
+        with pytest.raises(RequestError, match="Unknown command"):
+            _request({"command": "bogus_data_command"})
+
+    client.run_test("test_unknown_data_cmd", test, test_cases=1)
 
 
 def test_cache_eviction():

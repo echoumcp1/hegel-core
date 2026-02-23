@@ -44,6 +44,29 @@ def test_request_handling(socket_pair):
         assert send_channel.send_request({"x": 2, "y": 3}).get() == {"sum": 5}
 
 
+def test_handle_requests_until(socket_pair):
+    """handle_requests exits immediately when until returns True."""
+
+    def add_server(connection):
+        connection.receive_handshake()
+        handler_channel = connection.new_channel()
+        handler_channel.handle_requests(
+            lambda message: None,
+            until=lambda: True,
+        )
+
+    server_socket, client_socket = socket_pair
+    thread = Thread(
+        target=add_server,
+        args=(Connection(server_socket),),
+        daemon=True,
+    )
+    thread.start()
+    with Connection(client_socket) as client_connection:
+        client_connection.send_handshake()
+    thread.join(timeout=5)
+
+
 @pytest.mark.parametrize(
     "name, payload",
     [
