@@ -162,7 +162,7 @@ def test_future_cancel_on_connection_error():
             "name": "doomed_test",
             "channel": channel.channel_id,
             "test_cases": 100,
-            "seed": "1234",
+            "seed": None,
         },
     ).get()
 
@@ -211,7 +211,7 @@ def test_passing(client):
         assert x >= 0
         assert x <= 100
 
-    client.run_test("test_simple", test, test_cases=50, seed=1234)
+    client.run_test("test_simple", test, test_cases=50)
 
 
 def test_failing(client):
