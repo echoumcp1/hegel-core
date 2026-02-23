@@ -141,7 +141,7 @@ _session = _HegelSession()
 def hegel(
     test_fn: Callable[[], None] | None = None,
     *,
-    seed: int,
+    seed: int = 0,
     test_cases: int = 100,
 ) -> Callable[[Callable[[], None]], Callable[[], None]] | Callable[[], None]:
     """Decorator for running property-based tests with Hegel.

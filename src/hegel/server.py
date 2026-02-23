@@ -217,7 +217,7 @@ def _run_one(
     *,
     test_name: str,
     test_cases: int,
-    seed: int,
+    seed: int | None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -229,7 +229,7 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
-        seed = seed or getrandbits(128)
+        seed = getrandbits(128) if seed is None else seed
         runner = ConjectureRunner(
             make_test_function(connection, channel, is_final=False),
             settings=settings(
