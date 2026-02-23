@@ -162,7 +162,7 @@ def test_future_cancel_on_connection_error():
             "name": "doomed_test",
             "channel": channel.channel_id,
             "test_cases": 100,
-            "seed": "1234"
+            "seed": "1234",
         },
     ).get()
 
