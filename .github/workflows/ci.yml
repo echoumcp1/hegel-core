@@ -70,7 +70,7 @@ jobs:
 
   release:
     name: release
-    if: github.event_name == 'push' && github.repository == 'antithesishq/hegel-core'"
+    if: github.event_name == 'push' && github.repository == 'antithesishq/hegel-core'
     needs: [test, lint, typecheck]
     runs-on: ubuntu-latest
     steps:
