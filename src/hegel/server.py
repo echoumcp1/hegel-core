@@ -248,9 +248,8 @@ def _run_one(
             "valid_test_cases": runner.valid_examples,
             "invalid_test_cases": runner.invalid_examples,
             "interesting_test_cases": len(runner.interesting_examples),
-            "seed": seed, # debug for now
+            "seed": str(seed),
         }
-
         channel.request(
             {
                 "event": "test_done",
