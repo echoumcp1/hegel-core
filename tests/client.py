@@ -17,6 +17,8 @@ from hegel.protocol import (
     RequestError,
 )
 
+SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.1)
+
 # Context variables for the current test case
 _current_channel: ContextVar[Channel | None] = ContextVar(
     "_current_channel",
@@ -38,7 +40,14 @@ class Client:
     """Test client for connecting to a Hegel server."""
 
     def __init__(self, connection: Connection):
-        connection.send_handshake()
+        server_version = float(connection.send_handshake())
+        lo, hi = SUPPORTED_PROTOCOL_VERSIONS
+        if not (lo <= server_version <= hi):
+            raise ConnectionError(
+                f"hegel-python supports protocol versions {lo} through {hi}, but "
+                f"got server version {server_version}. Upgrading hegel-python or downgrading "
+                "your hegel cli might help."
+            )
 
         self.connection = connection
         self._control = connection.control_channel

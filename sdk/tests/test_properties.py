@@ -1,4 +1,3 @@
-import base64
 import itertools
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -230,17 +229,6 @@ def test_json_encode_decode_roundtrip():
     encoded = json.dumps(value)
     decoded = json.loads(encoded)
     assert decoded == value
-
-
-@hegel
-def test_base64_roundtrip():
-    """Property: base64 encode/decode is identity."""
-    # Generate bytes via the binary type (returns base64 string)
-    b64_data = generate_from_schema({"type": "binary", "min_size": 0, "max_size": 50})
-    # Decode and re-encode
-    decoded = base64.b64decode(b64_data)
-    reencoded = base64.b64encode(decoded).decode("ascii")
-    assert reencoded == b64_data
 
 
 @hegel

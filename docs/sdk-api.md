@@ -204,8 +204,8 @@ Generate Unicode text strings.
 
 ### `binary`
 
-Generate binary data. The server returns base64-encoded strings; SDKs
-decode to byte arrays.
+Generate binary data. The server returns CBOR byte strings directly;
+SDKs receive raw bytes with no additional decoding needed.
 
 **Parameters:**
 - `min_size` (int): Minimum size in bytes. Default: 0.
@@ -216,9 +216,9 @@ decode to byte arrays.
 {"type": "binary", "min_size": <int>, "max_size": <int>}
 ```
 
-**Basic:** Always. In Python, no explicit transform (base64 decoding is
-handled in the deserialization layer). In Rust and C++, a transform is used
-to decode base64 to bytes.
+**Basic:** Always. No transform needed in any SDK — CBOR byte strings
+are deserialized directly to the language's native byte type (`bytes` in
+Python, `Vec<u8>` in Rust, `json::binary_t` in C++).
 
 ### `just`
 
@@ -813,6 +813,48 @@ support.
 - Atomic operations for request ID counter.
 - Each thread maintains independent connection.
 
+### Reading packets from the Connection
+
+The Hegel protocol uses a **demand-driven reader** reader. When a channel needs
+a message, it drives the connection's reader to read from the socket until the
+needed message arrives (or a timeout is reached).
+
+**How it works:**
+
+1. When `Channel.receive_request()` or `Channel.wait_for_response()` is called,
+   the channel invokes `Connection.run_reader(until)` where `until` is a
+   condition that becomes true when the channel's inbox has a message, the
+   channel is closed, or a timeout expires.
+2. `run_reader` acquires a reader lock (non-blocking — if another thread holds
+   it, the caller polls until the lock is free or `until` is true).
+3. While the lock is held, it reads packets from the socket (with short
+   timeouts to allow checking the `until` condition) and dispatches them to
+   the appropriate channel's inbox.
+4. When `until()` returns true, the reader releases the lock and returns.
+
+**Key design points:**
+
+- **No background thread**: There is no dedicated reader thread. Reading
+  happens on the calling thread when a channel needs data.
+- **Reader lock**: Only one thread reads from the socket at a time. The lock
+  is acquired non-blocking — other threads poll until it's available.
+- **Short read timeouts**: `read_packet` uses a short socket timeout (e.g.
+  100ms) so the reader can periodically check the `until` condition.
+- **Close is simple**: Set `running = false`, shutdown the socket, close
+  channels. No thread join needed.
+
+**Thread safety for sends:**
+
+- A separate writer lock protects `send_packet` so multiple threads can
+  send concurrently without corrupting the socket stream.
+- Channel registration also uses the writer lock.
+
+**Thread-local state:**
+
+- Use thread-local storage for the current data channel so that `generate()`,
+  `assume()`, etc. work as free functions.
+- Use atomic operations for request ID counters.
+
 ```rust
 thread_local! {
     static CONNECTION: RefCell<Option<ConnectionState>> = RefCell::new(None);
@@ -885,7 +927,7 @@ fn test_sorting() {
 - [ ] `integers()` with min/max
 - [ ] `floats()` with min/max and exclusions
 - [ ] `text()` with length bounds
-- [ ] `binary()` with min/max size (base64 decoding)
+- [ ] `binary()` with min/max size (CBOR byte strings)
 - [ ] `from_regex(pattern)`
 
 ### Phase 3: Format Strings

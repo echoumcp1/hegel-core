@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -43,7 +44,8 @@ class ConformanceTest(ABC):
     registered_tests: ClassVar[set[type["ConformanceTest"]]] = set()
 
     def __init_subclass__(cls) -> None:
-        cls.registered_tests.add(cls)
+        if cls.__dict__.get("register_class", True):
+            cls.registered_tests.add(cls)
 
     def __init__(
         self,
@@ -68,6 +70,10 @@ class ConformanceTest(ABC):
         """Validate that the SDK output matches the expected constraints."""
         ...
 
+    def extra_env(self) -> dict[str, str]:
+        """Return additional environment variables for the conformance binary."""
+        return {}
+
     def run(self, params: dict[str, Any]) -> None:
         """Run the conformance binary and validate its output."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl") as f:
@@ -80,6 +86,7 @@ class ConformanceTest(ABC):
                     **os.environ,
                     "CONFORMANCE_METRICS_FILE": str(metrics_file),
                     "CONFORMANCE_TEST_CASES": str(self.test_cases),
+                    **self.extra_env(),
                 },
                 capture_output=True,
                 text=True,
@@ -97,6 +104,67 @@ class ConformanceTest(ABC):
             ]
 
         self.validate(metrics_list, params)
+
+
+class ErrorHandlingConformance(ConformanceTest):
+    """Base class for error handling conformance tests.
+
+    These tests set HEGEL_PROTOCOL_TEST_MODE to activate the test server,
+    which injects specific error conditions. The SDK binary is run
+    with empty params and must exit cleanly (exit code 0).
+    """
+
+    register_class: ClassVar[bool] = False
+    test_mode: str
+
+    def extra_env(self) -> dict[str, str]:
+        return {"HEGEL_PROTOCOL_TEST_MODE": self.test_mode}
+
+    def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
+        return st.just({})
+
+    def validate(
+        self,
+        metrics_list: list[dict[str, Any]],
+        params: dict[str, Any],
+    ) -> None:
+        pass
+
+
+class StopTestOnGenerateConformance(ErrorHandlingConformance):
+    """Conformance test for StopTest error on generate command."""
+
+    test_mode = "stop_test_on_generate"
+
+
+class StopTestOnMarkCompleteConformance(ErrorHandlingConformance):
+    """Conformance test for StopTest error on mark_complete command."""
+
+    test_mode = "stop_test_on_mark_complete"
+
+
+class ErrorResponseConformance(ErrorHandlingConformance):
+    """Conformance test for generic error response handling."""
+
+    test_mode = "error_response"
+
+
+class EmptyTestConformance(ErrorHandlingConformance):
+    """Conformance test for empty test run (no test cases)."""
+
+    test_mode = "empty_test"
+
+
+class StopTestOnCollectionMoreConformance(ErrorHandlingConformance):
+    """Conformance test for StopTest error on collection_more command."""
+
+    test_mode = "stop_test_on_collection_more"
+
+
+class StopTestOnNewCollectionConformance(ErrorHandlingConformance):
+    """Conformance test for StopTest error on new_collection command."""
+
+    test_mode = "stop_test_on_new_collection"
 
 
 class BooleanConformance(ConformanceTest):
@@ -494,13 +562,18 @@ class DictConformance(ConformanceTest):
 
 
 def run_conformance_tests(
-    tests: list[ConformanceTest],
+    tests: Collection[ConformanceTest],
     subtests: pytest.Subtests,
     *,
     settings: Settings | None = None,
+    skip_tests: Collection[type[ConformanceTest]] = frozenset(),
 ) -> None:
-    """Run all conformance tests using pytest subtests."""
-    assert {type(t) for t in tests} == ConformanceTest.registered_tests
+    names = {type(t).__name__ for t in tests} | {
+        TestClass.__name__ for TestClass in skip_tests
+    }
+    assert names == {
+        TestClass.__name__ for TestClass in ConformanceTest.registered_tests
+    }
 
     for test in tests:
         with subtests.test(msg=type(test).__name__):
@@ -517,3 +590,9 @@ def run_conformance_tests(
                 test.run(params)
 
             run_test()
+
+    # gives callers visibility into skipped tests in pytest output (and a reminder to
+    # implement them).
+    for TestClass in skip_tests:
+        with subtests.test(msg=TestClass.__name__):
+            pytest.skip("skipped by caller")

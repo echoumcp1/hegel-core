@@ -65,9 +65,8 @@ def _is_protocol_debug():
 CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
 
 
-VERSION = "0.1"
-VERSION_NEGOTIATION_MESSAGE = b"Hegel/1.0"
-VERSION_NEGOTIATION_OK = b"Ok"
+PROTOCOL_VERSION = 0.1
+HANDSHAKE_STRING = b"hegel_handshake_start"
 
 # HEGL in hex
 MAGIC = 0x4845474C
@@ -344,16 +343,21 @@ class Connection:
 
         assert self.__socket._closed
 
-    def send_handshake(self):
-        """Initiate handshake as a client."""
+    def send_handshake(self) -> str:
+        """Initiate handshake as a client.
+
+        Returns the server protocol version as a string (e.g. ``"0.1"``).
+        """
         if self.__connection_state != ConnectionState.UNRESOLVED:
             raise ValueError("Handshake already established")
 
         self.__connection_state = ConnectionState.CLIENT
-        message_id = self.control_channel.send_request_raw(VERSION_NEGOTIATION_MESSAGE)
+        message_id = self.control_channel.send_request_raw(HANDSHAKE_STRING)
         response = self.control_channel.receive_response_raw(message_id)
-        if response != VERSION_NEGOTIATION_OK:
-            raise ConnectionError(f"Bad handshake result {response!r}")
+        decoded = response.decode("utf-8")
+        if not decoded.startswith("Hegel/"):
+            raise ConnectionError(f"Bad handshake response: {decoded!r}")
+        return decoded.removeprefix("Hegel/")
 
     def receive_handshake(self):
         """Accept handshake as a server."""
@@ -362,15 +366,12 @@ class Connection:
 
         self.__connection_state = ConnectionState.SERVER
         control = self.control_channel
-        # Version negotiation
         message_id, payload = control.receive_request_raw()
-        if payload == VERSION_NEGOTIATION_MESSAGE:
-            control.send_response_raw(message_id, b"Ok")
-        else:
-            control.send_response_raw(
-                message_id,
-                f"Error: Unrecognised negotiation string {payload!r}".encode(),
+        if payload != HANDSHAKE_STRING:
+            raise ConnectionError(
+                f"Bad handshake: expected {HANDSHAKE_STRING!r}, got {payload!r}"
             )
+        control.send_response_raw(message_id, f"Hegel/{PROTOCOL_VERSION}".encode())
 
     @property
     def control_channel(self) -> "Channel":

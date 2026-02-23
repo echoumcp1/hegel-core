@@ -1,4 +1,3 @@
-import base64
 from typing import Any
 
 from hypothesis import strategies as st
@@ -61,7 +60,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         return st.binary(
             min_size=schema["min_size"],
             max_size=schema.get("max_size"),
-        ).map(lambda b: base64.b64encode(b).decode("ascii"))
+        )
     if schema_type == "regex":
         return st.from_regex(
             schema["pattern"],
