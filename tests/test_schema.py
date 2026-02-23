@@ -479,3 +479,70 @@ def test_domain_schema(example):
 @given(from_schema({"type": "domain", "max_length": 50}))
 def test_domain_with_max_length(example):
     assert len(example) <= 50
+
+
+def test_number_defaults():
+    assert_all_examples(
+        from_schema({"type": "number"}),
+        lambda x: isinstance(x, float),
+    )
+
+
+def test_string_min_size_default():
+    assert_all_examples(
+        from_schema({"type": "string"}),
+        lambda x: isinstance(x, str),
+    )
+
+
+def test_binary_min_size_default():
+    assert_all_examples(
+        from_schema({"type": "binary"}),
+        lambda x: isinstance(x, bytes),
+    )
+
+
+def test_regex_fullmatch_default():
+    assert_all_examples(
+        from_schema({"type": "regex", "pattern": r"[a-z]+"}),
+        lambda x: isinstance(x, str),
+    )
+
+
+def test_list_min_size_default():
+    assert_all_examples(
+        from_schema({"type": "list", "elements": {"type": "integer"}}),
+        lambda x: isinstance(x, list),
+    )
+
+
+def test_set_min_size_default():
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "set",
+                "elements": {"type": "integer", "min_value": 0, "max_value": 100},
+            }
+        ),
+        lambda x: isinstance(x, set),
+    )
+
+
+def test_dict_min_size_default():
+    assert_all_examples(
+        from_schema(
+            {
+                "type": "dict",
+                "keys": {"type": "string"},
+                "values": {"type": "integer"},
+            }
+        ),
+        lambda x: isinstance(x, list),
+    )
+
+
+def test_domain_max_length_default():
+    assert_all_examples(
+        from_schema({"type": "domain"}),
+        lambda x: isinstance(x, str),
+    )
