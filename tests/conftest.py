@@ -1,17 +1,17 @@
 import contextlib
-import socket
+import socket as socket_module
 from threading import Thread
 
 import pytest
 from client import Client
 
-from hegel.protocol import Connection
+from hegel.protocol.connection import Connection
 from hegel.server import run_server_on_connection
 
 
 @pytest.fixture
 def socket_pair():
-    s1, s2 = socket.socketpair()
+    s1, s2 = socket_module.socketpair()
     yield s1, s2
     # suppress because a test might already have closed the socket
     with contextlib.suppress(OSError):
@@ -20,8 +20,16 @@ def socket_pair():
         s2.close()
 
 
+@pytest.fixture
+def socket():
+    s = socket_module.socket()
+    yield s
+    with contextlib.suppress(OSError):
+        s.close()
+
+
 def _make_client():
-    server_socket, client_socket = socket.socketpair()
+    server_socket, client_socket = socket_module.socketpair()
     thread = Thread(
         target=run_server_on_connection,
         args=(Connection(server_socket, name="Server"),),
@@ -36,6 +44,6 @@ def _make_client():
 @pytest.fixture
 def client():
     client, conn, thread = _make_client()
-    yield client
-    conn.close()
+    with conn:
+        yield client
     thread.join(timeout=5)

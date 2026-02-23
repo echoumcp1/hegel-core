@@ -9,7 +9,6 @@ from hegel.conformance import BooleanConformance
 
 
 def _make_conformance_binary(script_body):
-    """Create a temporary executable Python script for conformance testing."""
     with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".py",

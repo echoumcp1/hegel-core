@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from hegel.protocol import Connection
+from hegel.protocol.connection import Connection
 from hegel_sdk.client import Client
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -48,7 +48,7 @@ class _HegelSession:
         self.__lock = threading.Lock()
 
     def __has_working_client(self):
-        return self._client is not None and self._connection.live
+        return self._client is not None and self._connection.running
 
     def _start(self) -> None:
         """Start hegeld if not already running."""

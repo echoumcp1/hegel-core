@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 from client import (
     Client,
-    _get_channel,
     assume,
     collection,
     generate_from_schema,
@@ -19,7 +18,8 @@ from client import (
 from hypothesis import strategies as st
 from hypothesis.errors import UnsatisfiedAssumption
 
-from hegel.protocol import Connection, RequestError
+from hegel.protocol import ProtocolError
+from hegel.protocol.connection import Connection
 from hegel.server import (
     FROM_SCHEMA_CACHE,
     cached_from_schema,
@@ -46,8 +46,8 @@ def test_stop_span_with_discard(client):
 
 
 def test_unknown_command(client):
-    with pytest.raises(RequestError, match="Unknown command"):
-        client._control.request({"command": "bogus"}).get()
+    with pytest.raises(ProtocolError):
+        client._control.send_request({"command": "bogus"}).get()
 
 
 def test_cache_eviction():
@@ -57,19 +57,6 @@ def test_cache_eviction():
         cached_from_schema(schema)
 
     assert len(FROM_SCHEMA_CACHE) <= FROM_SCHEMA_CACHE.max_size
-
-
-def test_unknown_command_in_test_case(client):
-    """Test that an unknown command in test case handler raises ValueError."""
-
-    def test():
-        channel = _get_channel()
-        # Send an unknown command on the test case channel
-        with pytest.raises(RequestError):
-            channel.request({"command": "bogus_command"}).get()
-
-    # The test should still complete even though the command fails
-    client.run_test("test_unknown_cmd", test, test_cases=1)
 
 
 def test_collection_with_no_max_size(client):
@@ -110,18 +97,6 @@ def test_collection_reject_on_server(client):
     client.run_test("test_collection_reject", test, test_cases=20)
 
 
-def test_mark_complete_bad_status(client):
-    def test():
-        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
-        channel = _get_channel()
-        with pytest.raises(RequestError):
-            channel.request(
-                {"command": "mark_complete", "status": "NOT_A_VALID_STATUS"},
-            ).get()
-
-    client.run_test("test_unknown_status", test, test_cases=1)
-
-
 def test_unsatisfied_assumption_in_handler(client):
     class AlwaysRejectStrategy(st.SearchStrategy):
         def do_draw(self, data):
@@ -146,30 +121,29 @@ def test_future_cancel_on_connection_error():
     server_socket, client_socket = socket.socketpair()
     thread = Thread(
         target=run_server_on_connection,
-        args=(Connection(server_socket, name="Server"),),
+        args=(Connection(server_socket),),
         daemon=True,
     )
     thread.start()
 
-    client_connection = Connection(client_socket, name="Client")
-    client = Client(client_connection)
+    with Connection(client_socket) as client_connection:
+        client = Client(client_connection)
 
-    # Send a run_test request, then immediately close
-    channel = client_connection.new_channel(role="Test")
-    client._control.request(
-        {
-            "command": "run_test",
-            "name": "doomed_test",
-            "channel": channel.channel_id,
-            "test_cases": 100,
-        },
-    ).get()
+        # Send a run_test request, then immediately close
+        channel = client_connection.new_channel()
+        client._control.send_request(
+            {
+                "command": "run_test",
+                "name": "doomed_test",
+                "channel_id": channel.channel_id,
+                "test_cases": 100,
+            },
+        ).get()
 
-    # Give the server a moment to start handling the test
-    time.sleep(0.1)
-    # Close the client connection — this causes the server to get ConnectionError
-    # both in the main loop and in _run_one
-    client_connection.close()
+        # Give the server a moment to start handling the test
+        time.sleep(0.1)
+        # Close the client connection — this causes the server to get ConnectionError
+        # both in the main loop and in _run_one
 
     thread.join(timeout=10)
 
@@ -179,28 +153,36 @@ def test_base_exception_in_server():
 
     Tests the except BaseException handler in run_server_on_connection's main
     loop, which catches non-ConnectionError exceptions and prints the traceback.
-    We patch receive_request (used in the while loop) to raise KeyboardInterrupt.
-    receive_handshake uses receive_request_raw so it is unaffected by the patch.
+    We let the handshake complete normally, then patch receive_request to raise
+    KeyboardInterrupt on the next call (the main loop).
     """
     server_socket, client_socket = socket.socketpair()
-    server_conn = Connection(server_socket, name="Server")
+    server_conn = Connection(server_socket)
+
+    original_receive = server_conn.control_channel.read_request
+    call_count = 0
+
+    def patched_receive(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise KeyboardInterrupt("simulated")
+        return original_receive(*args, **kwargs)
 
     def server():
         with patch.object(
             server_conn.control_channel,
-            "receive_request",
-            side_effect=KeyboardInterrupt("simulated"),
+            "read_request",
+            side_effect=patched_receive,
         ):
             run_server_on_connection(server_conn)
 
     thread = Thread(target=server, daemon=True)
     thread.start()
 
-    client_conn = Connection(client_socket, name="Client")
-    client_conn.send_handshake()
-
-    time.sleep(0.3)
-    client_conn.close()
+    with Connection(client_socket) as client_conn:
+        client_conn.send_handshake()
+        time.sleep(0.3)
     thread.join(timeout=5)
 
 

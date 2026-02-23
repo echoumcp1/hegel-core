@@ -11,11 +11,9 @@ except NameError:  # pragma: no cover
 
 import cbor2
 
-from hegel.protocol import (
-    Channel,
-    Connection,
-    RequestError,
-)
+from hegel.protocol import RequestError
+from hegel.protocol.channel import Channel
+from hegel.protocol.connection import Connection
 
 SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.1)
 
@@ -65,12 +63,12 @@ class Client:
         test_channel = self.connection.new_channel(role="Test")
 
         with self.__lock:
-            self._control.request(
+            self._control.send_request(
                 {
                     "command": "run_test",
                     "name": name,
                     "test_cases": test_cases,
-                    "channel": test_channel.channel_id,
+                    "channel_id": test_channel.channel_id,
                 },
             ).get()
 
@@ -78,29 +76,33 @@ class Client:
 
         test_case_count = 0
         while True:
-            message_id, message = test_channel.receive_request()
+            packet = test_channel.read_request()
+            message = cbor2.loads(packet.payload)
             test_case_count += 1
             event = message.get("event")
 
             if event == "test_case":
-                channel_id = message["channel"]
-                test_channel.send_response_value(message_id, None)
+                channel_id = message["channel_id"]
+                test_channel.write_reply(
+                    packet.message_id, cbor2.dumps({"result": None})
+                )
                 test_case_channel = self.connection.connect_channel(
                     channel_id,
                     role="Test Case",
                 )
                 self._run_test_case(test_case_channel, test_fn, is_final=False)
             elif event == "test_done":
-                test_channel.send_response_value(message_id, message=True)
+                test_channel.write_reply(
+                    packet.message_id, cbor2.dumps({"result": True})
+                )
                 result_data = message["results"]
                 break
             else:
-                test_channel.send_response_raw(
-                    message_id,
+                test_channel.write_reply(
+                    packet.message_id,
                     cbor2.dumps(
                         {
                             "error": f"Unrecognised event {event}",
-                            "type": "InvalidMessage",
                         },
                     ),
                 )
@@ -115,12 +117,15 @@ class Client:
         exceptions: list[Exception] = []
         for i in range(n_interesting):
             try:
-                message_id, message = test_channel.receive_request()
+                packet = test_channel.read_request()
+                message = cbor2.loads(packet.payload)
                 test_case_count += 1
                 assert message["event"] == "test_case"
 
-                channel_id = message["channel"]
-                test_channel.send_response_value(message_id, None)
+                channel_id = message["channel_id"]
+                test_channel.write_reply(
+                    packet.message_id, cbor2.dumps({"result": None})
+                )
                 test_case_channel = self.connection.connect_channel(
                     channel_id,
                     role="Test Case",
@@ -175,12 +180,14 @@ class Client:
             _is_final.set(False)
             _test_aborted.set(False)
             if not already_complete:
-                channel.send_request(
-                    {
-                        "command": "mark_complete",
-                        "status": status,
-                        "origin": origin,
-                    },
+                channel.write_request(
+                    cbor2.dumps(
+                        {
+                            "command": "mark_complete",
+                            "status": status,
+                            "origin": origin,
+                        }
+                    )
                 )
             channel.close()
 
@@ -209,16 +216,24 @@ def _get_channel() -> Channel:
     return channel
 
 
-def generate_from_schema(schema: dict) -> Any:
-    """Generate a value from a schema."""
-    channel = _get_channel()
+def _request(payload: dict) -> Any:
+    """Send a request on the current test channel, handling server-side errors.
+
+    Converts server-side StopTest/UnsatisfiedAssumption errors into
+    DataExhausted so the client knows the test case is already complete.
+    """
     try:
-        return channel.request({"command": "generate", "schema": schema}).get()
+        return _get_channel().send_request(payload).get()
     except RequestError as e:
         if e.error_type == "StopTest":
             _test_aborted.set(True)
             raise DataExhausted("Server ran out of data") from e
         raise
+
+
+def generate_from_schema(schema: dict) -> Any:
+    """Generate a value from a schema."""
+    return _request({"command": "generate", "schema": schema})
 
 
 def assume(condition: bool) -> None:
@@ -235,24 +250,21 @@ def note(message: str) -> None:
 
 def target(value: float, label: str = "") -> None:
     """Guide the search toward higher values."""
-    channel = _get_channel()
-    channel.request({"command": "target", "value": value, "label": label}).get()
+    _request({"command": "target", "value": value, "label": label})
 
 
 def start_span(label: int = 0) -> None:
     """Start a generation span for better shrinking."""
     if _test_aborted.get():
         return
-    channel = _get_channel()
-    channel.request({"command": "start_span", "label": label}).get()
+    _request({"command": "start_span", "label": label})
 
 
 def stop_span(*, discard: bool = False) -> None:
     """End the current generation span."""
     if _test_aborted.get():
         return
-    channel = _get_channel()
-    channel.request({"command": "stop_span", "discard": discard}).get()
+    _request({"command": "stop_span", "discard": discard})
 
 
 class collection:
@@ -268,16 +280,14 @@ class collection:
     @property
     def _server_name(self):
         if self.__server_name is None:
-            self.__server_name = (
-                _get_channel().request(
-                    {
-                        "command": "new_collection",
-                        "name": self.__base_name,
-                        "min_size": self.min_size,
-                        "max_size": self.max_size,
-                    }
-                )
-            ).get()
+            self.__server_name = _request(
+                {
+                    "command": "new_collection",
+                    "name": self.__base_name,
+                    "min_size": self.min_size,
+                    "max_size": self.max_size,
+                }
+            )
         return self.__server_name
 
     def more(self) -> bool:
@@ -285,10 +295,8 @@ class collection:
         if self.__finished:
             return False
 
-        result = (
-            _get_channel()
-            .request({"command": "collection_more", "collection": self._server_name})
-            .get()
+        result = _request(
+            {"command": "collection_more", "collection": self._server_name}
         )
         if not result:
             self.__finished = True
@@ -298,14 +306,10 @@ class collection:
         """We did not add the last element to the collection,
         don't count it towards our size budget."""
         if not self.__finished:
-            return (
-                _get_channel()
-                .request(
-                    {
-                        "command": "collection_reject",
-                        "collection": self._server_name,
-                        "why": why,
-                    }
-                )
-                .get()
+            _request(
+                {
+                    "command": "collection_reject",
+                    "collection": self._server_name,
+                    "why": why,
+                }
             )
