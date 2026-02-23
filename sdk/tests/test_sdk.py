@@ -1015,7 +1015,7 @@ def test_unrecognised_event_in_run_test():
             message["channel_id"],
             role="Test",
         )
-        control.write_reply(packet.message_id, cbor2.dumps({"result": True}))
+        control.write_reply(packet.message_id, True)
 
         bogus_packet = test_channel.write_request(cbor2.dumps({"event": "bogus_event"}))
         test_channel.read_reply(bogus_packet.message_id)

@@ -126,19 +126,15 @@ class Channel:
             try:
                 result = handler(message)
             except BaseException as e:
-                self.write_reply(
+                self.write_reply_error(
                     packet.message_id,
-                    cbor2.dumps(
-                        {
-                            "error": str(e),
-                            "type": type(e).__name__,
-                        }
-                    ),
+                    error=str(e),
+                    error_type=type(e).__name__,
                 )
                 if not isinstance(e, Exception):
                     raise
                 continue
-            self.write_reply(packet.message_id, cbor2.dumps({"result": result}))
+            self.write_reply(packet.message_id, result)
 
     def write_request(self, payload: bytes) -> Packet:
         """Write a request packet to the socket. Returns the packet."""
@@ -153,7 +149,21 @@ class Channel:
         self.next_message_id = MessageId(self.next_message_id + 1)
         return packet
 
-    def write_reply(self, message_id: MessageId, payload: bytes) -> None:
+    def write_reply(self, message_id: MessageId, value: Any) -> None:
+        self.write_reply_bytes(message_id, cbor2.dumps({"result": value}))
+
+    def write_reply_error(
+        self,
+        message_id: MessageId,
+        *,
+        error: str,
+        error_type: str,
+    ) -> None:
+        self.write_reply_bytes(
+            message_id, cbor2.dumps({"error": error, "type": error_type})
+        )
+
+    def write_reply_bytes(self, message_id: MessageId, payload: bytes) -> None:
         """Write a reply packet to the socket."""
         assert isinstance(payload, bytes)
         self.connection.write_packet(

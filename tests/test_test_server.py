@@ -55,7 +55,7 @@ def _receive_test_case(test_channel, conn):
     data_channel = conn.connect_channel(
         message["channel_id"],
     )
-    test_channel.write_reply(packet.message_id, cbor2.dumps({"result": None}))
+    test_channel.write_reply(packet.message_id, None)
     return data_channel, message.get("is_final", False)
 
 
@@ -151,7 +151,7 @@ def _receive_test_done(test_channel):
     packet = test_channel.read_request()
     message = cbor2.loads(packet.payload)
     assert message["event"] == "test_done"
-    test_channel.write_reply(packet.message_id, cbor2.dumps({"result": None}))
+    test_channel.write_reply(packet.message_id, None)
     return message["results"]
 
 

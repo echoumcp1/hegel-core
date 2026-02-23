@@ -183,7 +183,7 @@ class Connection:
         self._state = ConnectionState.SERVER
         packet = self.control_channel.read_request()
         assert packet.payload == HANDSHAKE_STRING
-        self.control_channel.write_reply(
+        self.control_channel.write_reply_bytes(
             packet.message_id, f"Hegel/{PROTOCOL_VERSION}".encode()
         )
 

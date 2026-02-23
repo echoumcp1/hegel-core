@@ -104,28 +104,21 @@ class Client:
 
             if event == "test_case":
                 channel_id = message["channel_id"]
-                test_channel.write_reply(
-                    packet.message_id, cbor2.dumps({"result": None})
-                )
+                test_channel.write_reply(packet.message_id, None)
                 test_case_channel = self.connection.connect_channel(
                     channel_id,
                     role="Test Case",
                 )
                 self._run_test_case(test_case_channel, test_fn, is_final=False)
             elif event == "test_done":
-                test_channel.write_reply(
-                    packet.message_id, cbor2.dumps({"result": True})
-                )
+                test_channel.write_reply(packet.message_id, True)
                 result_data = message["results"]
                 break
             else:
-                test_channel.write_reply(
+                test_channel.write_reply_error(
                     packet.message_id,
-                    cbor2.dumps(
-                        {
-                            "error": f"Unrecognised event {event}",
-                        },
-                    ),
+                    error=f"Unrecognised event {event}",
+                    error_type="InvalidMessage",
                 )
 
         assert result_data is not None
@@ -143,9 +136,7 @@ class Client:
                 assert message["event"] == "test_case"
 
                 channel_id = message["channel_id"]
-                test_channel.write_reply(
-                    packet.message_id, cbor2.dumps({"result": None})
-                )
+                test_channel.write_reply(packet.message_id, None)
                 test_case_channel = self.connection.connect_channel(
                     channel_id,
                     role="Test Case",

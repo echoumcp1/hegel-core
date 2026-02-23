@@ -189,8 +189,7 @@ def run_server_on_connection(connection: Connection) -> None:
                         ),
                     )
                     connection.control_channel.write_reply(
-                        packet.message_id,
-                        cbor2.dumps({"result": True}),
+                        packet.message_id, True
                     )
                 else:
                     raise ValueError(f"Unknown command: {command}")

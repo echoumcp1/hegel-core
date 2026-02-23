@@ -209,9 +209,9 @@ def test_close_channel_marks_closed(socket_pair, create_channel_first):
             channel_id = msg["channel_id"]
             role = "Hello" if create_channel_first else None
             server_conn.connect_channel(channel_id, role=role)
-            channel.write_reply(packet.message_id, cbor2.dumps({"result": "Ok"}))
+            channel.write_reply(packet.message_id, "Ok")
             packet = channel.read_request()
-            channel.write_reply(packet.message_id, cbor2.dumps({"result": "Ok"}))
+            channel.write_reply(packet.message_id, "Ok")
 
         t = Thread(target=server_side, daemon=True)
         t.start()
@@ -431,7 +431,7 @@ def test_send_handshake_bad_reply(socket_pair):
         def bad_server():
             channel = server_conn.control_channel
             packet = channel.read_request()
-            channel.write_reply(packet.message_id, b"NotOk")
+            channel.write_reply_bytes(packet.message_id, b"NotOk")
 
         t = Thread(target=bad_server, daemon=True)
         t.start()
