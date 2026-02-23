@@ -14,8 +14,8 @@ import traceback
 from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 from random import Random, getrandbits
+from typing import Any
 
 from hypothesis import settings
 from hypothesis.control import BuildContext

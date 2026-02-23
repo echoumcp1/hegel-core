@@ -122,10 +122,7 @@ class _HegelSession:
             self._temp_dir = None
 
     def run_test(
-        self,
-        test_fn: Callable[[], None],
-        test_cases: int,
-        seed: int | None
+        self, test_fn: Callable[[], None], test_cases: int, seed: int | None
     ) -> None:
         """Run a property test using the shared hegeld process."""
         self._start()
@@ -176,7 +173,7 @@ def hegel(
 def run_hegel_test(
     test_fn: Callable[[], None],
     *,
-    seed: int | None,
+    seed: int | None = None,
     test_cases: int = 100,
 ) -> None:
     """Run a property test using the shared hegeld process.
