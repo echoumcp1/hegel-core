@@ -2,7 +2,6 @@ import os
 import subprocess
 import sys
 import time
-
 from threading import Thread
 
 import cbor2
