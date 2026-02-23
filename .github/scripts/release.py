@@ -104,7 +104,12 @@ def release() -> None:
     git("config", "user.email", "noreply@github.com", cwd=ROOT)
     git("add", "pyproject.toml", "sdk/pyproject.toml", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
-    git("commit", "-m", f"Bump to version {new_version} and update changelog\n\n[skip ci]", cwd=ROOT)
+    git(
+        "commit",
+        "-m",
+        f"Bump to version {new_version} and update changelog\n\n[skip ci]",
+        cwd=ROOT,
+    )
     git("tag", f"v{new_version}", cwd=ROOT)
     git("push", "origin", "main", "--tags", cwd=ROOT)
 
