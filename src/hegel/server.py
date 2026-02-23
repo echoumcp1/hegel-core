@@ -188,9 +188,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             test_cases=message["test_cases"],
                         ),
                     )
-                    connection.control_channel.write_reply(
-                        packet.message_id, True
-                    )
+                    connection.control_channel.write_reply(packet.message_id, True)
                 else:
                     raise ValueError(f"Unknown command: {command}")
     except (ConnectionError, ProtocolError):
