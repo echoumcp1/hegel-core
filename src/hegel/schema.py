@@ -38,11 +38,11 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         return st.floats(
             schema.get("min_value"),
             schema.get("max_value"),
-            allow_nan=schema["allow_nan"],
-            allow_infinity=schema["allow_infinity"],
-            width=schema["width"],
-            exclude_min=schema["exclude_min"],
-            exclude_max=schema["exclude_max"],
+            allow_nan=schema.get("allow_nan"),
+            allow_infinity=schema.get("allow_infinity"),
+            width=schema.get("width", 64),
+            exclude_min=schema.get("exclude_min", False),
+            exclude_max=schema.get("exclude_max", False),
         )
     if schema_type == "string":
         # Exclude null bytes due to reflect-cpp truncation bug:
@@ -53,29 +53,29 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
                 blacklist_characters="\x00",
                 blacklist_categories=("Cs",),  # type: ignore[arg-type]
             ),
-            min_size=schema["min_size"],
+            min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
         )
     if schema_type == "binary":
         return st.binary(
-            min_size=schema["min_size"],
+            min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
         )
     if schema_type == "regex":
         return st.from_regex(
             schema["pattern"],
-            fullmatch=schema["fullmatch"],
+            fullmatch=schema.get("fullmatch", False),
         )
     if schema_type == "list":
         return st.lists(
             from_schema(schema["elements"]),
-            min_size=schema["min_size"],
+            min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
         )
     if schema_type == "set":
         return st.sets(
             from_schema(schema["elements"]),
-            min_size=schema["min_size"],
+            min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
         )
     if schema_type == "dict":
@@ -83,7 +83,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         return st.dictionaries(
             keys=from_schema(schema["keys"]),
             values=from_schema(schema["values"]),
-            min_size=schema["min_size"],
+            min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
         ).map(lambda d: list(d.items()))
     if schema_type == "tuple":
@@ -102,7 +102,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if schema_type == "url":
         return urls()
     if schema_type == "domain":
-        return domains(max_length=schema["max_length"])
+        return domains(max_length=schema.get("max_length", 255))
     if schema_type == "ipv4":
         return st.ip_addresses(v=4).map(str)
     if schema_type == "ipv6":
