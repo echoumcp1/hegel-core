@@ -58,7 +58,9 @@ def read_packet(sock: socket.socket, *, timeout: float | None = None) -> Packet:
     sock.settimeout(timeout)
     header = read_exact(sock, n=struct.calcsize(PACKET_HEADER_FORMAT))
     sock.settimeout(None)
-    magic, checksum, channel, message_id, length = struct.unpack(PACKET_HEADER_FORMAT, header)
+    magic, checksum, channel, message_id, length = struct.unpack(
+        PACKET_HEADER_FORMAT, header
+    )
     assert magic == PACKET_MAGIC
 
     is_reply = (message_id & REPLY_BIT) != 0
@@ -96,6 +98,11 @@ def write_packet(sock: socket.socket, packet: Packet) -> None:
     checksum = zlib.crc32(zeroed_header + packet.payload)
 
     zeroed_header = struct.pack(
-        ">5I", PACKET_MAGIC, checksum, packet.channel_id, message_id, len(packet.payload)
+        ">5I",
+        PACKET_MAGIC,
+        checksum,
+        packet.channel_id,
+        message_id,
+        len(packet.payload),
     )
     sock.sendall(zeroed_header + packet.payload + bytes([PACKET_TERMINATOR]))

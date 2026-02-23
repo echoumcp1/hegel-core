@@ -40,7 +40,9 @@ def _make_packet(
     )
     if checksum is None:
         checksum = zlib.crc32(header_for_check + payload) & 0xFFFFFFFF
-    header = struct.pack(PACKET_HEADER_FORMAT, magic, checksum, channel_id, message_id, length)
+    header = struct.pack(
+        PACKET_HEADER_FORMAT, magic, checksum, channel_id, message_id, length
+    )
     return header + payload + bytes([terminator])
 
 
