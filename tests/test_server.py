@@ -33,7 +33,7 @@ def test_start_and_stop_span(client):
         _x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span()
 
-    client.run_test("test_spans", test, test_cases=10, seed=1234)
+    client.run_test("test_spans", test, test_cases=10)
 
 
 def test_stop_span_with_discard(client):
@@ -42,7 +42,7 @@ def test_stop_span_with_discard(client):
         _x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span(discard=True)
 
-    client.run_test("test_spans_discard", test, test_cases=10, seed=1234)
+    client.run_test("test_spans_discard", test, test_cases=10)
 
 
 def test_unknown_command(client):
@@ -69,7 +69,7 @@ def test_unknown_command_in_test_case(client):
             channel.request({"command": "bogus_command"}).get()
 
     # The test should still complete even though the command fails
-    client.run_test("test_unknown_cmd", test, test_cases=1, seed=1234)
+    client.run_test("test_unknown_cmd", test, test_cases=1)
 
 
 def test_collection_with_no_max_size(client):
@@ -83,7 +83,7 @@ def test_collection_with_no_max_size(client):
             result.append(val)
         assert len(result) >= 1
 
-    client.run_test("test_collection_no_max", test, test_cases=10, seed=1234)
+    client.run_test("test_collection_no_max", test, test_cases=10)
 
 
 def test_collection_reject_on_server(client):
@@ -107,7 +107,7 @@ def test_collection_reject_on_server(client):
             else:
                 result.append(val)
 
-    client.run_test("test_collection_reject", test, test_cases=20, seed=1234)
+    client.run_test("test_collection_reject", test, test_cases=20)
 
 
 def test_mark_complete_bad_status(client):
@@ -119,7 +119,7 @@ def test_mark_complete_bad_status(client):
                 {"command": "mark_complete", "status": "NOT_A_VALID_STATUS"},
             ).get()
 
-    client.run_test("test_unknown_status", test, test_cases=1, seed=1234)
+    client.run_test("test_unknown_status", test, test_cases=1)
 
 
 def test_unsatisfied_assumption_in_handler(client):
@@ -131,7 +131,7 @@ def test_unsatisfied_assumption_in_handler(client):
         generate_from_schema({"type": "integer"})
 
     with patch("hegel.server.cached_from_schema", return_value=AlwaysRejectStrategy()):
-        client.run_test("test_unsatisfied_in_handler", test, test_cases=10, seed=1234)
+        client.run_test("test_unsatisfied_in_handler", test, test_cases=10)
 
 
 def test_future_cancel_on_connection_error():
@@ -222,7 +222,7 @@ def test_failing(client):
         )
 
     with pytest.raises(AssertionError):
-        client.run_test("test_fail", test, test_cases=100, seed=1234)
+        client.run_test("test_fail", test, test_cases=100)
 
 
 def test_assume(client):
@@ -231,7 +231,7 @@ def test_assume(client):
         assume(x % 2 == 0)
         assert x % 2 == 0
 
-    client.run_test("test_assume", test, test_cases=100, seed=1234)
+    client.run_test("test_assume", test, test_cases=100)
 
 
 def test_multiple_tests_on_connection(client):
@@ -243,8 +243,8 @@ def test_multiple_tests_on_connection(client):
         s = generate_from_schema({"type": "string", "min_size": 0, "max_size": 10})
         assert isinstance(s, str)
 
-    client.run_test("test1", test1, test_cases=20, seed=1234)
-    client.run_test("test2", test2, test_cases=20, seed=1235)
+    client.run_test("test1", test1, test_cases=20)
+    client.run_test("test2", test2, test_cases=20)
 
 
 def test_target(client):
@@ -252,4 +252,4 @@ def test_target(client):
         x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
         target(float(x), "size")
 
-    client.run_test("test_target", test, test_cases=50, seed=1234)
+    client.run_test("test_target", test, test_cases=50)
