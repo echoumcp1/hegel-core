@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from queue import SimpleQueue
+from queue import Empty, SimpleQueue
 from time import time
 from typing import TYPE_CHECKING, Any
 
@@ -96,11 +96,16 @@ class Channel:
             or not self.unprocessed_packets.empty()
         )
 
-        packet = self.unprocessed_packets.get_nowait()
+        try:
+            packet = self.unprocessed_packets.get_nowait()
+        except Empty:
+            if self.closed:
+                raise ConnectionError(f"{self!r} is closed") from None
+            raise TimeoutError(
+                f"Timed out after {timeout}s waiting for a message on {self!r}",
+            ) from None
         if packet is SHUTDOWN:
             raise ConnectionError("Connection closed")
-
-        assert not self.closed
 
         if packet.is_reply:
             assert packet.message_id not in self.replies

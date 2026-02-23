@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 import time
-from queue import Empty
+
 from threading import Thread
 
 import cbor2
@@ -117,7 +117,7 @@ def test_channel_close_when_connection_not_live(socket_pair):
 
 
 def test_channel_process_message_when_closed(socket_pair):
-    """Test reading from a locally-closed channel times out."""
+    """Test reading from a locally-closed channel raises ConnectionError."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
@@ -128,7 +128,7 @@ def test_channel_process_message_when_closed(socket_pair):
         channel = client_conn.new_channel()
         channel.close()
 
-        with pytest.raises(Empty):
+        with pytest.raises(ConnectionError):
             channel.read_request(timeout=0.1)
 
 
@@ -143,7 +143,7 @@ def test_channel_timeout(socket_pair):
 
         channel = client_conn.new_channel()
 
-        with pytest.raises(Empty):
+        with pytest.raises(TimeoutError):
             channel.read_request(timeout=0.1)
 
 
