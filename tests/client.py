@@ -59,7 +59,7 @@ class Client:
         test_fn: Callable[[], None],
         *,
         test_cases: int,
-        seed: int,
+        seed: int | None,
     ) -> None:
         """Run a property test."""
 

@@ -125,7 +125,7 @@ class _HegelSession:
         self,
         test_fn: Callable[[], None],
         test_cases: int,
-        seed: int
+        seed: int | None
     ) -> None:
         """Run a property test using the shared hegeld process."""
         self._start()
@@ -141,7 +141,7 @@ _session = _HegelSession()
 def hegel(
     test_fn: Callable[[], None] | None = None,
     *,
-    seed: int = 0,
+    seed: int | None = None,
     test_cases: int = 100,
 ) -> Callable[[Callable[[], None]], Callable[[], None]] | Callable[[], None]:
     """Decorator for running property-based tests with Hegel.
@@ -176,7 +176,7 @@ def hegel(
 def run_hegel_test(
     test_fn: Callable[[], None],
     *,
-    seed: int,
+    seed: int | None,
     test_cases: int = 100,
 ) -> None:
     """Run a property test using the shared hegeld process.
