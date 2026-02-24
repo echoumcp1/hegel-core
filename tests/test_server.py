@@ -141,13 +141,14 @@ def test_future_cancel_on_connection_error():
         client = Client(client_connection)
 
         # Send a run_test request, then immediately close
-        channel = client_connection.new_channel()
+        channel = client_connection.new_channel(role="Test")
         client._control.send_request(
             {
                 "command": "run_test",
                 "name": "doomed_test",
                 "channel_id": channel.channel_id,
                 "test_cases": 100,
+                "seed": None,
             },
         ).get()
 

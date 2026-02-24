@@ -767,7 +767,7 @@ def test_hegel_session_run_test():
             )
             assert isinstance(x, int)
 
-        session.run_test(test, test_cases=5)
+        session.run_test(test, seed=None, test_cases=5)
     finally:
         session._cleanup()
 

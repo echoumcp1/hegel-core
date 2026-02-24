@@ -10,10 +10,12 @@ import contextlib
 import hashlib
 import json
 import os
+import random
 import traceback
 from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from random import Random
 from typing import Any
 
 import cbor2
@@ -186,6 +188,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             channel,
                             test_name=test_name,
                             test_cases=message["test_cases"],
+                            seed=message.get("seed"),
                         ),
                     )
                     connection.control_channel.write_reply(packet.message_id, True)
@@ -211,6 +214,7 @@ def _run_one(
     *,
     test_name: str,
     test_cases: int,
+    seed: int | None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -222,6 +226,7 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
+        seed = random.getrandbits(128) if seed is None else seed
         runner = ConjectureRunner(
             make_test_function(connection, channel, is_final=False),
             settings=settings(
@@ -229,6 +234,7 @@ def _run_one(
                 database=DATABASE,
                 max_examples=test_cases,
             ),
+            random=Random(seed),
             database_key=test_name.encode("utf-8"),
         )
         runner.run()
@@ -239,6 +245,7 @@ def _run_one(
             "valid_test_cases": runner.valid_examples,
             "invalid_test_cases": runner.invalid_examples,
             "interesting_test_cases": len(runner.interesting_examples),
+            "seed": str(seed),
         }
 
         channel.send_request({"event": "test_done", "results": result}).get()

@@ -75,7 +75,9 @@ class Client:
         self,
         name: str,
         test_fn: Callable[[], None],
-        test_cases: int = 1000,
+        *,
+        seed: int | None = None,
+        test_cases: int = 100,
     ) -> None:
         """Run a property test."""
 
@@ -83,12 +85,14 @@ class Client:
 
         # Channels aren't thread safe, so we've got to request starting a thread
         # under a lock.
+
         with self.__lock:
             self._control.send_request(
                 {
                     "command": "run_test",
                     "name": name,
                     "test_cases": test_cases,
+                    "seed": seed,
                     "channel_id": test_channel.channel_id,
                 },
             ).get()
