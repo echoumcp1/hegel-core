@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from hegel.conformance import BooleanConformance
+from hegel.conformance import BooleanConformance, TextConformance
 
 
 def _make_conformance_binary(script_body):
@@ -59,3 +59,34 @@ def test_run_failure(conformance_binary):
     bc = BooleanConformance(binary_path, test_cases=1)
     with pytest.raises(RuntimeError, match="exit code"):
         bc.run({})
+
+
+# Unicode characters that Python's str.splitlines() treats as line boundaries
+# but that are valid unescaped inside JSON strings. These can appear in JSONL
+# output from non-Python JSON libraries and must not cause line splitting.
+# (Control characters like \x0b, \x0c, \r, \x1c-\x1e are excluded because
+# they must be escaped in JSON strings per the spec.)
+UNICODE_LINE_BOUNDARIES = [
+    "\x85",  # next line (NEL)
+    "\u2028",  # line separator
+    "\u2029",  # paragraph separator
+]
+
+
+@pytest.mark.parametrize("char", UNICODE_LINE_BOUNDARIES)
+def test_jsonl_parsing_does_not_split_on_unicode_line_boundaries(
+    char, conformance_binary
+):
+    # Construct a raw JSON line with the literal character embedded inside a
+    # string value. Python's json.dumps escapes control characters, so we
+    # build the JSON by hand to simulate what a non-Python JSON library that
+    # doesn't escape these characters might produce.
+    raw_line = '{"length": 5, "text": "hello' + char + 'world"}'
+    # Verify splitlines would actually split this (i.e. the test is meaningful)
+    assert len(raw_line.splitlines()) > 1
+
+    binary_path = conformance_binary(
+        f"mf.write({raw_line!r} + '\\n')",
+    )
+    tc = TextConformance(binary_path, test_cases=1)
+    tc.run({"min_size": 0, "max_size": None})
