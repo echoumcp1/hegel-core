@@ -14,7 +14,7 @@ from click.testing import CliRunner
 from client import Client
 
 from hegel.__main__ import main
-from hegel.protocol import Connection
+from hegel.protocol.connection import Connection
 
 
 @pytest.fixture
@@ -69,12 +69,9 @@ def _client_and_server(socket_path, *args, env=None):
             time.sleep(0.01)
             continue
 
-        conn = Connection(sock)
-        try:
+        with Connection(sock) as conn:
             yield Client(conn)
-        finally:
-            conn.close()
-            t.join(timeout=5)
+        t.join(timeout=5)
         return
 
     raise RuntimeError(f"timed out waiting for socket at {socket_path}")
@@ -100,7 +97,6 @@ def test_cli_cleans_up_stale_socket(socket_path):
 
 
 def test_run_server_with_test_mode(socket_path):
-    """Test run_server routes to test_server when HEGEL_PROTOCOL_TEST_MODE is set."""
     with _client_and_server(
         socket_path, env={"HEGEL_PROTOCOL_TEST_MODE": "empty_test"}
     ) as client:

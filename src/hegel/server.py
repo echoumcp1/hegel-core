@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from random import Random, getrandbits
 from typing import Any
 
+import cbor2
 from hypothesis import settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
@@ -27,7 +28,9 @@ from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import many
 
-from hegel.protocol import Channel, Connection
+from hegel.protocol import ProtocolError
+from hegel.protocol.channel import Channel
+from hegel.protocol.connection import Connection
 from hegel.schema import from_schema
 
 DATABASE = DirectoryBasedExampleDatabase(".hegel")
@@ -69,10 +72,10 @@ def make_test_function(
             test_case_channel = connection.new_channel(role="Test Case")
 
             # Send test_case message to SDK on test case channel
-            channel.request(
+            channel.send_request(
                 {
                     "event": "test_case",
-                    "channel": test_case_channel.channel_id,
+                    "channel_id": test_case_channel.channel_id,
                     "is_final": is_final,
                 },
             ).get()
@@ -83,10 +86,10 @@ def make_test_function(
             def handle_sdk_request(message: dict) -> Any:
                 nonlocal done
                 try:
-                    command = message.get("command")
+                    command = message["command"]
 
                     if command == "generate":
-                        schema = message.get("schema", {})
+                        schema = message["schema"]
                         strategy = cached_from_schema(schema)
                         return data.draw(strategy)
                     elif command == "start_span":
@@ -167,13 +170,13 @@ def run_server_on_connection(connection: Connection) -> None:
             test_count = 0
             while True:
                 test_count += 1
-                id, message = connection.control_channel.receive_request(timeout=None)
-
-                command = message.get("command")
+                packet = connection.control_channel.read_request(timeout=None)
+                message = cbor2.loads(packet.payload)
+                command = message["command"]
                 if command == "run_test":
                     test_name = message.get("name", f"test {test_count}")
                     channel = connection.connect_channel(
-                        message["channel"],
+                        message["channel_id"],
                         role=f"Test channel for {test_name}",
                     )
 
@@ -187,17 +190,10 @@ def run_server_on_connection(connection: Connection) -> None:
                             seed=message.get("seed"),
                         ),
                     )
-                    connection.control_channel.send_response_value(
-                        id,
-                        message=True,
-                    )
+                    connection.control_channel.write_reply(packet.message_id, True)
                 else:
-                    connection.control_channel.send_response_error(
-                        id,
-                        error=f"Unknown command: {command}",
-                        error_type="UnknownCommand",
-                    )
-    except ConnectionError:
+                    raise ValueError(f"Unknown command: {command}")
+    except (ConnectionError, ProtocolError):
         pass
     except BaseException:
         traceback.print_exc()
@@ -250,13 +246,8 @@ def _run_one(
             "interesting_test_cases": len(runner.interesting_examples),
             "seed": str(seed),
         }
-        channel.request(
-            {
-                "event": "test_done",
-                "results": result,
-            },
-        ).get()
 
+        channel.send_request({"event": "test_done", "results": result}).get()
         final_test_function = make_test_function(connection, channel, is_final=True)
 
         for v in sorted(

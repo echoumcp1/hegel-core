@@ -22,7 +22,11 @@ def parse_release_file(path: Path) -> tuple[str, str]:
             f"Expected RELEASE_TYPE: major|minor|patch, got {first_line!r}"
         )
 
-    return match.group(1), rest.strip()
+    content = rest.strip()
+    if not content:
+        raise ValueError("Changelog cannot be empty.")
+
+    return match.group(1), content
 
 
 def bump_version(current: str, release_type: str) -> str:

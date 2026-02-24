@@ -90,7 +90,7 @@ A generator is basic (i.e. has a schema and optional transform) in these cases:
 | `booleans(...)` | Always | `{"type": "boolean", ...}` | None |
 | `text(...)` | Always | `{"type": "string", ...}` | None |
 | `binary(...)` | Always | `{"type": "binary", ...}` | None |
-| `just(value)` | Always | `{"const": <value>}` or `{"const": null}` | Returns the constant value, ignoring server input |
+| `just(value)` | Always | `{"const": null}` | Returns the constant value, ignoring server input |
 | `sampled_from(values)` | Always | `{"type": "integer", "min_value": 0, "max_value": len-1}` | Returns `values[index]` |
 | `basic.map(f)` | Always | Same schema as `basic` | `f` composed with existing transform |
 | `nonbasic.map(f)` | Never | — | — |
@@ -227,23 +227,13 @@ Generate a constant value.
 **Parameters:**
 - `value`: The constant value to always return.
 
-**Schema:** `{"const": null}` (Python) or `{"const": <value>}` (Rust/C++
-for serializable types).
+**Schema:** `{"const": null}`.
 
-In Python, the schema always uses `null` as the const value (the server
-generates a null, and the client-side transform returns the actual constant).
-This allows `just` to work with non-JSON-serializable values.
+The schema always uses `null` as the const value (the server generates a null,
+and the client-side transform returns the actual constant). This allows `just`
+to work with non-JSON-serializable values and works uniformly across all SDKs.
 
-In Rust, `just` requires `Serialize` and uses `{"const": <serialized_value>}`.
-There is also `just_any` for non-serializable types, which has no schema
-and is not basic.
-
-In C++, `just` uses `{"const": <value>}` for primitive types (bool, int,
-float, string) and falls back to a non-basic function-backed generator for
-other types.
-
-**Basic:** Always (for serializable/primitive types). Transform: `_ -> value`
-(ignores server input).
+**Basic:** Always. Transform: `_ -> value` (ignores server input).
 
 ### `sampled_from`
 
@@ -262,12 +252,9 @@ The server generates an index; the client-side transform returns
 
 **Basic:** Always. Transform: `index -> values[index]`.
 
-Note: In Rust, `sampled_from` (owned) uses the index approach for
-CBOR-primitive types and is non-basic for complex types.
-`sampled_from_slice` (borrowed) uses a `{"sampled_from": [values...]}`
-schema for all types. In C++, `sampled_from` uses `{"sampled_from": [...]}`
-for primitive types and the index approach for complex types. The index
-approach is the canonical one used by the reference Python implementation.
+Note: The index approach is canonical and used by all SDKs except TypeScript,
+which uses a `{"sampled_from": [values...]}` schema for primitive types and
+falls back to compositional generation for non-primitive types.
 
 ### `from_regex`
 
@@ -607,7 +594,7 @@ Followed by a CBOR-encoded payload and a terminator byte (`0x0A`).
 
 ### Important Notes
 
-- **Request ID matching**: Always verify response ID matches request ID.
+- **Request ID matching**: Always verify reply ID matches request ID.
 - **additionalProperties**: Server automatically adds `"additionalProperties": false` to object schemas — SDKs should NOT add this.
 
 ## Error Handling
@@ -821,7 +808,7 @@ needed message arrives (or a timeout is reached).
 
 **How it works:**
 
-1. When `Channel.receive_request()` or `Channel.wait_for_response()` is called,
+1. When `Channel.receive_request()` or `Channel.wait_for_reply()` is called,
    the channel invokes `Connection.run_reader(until)` where `until` is a
    condition that becomes true when the channel's inbox has a message, the
    channel is closed, or a timeout expires.
@@ -873,28 +860,6 @@ JSON Schema string lengths count **Unicode codepoints**, not bytes:
 This means 1-10 codepoints. If your language counts bytes by default (e.g.,
 C), you need codepoint-aware string handling.
 
-## Testing Patterns
-
-### Property Test Structure
-
-```rust
-fn test_list_reverse() {
-    let list = vecs(integers::<i32>())
-        .with_min_size(0)
-        .with_max_size(100)
-        .generate();
-
-    // Property: reversing twice gives original
-    let reversed_twice: Vec<i32> = list.iter()
-        .rev()
-        .rev()
-        .cloned()
-        .collect();
-
-    assert_eq!(list, reversed_twice);
-}
-```
-
 ### Debugging Output
 
 Use `note()` for debugging output visible during shrinking:
@@ -907,6 +872,95 @@ fn test_sorting() {
     let sorted = sort(&list);
     assert!(is_sorted(&sorted));
 }
+```
+
+## Testing
+
+Each SDK should have **integration tests** that exercise end-to-end behaviors.
+
+Conformance tests validate that each generator produces values matching its
+constraints. The Python package `hegel.conformance` provides a framework that
+drives these tests automatically — the SDK just needs to provide one compiled
+binary per generator type.
+
+Each conformance binary:
+
+1. Reads JSON parameters from `argv[1]` (e.g. `{"min_value": 0, "max_value": 100}`)
+2. Reads `CONFORMANCE_TEST_CASES` (default 50) and `CONFORMANCE_METRICS_FILE`
+   from environment variables
+3. Runs a `hegel()` call that generates values and writes one JSON line per test
+   case to the metrics file
+
+The Python framework then generates randomized parameters via Hypothesis, runs
+the binary, and validates each line of output against the constraints.
+
+The following conformance tests are required:
+
+| Test | Parameters | Validates |
+|------|-----------|-----------|
+| `BooleanConformance` | (none) | Value is `true` or `false` |
+| `IntegerConformance` | `min_value`, `max_value` | Value within bounds |
+| `FloatConformance` | `min_value`, `max_value`, `exclude_min`, `exclude_max`, `allow_nan`, `allow_infinity` | Value within bounds, NaN/infinity generated when allowed |
+| `TextConformance` | `min_size`, `max_size` | Codepoint length within bounds |
+| `BinaryConformance` | `min_size`, `max_size` | Byte length within bounds |
+| `ListConformance` | `min_size`, `max_size`, `min_value`, `max_value` | Size within bounds, elements within bounds |
+| `SampledFromConformance` | `options` (list of integers) | Value is one of the options |
+| `DictConformance` | `min_size`, `max_size`, `key_type`, `min_key`, `max_key`, `min_value`, `max_value` | Size within bounds, keys and values within bounds |
+
+Integer-related bounds (`min_value`, `max_value` for `IntegerConformance`,
+`ListConformance`, `DictConformance`) should be set to the language's native
+integer range (e.g. `i32` for Rust, `int64` for Go, safe integers for JS).
+
+For `FloatConformance`, `allow_nan` and `allow_infinity` are ternary: `true`,
+`false`, or `null`. When `null`, the conformance binary must **not** call the
+setter, letting the SDK apply its own defaults. The correct defaults (matching
+Hypothesis) are: `allow_nan` is true only when neither bound is set, and
+`allow_infinity` is true only when at least one bound is unset.
+
+The SDK's `test_conformance.py` file wires everything together:
+
+```python
+from hegel.conformance import (
+    BinaryConformance,
+    BooleanConformance,
+    DictConformance,
+    FloatConformance,
+    IntegerConformance,
+    ListConformance,
+    SampledFromConformance,
+    TextConformance,
+    run_conformance_tests,
+)
+
+BUILD_DIR = Path(__file__).parent / "bin"
+INT_MIN = -(2**31)
+INT_MAX = 2**31 - 1
+
+
+def test_conformance(subtests):
+    run_conformance_tests(
+        [
+            BooleanConformance(BUILD_DIR / "test_booleans"),
+            IntegerConformance(
+                BUILD_DIR / "test_integers", min_value=INT_MIN, max_value=INT_MAX
+            ),
+            FloatConformance(BUILD_DIR / "test_floats"),
+            TextConformance(BUILD_DIR / "test_text"),
+            BinaryConformance(BUILD_DIR / "test_binary"),
+            ListConformance(
+                BUILD_DIR / "test_lists", min_value=INT_MIN, max_value=INT_MAX
+            ),
+            SampledFromConformance(BUILD_DIR / "test_sampled_from"),
+            DictConformance(
+                BUILD_DIR / "test_dicts",
+                min_key=INT_MIN,
+                max_key=INT_MAX,
+                min_value=INT_MIN,
+                max_value=INT_MAX,
+            ),
+        ],
+        subtests,
+    )
 ```
 
 ## Implementation Checklist
@@ -980,6 +1034,7 @@ fn test_sorting() {
 - [ ] Unit tests for each generator type
 - [ ] Integration test with actual Hegel server
 - [ ] Property tests using the SDK itself
+- [ ] Conformance tests (see [Testing](#testing))
 - [ ] API documentation
 - [ ] Usage examples
 
@@ -1014,11 +1069,10 @@ reference for new implementations.
 - `map()` on the `Generate` trait returns `Mapped` which implements
   `as_basic()` by checking the source's `as_basic()` and composing via
   `BasicGenerator::map()`. This preserves schemas through `map()`.
-- `sampled_from` uses `{"sampled_from": [...]}` for CBOR primitives and
-  falls back to index generation for complex types. The Python reference
-  uses the index approach universally. SDKs may use either.
-- `just` requires `Serialize` and uses `{"const": <value>}`. Non-serializable
-  constants use `just_any` (no schema).
+- `sampled_from` always uses the integer-index approach (matching the
+  reference Python implementation) and is always basic.
+- `just` works with any `Clone + Send + Sync` type and always uses
+  `{"const": null}` with a transform that returns the constant value.
 
 ### C++
 

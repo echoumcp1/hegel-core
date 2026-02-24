@@ -45,7 +45,7 @@ just sdk format                 # Format SDK code
 Binary protocol over Unix socket with CBOR-encoded payloads:
 - 20-byte header: magic `0x4845474C` (HEGL), CRC32, channel ID, message ID, payload length
 - Channel 0 is the control channel; odd-numbered channels for test communication
-- Reply bit (`1 << 31`) in message ID distinguishes requests from responses
+- Reply bit (`1 << 31`) in message ID distinguishes requests from replies
 - Commands: `generate`, `start_span`, `stop_span`, `target`, `mark_complete`, `new_collection`, `collection_more`, `collection_reject`
 
 ### Module Overview

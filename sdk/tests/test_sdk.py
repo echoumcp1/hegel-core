@@ -13,9 +13,11 @@ try:
 except NameError:
     from exceptiongroup import ExceptionGroup  # type: ignore[no-redef]
 
+import cbor2
 import pytest
 
-from hegel.protocol import Connection, RequestError
+from hegel.protocol import RequestError
+from hegel.protocol.connection import Connection
 from hegel_sdk import (
     BasicGenerator,
     Client,
@@ -1007,17 +1009,18 @@ def test_unrecognised_event_in_run_test():
         server_conn.receive_handshake()
         control = server_conn.control_channel
 
-        msg_id, message = control.receive_request()
+        packet = control.read_request()
+        message = cbor2.loads(packet.payload)
         test_channel = server_conn.connect_channel(
-            message["channel"],
+            message["channel_id"],
             role="Test",
         )
-        control.send_response_value(msg_id, message=True)
+        control.write_reply(packet.message_id, True)
 
-        req_id = test_channel.send_request({"event": "bogus_event"})
-        test_channel.receive_response_raw(req_id)
+        bogus_packet = test_channel.write_request(cbor2.dumps({"event": "bogus_event"}))
+        test_channel.read_reply(bogus_packet.message_id)
 
-        test_channel.request(
+        test_channel.send_request(
             {
                 "event": "test_done",
                 "results": {
@@ -1059,7 +1062,7 @@ def test_is_final_pass_with_multiple_interesting(client):
         if is_final:
             is_final_count[0] += 1
             with contextlib.suppress(RequestError):
-                channel.request(
+                channel.send_request(
                     {"command": "mark_complete", "status": "VALID"},
                 ).get()
             return
