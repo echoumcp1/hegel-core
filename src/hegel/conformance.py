@@ -100,7 +100,9 @@ class ConformanceTest(ABC):
                 )
 
             metrics_list = [
-                json.loads(line) for line in metrics_file.read_text().splitlines()
+                json.loads(line)
+                for line in metrics_file.read_text().split("\n")
+                if line
             ]
 
         self.validate(metrics_list, params)
