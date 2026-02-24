@@ -184,7 +184,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             channel,
                             test_name=test_name,
                             test_cases=message["test_cases"],
-                            seed=message["seed"],
+                            seed=message.get("seed"),
                         ),
                     )
                     connection.control_channel.send_response_value(
