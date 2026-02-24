@@ -14,7 +14,7 @@ import traceback
 from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from random import Random, getrandbits
+from random import Random, random
 from typing import Any
 
 import cbor2
@@ -225,7 +225,7 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
-        seed = getrandbits(128) if seed is None else seed
+        seed = random.getrandbits(128) if seed is None else seed
         runner = ConjectureRunner(
             make_test_function(connection, channel, is_final=False),
             settings=settings(
