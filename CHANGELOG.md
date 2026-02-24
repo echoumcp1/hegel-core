@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 - 2026-02-24
+
+This patch adds support for setting seed to the protocol.
+
+
 ## 0.1.2 - 2026-02-24
 
 Refactor internal protocol code.
