@@ -16,7 +16,11 @@ Modes:
 
 import time
 
-from hegel.protocol import Channel, Connection, MessageId
+import cbor2
+
+from hegel.protocol import MessageId
+from hegel.protocol.channel import Channel
+from hegel.protocol.connection import Connection
 
 
 def run_test_server(connection: Connection, mode: str) -> None:
@@ -38,13 +42,14 @@ def run_test_server(connection: Connection, mode: str) -> None:
 
     try:
         # Wait for run_test command on control channel
-        msg_id, message = connection.control_channel.receive_request()
+        packet = connection.control_channel.read_request()
+        message = cbor2.loads(packet.payload)
         assert message.get("command") == "run_test"
         test_channel = connection.connect_channel(
-            message["channel"],
+            message["channel_id"],
             role="Test channel",
         )
-        connection.control_channel.send_response_value(msg_id, message=True)
+        connection.control_channel.write_reply(packet.message_id, True)
 
         handler(connection, test_channel)
     except ConnectionError:
@@ -61,33 +66,41 @@ def _send_test_case(
 ) -> Channel:
     """Send a test_case event and return the data channel."""
     data_channel = connection.new_channel(role="Data")
-    test_channel.request(
+    test_channel.send_request(
         {
             "event": "test_case",
-            "channel": data_channel.channel_id,
+            "channel_id": data_channel.channel_id,
             "is_final": is_final,
         },
     ).get()
     return data_channel
 
 
+def _read_cbor_request(
+    channel: Channel, **kwargs: float | None
+) -> tuple[MessageId, dict]:
+    """Read a request from a channel and CBOR-decode it."""
+    packet = channel.read_request(**kwargs)
+    return packet.message_id, cbor2.loads(packet.payload)
+
+
 def _handle_normal_generate(data_channel: Channel) -> None:
     """Handle generate commands normally, returning a boolean value."""
-    msg_id, message = data_channel.receive_request()
+    msg_id, message = _read_cbor_request(data_channel)
     assert message.get("command") == "generate"
-    data_channel.send_response_value(msg_id, message=True)
+    data_channel.write_reply(msg_id, True)
 
 
 def _wait_for_mark_complete(data_channel: Channel) -> tuple[MessageId, dict]:
     """Wait for mark_complete command from SDK."""
-    msg_id, message = data_channel.receive_request()
+    msg_id, message = _read_cbor_request(data_channel)
     assert message.get("command") == "mark_complete"
     return msg_id, message
 
 
 def _send_test_done(test_channel: Channel, *, passed: bool = True) -> None:
     """Send test_done event."""
-    test_channel.request(
+    test_channel.send_request(
         {
             "event": "test_done",
             "results": {
@@ -116,18 +129,14 @@ def _mode_stop_test_on_generate(
     data_channel_1 = _send_test_case(connection, test_channel)
     _handle_normal_generate(data_channel_1)
     mc_id, _ = _wait_for_mark_complete(data_channel_1)
-    data_channel_1.send_response_value(mc_id, message=None)
+    data_channel_1.write_reply(mc_id, None)
     data_channel_1.close()
 
     # Second test case: StopTest on generate
     data_channel_2 = _send_test_case(connection, test_channel)
-    msg_id, message = data_channel_2.receive_request()
+    msg_id, message = _read_cbor_request(data_channel_2)
     assert message.get("command") == "generate"
-    data_channel_2.send_response_error(
-        msg_id,
-        error="StopTest",
-        error_type="StopTest",
-    )
+    data_channel_2.write_reply_error(msg_id, error="StopTest", error_type="StopTest")
 
     # Wait briefly to see if SDK incorrectly sends mark_complete
     time.sleep(0.1)
@@ -151,11 +160,7 @@ def _mode_stop_test_on_mark_complete(
     _handle_normal_generate(data_channel)
 
     mc_id, _ = _wait_for_mark_complete(data_channel)
-    data_channel.send_response_error(
-        mc_id,
-        error="StopTest",
-        error_type="StopTest",
-    )
+    data_channel.write_reply_error(mc_id, error="StopTest", error_type="StopTest")
 
     time.sleep(0.1)
     data_channel.close()
@@ -176,7 +181,7 @@ def _handle_commands_until(
     """
     collection_counter = 0
     while True:
-        msg_id, message = data_channel.receive_request()
+        msg_id, message = _read_cbor_request(data_channel)
         command = message.get("command")
 
         if command == stop_on:
@@ -185,11 +190,11 @@ def _handle_commands_until(
         if command == "new_collection":
             name = f"collection_{collection_counter}"
             collection_counter += 1
-            data_channel.send_response_value(msg_id, message=name)
+            data_channel.write_reply(msg_id, name)
         else:
             # All other commands (generate, start_span, stop_span,
             # mark_complete, etc.) get a simple None/True response.
-            data_channel.send_response_value(msg_id, message=None)
+            data_channel.write_reply(msg_id, None)
 
 
 def _mode_stop_test_on_collection_more(
@@ -206,11 +211,7 @@ def _mode_stop_test_on_collection_more(
     data_channel = _send_test_case(connection, test_channel)
 
     msg_id = _handle_commands_until(data_channel, stop_on="collection_more")
-    data_channel.send_response_error(
-        msg_id,
-        error="StopTest",
-        error_type="StopTest",
-    )
+    data_channel.write_reply_error(msg_id, error="StopTest", error_type="StopTest")
 
     time.sleep(0.1)
     data_channel.close()
@@ -232,11 +233,7 @@ def _mode_stop_test_on_new_collection(
     data_channel = _send_test_case(connection, test_channel)
 
     msg_id = _handle_commands_until(data_channel, stop_on="new_collection")
-    data_channel.send_response_error(
-        msg_id,
-        error="StopTest",
-        error_type="StopTest",
-    )
+    data_channel.write_reply_error(msg_id, error="StopTest", error_type="StopTest")
 
     time.sleep(0.1)
     data_channel.close()
@@ -257,9 +254,9 @@ def _mode_error_response(
     """
     data_channel = _send_test_case(connection, test_channel)
 
-    msg_id, message = data_channel.receive_request()
+    msg_id, message = _read_cbor_request(data_channel)
     assert message.get("command") == "generate"
-    data_channel.send_response_error(
+    data_channel.write_reply_error(
         msg_id,
         error="Simulated error for testing",
         error_type="RequestError",
@@ -267,8 +264,8 @@ def _mode_error_response(
 
     # SDK should send mark_complete with INTERESTING status after the error
     try:
-        mc_id, _ = data_channel.receive_request(timeout=2.0)
-        data_channel.send_response_value(mc_id, message=None)
+        mc_id, _ = _read_cbor_request(data_channel, timeout=2.0)
+        data_channel.write_reply(mc_id, None)
     except (TimeoutError, ConnectionError):
         pass
 

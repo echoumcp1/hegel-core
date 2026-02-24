@@ -3,7 +3,7 @@ from threading import Thread
 
 import pytest
 
-from hegel.protocol import Connection
+from hegel.protocol.connection import Connection
 from hegel.server import run_server_on_connection
 from hegel_sdk import Client
 
