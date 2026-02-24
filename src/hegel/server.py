@@ -10,11 +10,12 @@ import contextlib
 import hashlib
 import json
 import os
+import random
 import traceback
 from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from random import Random, random
+from random import Random
 from typing import Any
 
 import cbor2
