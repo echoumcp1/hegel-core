@@ -89,6 +89,18 @@ Key insight: `map()` on a basic generator preserves the schema by composing the 
 
 Comprehensive SDK specification: `docs/sdk-api.md`
 
+## Release Process
+
+PRs that change files in `src/` or `sdk/src/` must include a `RELEASE.md` file in the repository root. The format is:
+
+```
+RELEASE_TYPE: patch
+
+Description of changes for the changelog.
+```
+
+The first line must be `RELEASE_TYPE: major`, `RELEASE_TYPE: minor`, or `RELEASE_TYPE: patch`. The remaining lines are changelog text. Use `patch` for bug fixes and internal changes, `minor` for public API additions, and `major` for breaking changes (maintainers only). See `RELEASE-sample.md` for a full example. The CI `check-release` job will fail if this file is missing when source files have changed.
+
 ## Code Style
 
 - Don't add message strings to pytest asserts (`assert x, "message"`). Pytest provides excellent error messages automatically.
