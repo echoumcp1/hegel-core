@@ -23,6 +23,7 @@ pip install "hegel @ git+ssh://git@github.com/antithesishq/hegel-core.git"
 ```python
 from hegel_sdk import hegel, integers
 
+
 @hegel
 def test_addition_commutative():
     a = integers(-1000, 1000).generate()
