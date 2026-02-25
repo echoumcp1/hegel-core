@@ -15,6 +15,7 @@ Create `example.py`:
 ```python
 from hegel_sdk import hegel, integers
 
+
 @hegel
 def test_integers():
     n = integers().generate()
@@ -40,11 +41,13 @@ def test_integers_many():
 You can also run a test programmatically with `run_hegel_test`:
 
 ```python
-from hegel_sdk import run_hegel_test, integers
+from hegel_sdk import integers, run_hegel_test
+
 
 def my_test():
     n = integers().generate()
     assert isinstance(n, int)
+
 
 run_hegel_test(my_test, test_cases=200)
 ```
@@ -56,6 +59,7 @@ Hegel integrates with pytest. Name your function `test_*` and decorate with
 
 ```python
 from hegel_sdk import hegel, integers
+
 
 @hegel
 def test_bounded_integers():
@@ -79,6 +83,7 @@ Call `.generate()` multiple times to produce multiple values in a single test:
 ```python
 from hegel_sdk import hegel, integers, text
 
+
 @hegel
 def test_multiple_values():
     n = integers().generate()
@@ -98,6 +103,7 @@ Use `.filter()` for simple conditions on a generator:
 ```python
 from hegel_sdk import hegel, integers
 
+
 @hegel
 def test_even_integers():
     n = integers().filter(lambda x: x % 2 == 0).generate()
@@ -111,7 +117,8 @@ For conditions that depend on multiple generated values, use `assume()` inside
 the test body:
 
 ```python
-from hegel_sdk import hegel, integers, assume
+from hegel_sdk import assume, hegel, integers
+
 
 @hegel
 def test_division():
@@ -133,6 +140,7 @@ Use `.map()` to apply a function to each generated value:
 ```python
 from hegel_sdk import hegel, integers
 
+
 @hegel
 def test_string_of_digits():
     s = integers(min_value=0, max_value=100).map(str).generate()
@@ -146,6 +154,7 @@ configure later generators directly -- no `@composite` or `data()` required:
 
 ```python
 from hegel_sdk import hegel, integers, lists
+
 
 @hegel
 def test_list_with_valid_index():
@@ -161,11 +170,14 @@ expression:
 ```python
 from hegel_sdk import hegel, integers, lists
 
+
 @hegel
 def test_flatmap_example():
-    result = integers(min_value=1, max_value=5).flat_map(
-        lambda n: lists(integers(), min_size=n, max_size=n)
-    ).generate()
+    result = (
+        integers(min_value=1, max_value=5)
+        .flat_map(lambda n: lists(integers(), min_size=n, max_size=n))
+        .generate()
+    )
     assert 1 <= len(result) <= 5
 ```
 
@@ -174,19 +186,19 @@ def test_flatmap_example():
 ### Primitive types
 
 ```python
-from hegel_sdk import booleans, integers, floats, text, binary
+from hegel_sdk import binary, booleans, floats, integers, text
 
-booleans()                                        # True or False
-booleans(p=0.8)                                   # True with 80% probability
-integers()                                        # arbitrary-precision integer
-integers(min_value=0, max_value=100)              # bounded integer
-floats()                                          # floating-point number
-floats(min_value=0.0, max_value=1.0)              # bounded float
-floats(allow_nan=False, allow_infinity=False)      # finite floats only
-text()                                            # Unicode string
-text(min_size=1, max_size=50)                     # bounded-length string
-binary()                                          # bytes
-binary(min_size=4, max_size=16)                   # bounded-length bytes
+booleans()  # True or False
+booleans(p=0.8)  # True with 80% probability
+integers()  # arbitrary-precision integer
+integers(min_value=0, max_value=100)  # bounded integer
+floats()  # floating-point number
+floats(min_value=0.0, max_value=1.0)  # bounded float
+floats(allow_nan=False, allow_infinity=False)  # finite floats only
+text()  # Unicode string
+text(min_size=1, max_size=50)  # bounded-length string
+binary()  # bytes
+binary(min_size=4, max_size=16)  # bounded-length bytes
 ```
 
 ### Constants and choices
@@ -194,32 +206,32 @@ binary(min_size=4, max_size=16)                   # bounded-length bytes
 ```python
 from hegel_sdk import just, sampled_from
 
-just(42)                          # always returns 42
+just(42)  # always returns 42
 sampled_from(["red", "green", "blue"])  # picks from a list
 ```
 
 ### Collections
 
 ```python
-from hegel_sdk import lists, dicts, tuples, integers, text
+from hegel_sdk import dicts, integers, lists, text, tuples
 
-lists(integers())                                 # list of integers
-lists(integers(), min_size=1, max_size=10)        # bounded-length list
-dicts(text(max_size=10), integers())              # dict with string keys
-dicts(text(), integers(), min_size=1, max_size=5) # bounded-size dict
-tuples(integers(), text())                        # (int, str) tuple
+lists(integers())  # list of integers
+lists(integers(), min_size=1, max_size=10)  # bounded-length list
+dicts(text(max_size=10), integers())  # dict with string keys
+dicts(text(), integers(), min_size=1, max_size=5)  # bounded-size dict
+tuples(integers(), text())  # (int, str) tuple
 ```
 
 ### Combinators
 
 ```python
-from hegel_sdk import one_of, optional, integers, text
+from hegel_sdk import integers, one_of, optional, text
 
-one_of(integers(), text())        # value from either generator
-optional(integers())              # None or an integer
-gen.map(f)                        # transform generated values
-gen.filter(predicate)             # keep only matching values
-gen.flat_map(f)                   # dependent generation
+one_of(integers(), text())  # value from either generator
+optional(integers())  # None or an integer
+gen.map(f)  # transform generated values
+gen.filter(predicate)  # keep only matching values
+gen.flat_map(f)  # dependent generation
 ```
 
 ### Formats and addresses
@@ -233,7 +245,8 @@ OCaml) and may be added to the Python SDK in a future release.
 Use `from_type()` to automatically derive a generator from a Python type hint:
 
 ```python
-from hegel_sdk import hegel, from_type
+from hegel_sdk import from_type, hegel
+
 
 @hegel
 def test_from_type():
@@ -250,13 +263,16 @@ and enums:
 
 ```python
 from dataclasses import dataclass
-from hegel_sdk import hegel, from_type
+
+from hegel_sdk import from_type, hegel
+
 
 @dataclass
 class User:
     name: str
     age: int
     active: bool
+
 
 @hegel
 def test_user():
@@ -268,7 +284,8 @@ def test_user():
 For finer control over individual fields, use `DataclassGenerator`:
 
 ```python
-from hegel_sdk import hegel, DataclassGenerator, text, integers
+from hegel_sdk import DataclassGenerator, hegel, integers, text
+
 
 @hegel
 def test_custom_user():
@@ -291,6 +308,7 @@ the minimal failing example:
 ```python
 from hegel_sdk import hegel, integers, note
 
+
 @hegel
 def test_with_notes():
     x = integers().generate()
@@ -306,6 +324,7 @@ find boundary failures:
 
 ```python
 from hegel_sdk import hegel, integers, target
+
 
 @hegel(test_cases=1000)
 def test_seek_large_values():
