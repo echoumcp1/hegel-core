@@ -13,3 +13,9 @@ format:
     uv run ruff check src tests --fix
     uv run shed
     uv run ruff format src tests
+
+lint:
+    ruff check .
+    shed --check .
+
+check: typecheck lint coverage

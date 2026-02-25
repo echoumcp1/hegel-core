@@ -25,3 +25,10 @@ format:
 
 check: typecheck format coverage
     echo "Checks passed successfully"
+
+setup:
+    uv sync --group dev
+    uv pip install -e sdk/
+
+docs:
+    @echo "Documentation build not yet configured"
