@@ -233,7 +233,16 @@ gen.flat_map(f)  # dependent generation
 ### Formats and patterns
 
 ```python
-from hegel_sdk import dates, datetimes, domains, emails, from_regex, ip_addresses, times, urls
+from hegel_sdk import (
+    dates,
+    datetimes,
+    domains,
+    emails,
+    from_regex,
+    ip_addresses,
+    times,
+    urls,
+)
 
 emails()  # email addresses
 urls()  # URLs
