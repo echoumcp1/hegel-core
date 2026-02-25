@@ -5,7 +5,7 @@ This tutorial walks through the main features of the Hegel Python SDK.
 ## Install Hegel
 
 ```bash
-pip install hegel-sdk
+pip install hegel
 ```
 
 ## Write your first test
@@ -110,9 +110,6 @@ def test_even_integers():
     assert n % 2 == 0
 ```
 
-`.filter()` retries up to 3 times. If all attempts fail, the test case is
-discarded (equivalent to `assume(False)`).
-
 For conditions that depend on multiple generated values, use `assume()` inside
 the test body:
 
@@ -150,7 +147,7 @@ def test_string_of_digits():
 ## Dependent generation
 
 Because generation is imperative in Hegel, you can use earlier results to
-configure later generators directly -- no `@composite` or `data()` required:
+configure later generators directly:
 
 ```python
 from hegel_sdk import hegel, integers, lists
@@ -189,7 +186,6 @@ def test_flatmap_example():
 from hegel_sdk import binary, booleans, floats, integers, text
 
 booleans()  # True or False
-booleans(p=0.8)  # True with 80% probability
 integers()  # arbitrary-precision integer
 integers(min_value=0, max_value=100)  # bounded integer
 floats()  # floating-point number
@@ -234,11 +230,20 @@ gen.filter(predicate)  # keep only matching values
 gen.flat_map(f)  # dependent generation
 ```
 
-### Formats and addresses
+### Formats and patterns
 
-The Python SDK does not currently expose top-level format generators like
-`emails()` or `urls()`. These are available in other Hegel SDKs (Go, TypeScript,
-OCaml) and may be added to the Python SDK in a future release.
+```python
+from hegel_sdk import dates, datetimes, domains, emails, from_regex, ip_addresses, times, urls
+
+emails()  # email addresses
+urls()  # URLs
+domains()  # domain names
+dates()  # ISO 8601 date strings (YYYY-MM-DD)
+times()  # ISO 8601 time strings
+datetimes()  # ISO 8601 datetime strings
+ip_addresses()  # IPv4 or IPv6 addresses
+from_regex(r"[a-z]{3}-[0-9]{3}")  # strings matching a regex
+```
 
 ## Type-directed derivation
 
@@ -281,23 +286,17 @@ def test_user():
     assert isinstance(user.age, int)
 ```
 
-For finer control over individual fields, use `DataclassGenerator`:
+For finer control over individual fields, use `from_type` with `.map()`:
 
 ```python
-from hegel_sdk import DataclassGenerator, hegel, integers, text
+from hegel_sdk import from_type, hegel, integers, text
 
 
 @hegel
-def test_custom_user():
-    user = (
-        DataclassGenerator(User)
-        .with_field("name", text(min_size=1, max_size=50))
-        .with_field("age", integers(min_value=0, max_value=120))
-        .build()
-        .generate()
-    )
-    assert 0 <= user.age <= 120
-    assert len(user.name) >= 1
+def test_bounded_user():
+    user = from_type(User).generate()
+    assert isinstance(user.name, str)
+    assert isinstance(user.age, int)
 ```
 
 ## Debugging with note()
@@ -335,10 +334,3 @@ def test_seek_large_values():
 
 `target()` is advisory -- Hegel will try to maximize the targeted metric, but it
 may still explore other regions of the input space.
-
-## Next steps
-
-- Browse the SDK source at `sdk/` in the hegel-core repository.
-- Read the full [SDK API specification](sdk-api.md).
-- Explore the [Hypothesis documentation](https://hypothesis.readthedocs.io/) for
-  deeper background on the underlying engine.
