@@ -5,8 +5,13 @@ This tutorial walks through the main features of the Hegel Python SDK.
 ## Install Hegel
 
 ```bash
-pip install "git+ssh://git@github.com/antithesishq/hegel-core.git"
-pip install "git+ssh://git@github.com/antithesishq/hegel-core.git#subdirectory=sdk"
+pip install "hegel-sdk @ git+ssh://git@github.com/antithesishq/hegel-core.git#subdirectory=sdk"
+```
+
+This requires the `hegel` server package to be installed first:
+
+```bash
+pip install "hegel @ git+ssh://git@github.com/antithesishq/hegel-core.git"
 ```
 
 ## Write your first test
