@@ -38,20 +38,6 @@ def test_integers_many():
     assert isinstance(n, int)
 ```
 
-You can also run a test programmatically with `run_hegel_test`:
-
-```python
-from hegel_sdk import integers, run_hegel_test
-
-
-def my_test():
-    n = integers().generate()
-    assert isinstance(n, int)
-
-
-run_hegel_test(my_test, test_cases=200)
-```
-
 ## Running in a test suite
 
 Hegel integrates with pytest. Name your function `test_*` and decorate with
@@ -92,9 +78,8 @@ def test_multiple_values():
     assert isinstance(s, str)
 ```
 
-Unlike Hypothesis's `@given` decorator, which requires all inputs to be declared
-upfront as function parameters, Hegel lets you call `.generate()` at any point
-inside the test body -- including conditionally or in loops.
+Because generation is imperative, you can call `.generate()` at any point inside
+the test body -- including conditionally or in loops.
 
 ## Filtering
 
