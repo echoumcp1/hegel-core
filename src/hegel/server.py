@@ -178,7 +178,7 @@ def make_test_function(
                         assert name not in collections
                         min_size = message.get("min_size", 0)
                         max_size = message.get("max_size", float("inf"))
-                        average_size = message.get("size_hint", None)
+                        average_size = message.get("size_hint")
                         if max_size is None:
                             max_size = float("inf")
                         # Standard formula for Hypothesis collections.

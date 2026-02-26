@@ -1,9 +1,10 @@
-from hegel_sdk.client import _get_channel, AssumeRejected
-from hegel.protocol.channel import Channel
-from hegel_sdk.generators import Generator, sampled_from, integers
-from typing import TypeVar
-from hegel_sdk import assume, note
 from collections.abc import Callable
+from typing import TypeVar
+
+from hegel.protocol.channel import Channel
+from hegel_sdk import assume, note
+from hegel_sdk.client import AssumeRejected, _get_channel
+from hegel_sdk.generators import Generator, integers, sampled_from
 
 T = TypeVar("T")
 

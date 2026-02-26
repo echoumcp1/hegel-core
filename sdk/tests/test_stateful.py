@@ -1,6 +1,6 @@
-from hegel_sdk import generators as g, stateful as s
-from hegel_sdk import hegel
 import pytest
+
+from hegel_sdk import generators as g, hegel, stateful as s
 
 
 def test_can_run_machine():
@@ -53,7 +53,7 @@ def test_variable_dependencies():
 
 def test_machine_with_no_rules():
     machine = s.Machine()
-    with pytest.raises(ValueError, match="Cannot run a machine with no rules."):
+    with pytest.raises(ValueError, match="Cannot run a machine with no rules"):
         machine.run()
 
 
@@ -68,7 +68,7 @@ def test_cannot_add_rule_while_running():
 
         machine.run()
 
-    with pytest.raises(ValueError, match="Cannot change machine shape while running."):
+    with pytest.raises(ValueError, match="Cannot change machine shape while running"):
         test_fn()
 
 
@@ -83,7 +83,7 @@ def test_cannot_add_invariant_while_running():
 
         machine.run()
 
-    with pytest.raises(ValueError, match="Cannot change machine shape while running."):
+    with pytest.raises(ValueError, match="Cannot change machine shape while running"):
         test_fn()
 
 
