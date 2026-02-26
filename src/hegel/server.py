@@ -27,7 +27,7 @@ from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
-from hypothesis.internal.conjecture.utils import many
+from hypothesis.internal.conjecture.utils import calc_label_from_name, many
 
 from hegel.protocol import ProtocolError
 from hegel.protocol.channel import Channel
@@ -49,6 +49,57 @@ def cached_from_schema(schema: dict) -> Any:
         return result
 
 
+VARIABLES_LABEL = calc_label_from_name("Variables")
+
+
+class Variables:
+    def __init__(self):
+        self.last_id = 0
+        self.variables = []
+        self.removed = set()
+
+    def generate(self, data: ConjectureData):
+        if not self.variables:
+            data.mark_invalid()
+        else:
+            for _ in range(3):
+                data.start_span(VARIABLES_LABEL)
+                i = data.draw_integer(
+                    min_value=0,
+                    max_value=len(self.variables) - 1,
+                    # Follows convention from hypothesis.stateful.Bundle.
+                    # Apparently this shrinks better because it means that
+                    # problems found later on are easier to shrink because
+                    # there's no padding.
+                    shrink_towards=len(self.variables),
+                )
+                v = self.variables[i]
+                if v not in self.removed:
+                    data.stop_span()
+                    return v
+                else:
+                    data.stop_span(discard=True)
+            i = len(self.variables) - 1
+            assert i >= 0
+            v = self.variables[i]
+            data.draw_integer(
+                min_value=0,
+                max_value=len(self.variables) - 1,
+                forced=i,
+            )
+            return v
+
+    def consume(self, variable_id: int):
+        self.removed.add(variable_id)
+        while self.variables and self.variables[-1] in self.removed:
+            self.variables.pop()
+
+    def next(self) -> int:
+        self.last_id += 1
+        self.variables.append(self.last_id)
+        return self.last_id
+
+
 def make_test_function(
     connection: Connection,
     channel: Channel,
@@ -66,6 +117,7 @@ def make_test_function(
 
     def test_function(data: ConjectureData) -> None:
         collections: dict[str, many] = {}
+        variable_pools: list[Variables] = []
         collection_name_counter: Counter[str] = Counter()
 
         with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
@@ -126,13 +178,15 @@ def make_test_function(
                         assert name not in collections
                         min_size = message.get("min_size", 0)
                         max_size = message.get("max_size", float("inf"))
+                        average_size = message.get("size_hint", None)
                         if max_size is None:
                             max_size = float("inf")
                         # Standard formula for Hypothesis collections.
-                        average_size = min(
-                            max(min_size * 2, min_size + 5),
-                            0.5 * (min_size + max_size),
-                        )
+                        if average_size is None:
+                            average_size = min(
+                                max(min_size * 2, min_size + 5),
+                                0.5 * (min_size + max_size),
+                            )
                         collections[name] = many(
                             data,
                             min_size=min_size,
@@ -146,6 +200,27 @@ def make_test_function(
                     elif command == "collection_reject":
                         collection = collections[message["collection"]]
                         return collection.reject(why=message.get("why"))
+                    elif command == "new_pool":
+                        i = len(variable_pools)
+                        v = Variables()
+                        variable_pools.append(v)
+                        return i
+                    elif command == "pool_consume":
+                        pool_id = message["pool"]
+                        variable_id = message["variable"]
+                        variable_pools[pool_id].consume(variable_id)
+                        return None
+                    elif command == "pool_add":
+                        pool_id = message["pool"]
+                        return variable_pools[pool_id].next()
+                    elif command == "pool_generate":
+                        pool_id = message["pool"]
+                        consume = message.get("consume", False)
+                        pool = variable_pools[pool_id]
+                        v = pool.generate(data)
+                        if consume:
+                            pool.consume(v)
+                        return v
                     else:
                         raise ValueError(f"Unknown command: {command}")
                 except UnsatisfiedAssumption:
