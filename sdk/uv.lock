@@ -252,8 +252,8 @@ wheels = [
 
 [[package]]
 name = "hegel"
-version = "0.1.4"
-source = { directory = "../" }
+version = "0.2.0"
+source = { editable = "../" }
 dependencies = [
     { name = "cbor2" },
     { name = "click" },
@@ -281,7 +281,7 @@ dev = [
 
 [[package]]
 name = "hegel-sdk"
-version = "0.1.4"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "hegel" },
@@ -297,7 +297,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "hegel", directory = "../" }]
+requires-dist = [{ name = "hegel", editable = "../" }]
 
 [package.metadata.requires-dev]
 dev = [
