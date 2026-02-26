@@ -248,32 +248,6 @@ def test_target(client):
     client.run_test("test_target", test, test_cases=50)
 
 
-def test_collection_with_size_hint(client):
-    """Tests the branch where average_size (size_hint) is provided."""
-
-    def test():
-        c = collection("test_hint", min_size=1, max_size=10)
-        # Provide size_hint to skip the average_size calculation
-        c._collection__server_name = _request(
-            {
-                "command": "new_collection",
-                "name": "hinted",
-                "min_size": 1,
-                "max_size": 10,
-                "size_hint": 3,
-            }
-        )
-        result = []
-        while c.more():
-            val = generate_from_schema(
-                {"type": "integer", "min_value": 0, "max_value": 100},
-            )
-            result.append(val)
-        assert len(result) >= 1
-
-    client.run_test("test_collection_size_hint", test, test_cases=10)
-
-
 def test_pool_basic(client):
     """Tests new_pool, pool_add, pool_generate, and pool_consume commands."""
 

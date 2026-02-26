@@ -178,15 +178,13 @@ def make_test_function(
                         assert name not in collections
                         min_size = message.get("min_size", 0)
                         max_size = message.get("max_size", float("inf"))
-                        average_size = message.get("size_hint")
                         if max_size is None:
                             max_size = float("inf")
                         # Standard formula for Hypothesis collections.
-                        if average_size is None:
-                            average_size = min(
-                                max(min_size * 2, min_size + 5),
-                                0.5 * (min_size + max_size),
-                            )
+                        average_size = min(
+                            max(min_size * 2, min_size + 5),
+                            0.5 * (min_size + max_size),
+                        )
                         collections[name] = many(
                             data,
                             min_size=min_size,
