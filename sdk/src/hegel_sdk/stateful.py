@@ -1,5 +1,5 @@
 from hegel_sdk.client import _get_channel, AssumeRejected
-from hegel.protocol import Channel
+from hegel.protocol.channel import Channel
 from hegel_sdk.generators import Generator, sampled_from, integers
 from typing import TypeVar
 from hegel_sdk import assume, note
