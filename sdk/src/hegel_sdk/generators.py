@@ -1,6 +1,6 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
 from hegel_sdk.client import (
     Labels,
@@ -15,7 +15,7 @@ T = TypeVar("T")
 U = TypeVar("U")
 
 
-class Generator(ABC):
+class Generator(Generic[T]):
     """Base class for all generators.
 
     Generators produce values of type T and optionally carry a schema
@@ -24,10 +24,10 @@ class Generator(ABC):
     """
 
     @abstractmethod
-    def generate(self) -> Any:
+    def generate(self) -> T:
         """Generate a value."""
 
-    def map(self, f: Callable[[Any], Any]) -> "Generator":
+    def map(self, f: Callable[[T], U]) -> "Generator[U]":
         """Transform generated values using a function.
 
         The resulting generator has no schema since the transformation
@@ -35,7 +35,7 @@ class Generator(ABC):
         """
         return MappedGenerator(self, f)
 
-    def flat_map(self, f: Callable[[Any], "Generator"]) -> "FlatMappedGenerator":
+    def flat_map(self, f: Callable[[T], "Generator[U]"]) -> "Generator[U]":
         """Generate a value, then use it to create another generator.
 
         This is useful for dependent generation where the second value
@@ -45,8 +45,8 @@ class Generator(ABC):
 
     def filter(
         self,
-        predicate: Callable[[Any], bool],
-    ) -> "FilteredGenerator":
+        predicate: Callable[[T], bool],
+    ) -> "Generator[T]":
         """Filter generated values using a predicate.
 
         If 3 consecutive values fail the predicate, calls assume(false).
@@ -54,7 +54,7 @@ class Generator(ABC):
         return FilteredGenerator(self, predicate)
 
 
-class BasicGenerator(Generator):
+class BasicGenerator(Generator[T]):
     """A generator with a schema and an optional client-side transform.
 
     When map() is called on a BasicGenerator, the schema is preserved
@@ -65,12 +65,12 @@ class BasicGenerator(Generator):
     def __init__(
         self,
         raw_schema: dict,
-        transform: Callable[[Any], Any] | None = None,
+        transform: Callable[[Any], T] | None = None,
     ):
         self._raw_schema = raw_schema
         self._transform = transform
 
-    def generate(self) -> Any:
+    def generate(self) -> T:
         raw = generate_from_schema(self._raw_schema)
         if self._transform is not None:
             return self._transform(raw)
@@ -79,7 +79,7 @@ class BasicGenerator(Generator):
     def schema(self) -> dict | None:
         return self._raw_schema
 
-    def map(self, f: Callable[[Any], Any]) -> "BasicGenerator":
+    def map(self, f: Callable[[T], U]) -> "Generator[U]":
         """Transform values while preserving the schema."""
         current_transform = self._transform
         if current_transform is not None:
@@ -94,14 +94,14 @@ class BasicGenerator(Generator):
             return BasicGenerator(self._raw_schema, f)
 
 
-class MappedGenerator(Generator):
+class MappedGenerator(Generator[T]):
     """A generator that transforms values from another generator."""
 
-    def __init__(self, source: Generator, f: Callable[[Any], Any]):
+    def __init__(self, source: Generator[Any], f: Callable[[Any], T]):
         self._source = source
         self._f = f
 
-    def generate(self) -> Any:
+    def generate(self) -> T:
         start_span(Labels.MAPPED)
         try:
             value = self._source.generate()
@@ -110,14 +110,14 @@ class MappedGenerator(Generator):
             stop_span(discard=False)
 
 
-class FlatMappedGenerator(Generator):
+class FlatMappedGenerator(Generator[T]):
     """A generator for dependent generation."""
 
-    def __init__(self, source: Generator, f: Callable[[Any], Generator]):
+    def __init__(self, source: Generator[Any], f: Callable[[Any], Generator[T]]):
         self._source = source
         self._f = f
 
-    def generate(self) -> Any:
+    def generate(self) -> T:
         start_span(Labels.FLAT_MAP)
         try:
             first = self._source.generate()
@@ -127,18 +127,18 @@ class FlatMappedGenerator(Generator):
             stop_span(discard=False)
 
 
-class FilteredGenerator(Generator):
+class FilteredGenerator(Generator[T]):
     _MAX_ATTEMPTS = 3
 
     def __init__(
         self,
-        source: Generator,
-        predicate: Callable[[Any], bool],
+        source: Generator[T],
+        predicate: Callable[[T], bool],
     ):
         self._source = source
         self._predicate = predicate
 
-    def generate(self) -> Any:
+    def generate(self) -> T:
         for _ in range(self._MAX_ATTEMPTS):
             start_span(Labels.FILTER)
             value = self._source.generate()
@@ -156,8 +156,10 @@ class FilteredGenerator(Generator):
 # =============================================================================
 
 
-def integers(min_value: int | None = None, max_value: int | None = None) -> Generator:
-    schema = {"type": "integer"}
+def integers(
+    min_value: int | None = None, max_value: int | None = None
+) -> Generator[int]:
+    schema: dict[str, Any] = {"type": "integer"}
     if min_value is not None:
         schema["min_value"] = min_value
     if max_value is not None:
@@ -171,7 +173,7 @@ def floats(
     *,
     allow_nan: bool | None = None,
     allow_infinity: bool | None = None,
-) -> Generator:
+) -> Generator[float]:
     has_min = min_value is not None
     has_max = max_value is not None
     if allow_nan is None:
@@ -179,7 +181,7 @@ def floats(
     if allow_infinity is None:
         allow_infinity = not has_min or not has_max
 
-    schema = {"type": "number"}
+    schema: dict[str, Any] = {"type": "number"}
     if has_min:
         schema["min_value"] = min_value
     if has_max:

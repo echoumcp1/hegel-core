@@ -12,7 +12,7 @@ except NameError:  # pragma: no cover
 import cbor2
 
 from hegel.protocol import RequestError
-from hegel.protocol.channel import Channel
+from hegel.protocol.channel import Channel as Channel
 from hegel.protocol.connection import Connection
 
 SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.1)
@@ -288,13 +288,18 @@ def stop_span(*, discard: bool = False) -> None:
 
 class collection:
     def __init__(
-        self, name: str | None, min_size: int = 0, max_size: int | None = None
+        self,
+        name: str | None,
+        min_size: int = 0,
+        max_size: int | None = None,
+        size_hint: float | None = None,
     ):
         self.__base_name = name
         self.__server_name = None
         self.__finished = False
         self.min_size = min_size
         self.max_size = max_size
+        self.size_hint = size_hint
 
     @property
     def _server_name(self):
@@ -306,6 +311,7 @@ class collection:
                         "name": self.__base_name,
                         "min_size": self.min_size,
                         "max_size": self.max_size,
+                        "size_hint": self.size_hint,
                     }
                 )
             ).get()
