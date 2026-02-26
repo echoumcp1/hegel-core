@@ -58,7 +58,7 @@ class Variables:
         self.variables = []
         self.removed = set()
 
-    def generate(self, data: ConjectureData):
+    def generate(self, data: ConjectureData) -> int:
         if not self.variables:
             data.mark_invalid()
         else:
@@ -89,7 +89,7 @@ class Variables:
             )
             return v
 
-    def consume(self, variable_id: int):
+    def consume(self, variable_id: int) -> None:
         self.removed.add(variable_id)
         while self.variables and self.variables[-1] in self.removed:
             self.variables.pop()
