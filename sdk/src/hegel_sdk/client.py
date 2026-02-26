@@ -12,7 +12,7 @@ except NameError:  # pragma: no cover
 import cbor2
 
 from hegel.protocol import RequestError
-from hegel.protocol.channel import Channel as Channel
+from hegel.protocol.channel import Channel
 from hegel.protocol.connection import Connection
 
 SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.1)
