@@ -411,44 +411,44 @@ def optional(element: Generator) -> Generator:
 
 def from_regex(pattern: str) -> Generator:
     """Generator for strings matching a regular expression pattern."""
-    return BasicGenerator({"type": "string", "format": "regex", "pattern": pattern})
+    return BasicGenerator({"type": "regex", "pattern": pattern})
 
 
 def emails() -> Generator:
     """Generator for email addresses."""
-    return BasicGenerator({"type": "string", "format": "email"})
+    return BasicGenerator({"type": "email"})
 
 
 def urls() -> Generator:
     """Generator for URLs."""
-    return BasicGenerator({"type": "string", "format": "uri"})
+    return BasicGenerator({"type": "url"})
 
 
 def domains() -> Generator:
     """Generator for domain names."""
-    return BasicGenerator({"type": "string", "format": "hostname"})
+    return BasicGenerator({"type": "domain"})
 
 
 def dates() -> Generator:
     """Generator for ISO 8601 date strings (YYYY-MM-DD)."""
-    return BasicGenerator({"type": "string", "format": "date"})
+    return BasicGenerator({"type": "date"})
 
 
 def times() -> Generator:
     """Generator for ISO 8601 time strings."""
-    return BasicGenerator({"type": "string", "format": "time"})
+    return BasicGenerator({"type": "time"})
 
 
 def datetimes() -> Generator:
     """Generator for ISO 8601 datetime strings."""
-    return BasicGenerator({"type": "string", "format": "date-time"})
+    return BasicGenerator({"type": "datetime"})
 
 
 def ip_addresses() -> Generator:
     """Generator for IP addresses (IPv4 or IPv6)."""
     return one_of(
-        BasicGenerator({"type": "string", "format": "ipv4"}),
-        BasicGenerator({"type": "string", "format": "ipv6"}),
+        BasicGenerator({"type": "ipv4"}),
+        BasicGenerator({"type": "ipv6"}),
     )
 
 

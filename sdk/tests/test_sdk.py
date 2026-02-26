@@ -32,10 +32,16 @@ from hegel_sdk import (
     binary,
     booleans,
     collection,
+    dates,
+    datetimes,
     dicts,
+    domains,
+    emails,
+    from_regex,
     from_type,
     generate_from_schema,
     integers,
+    ip_addresses,
     just,
     lists,
     note,
@@ -45,7 +51,9 @@ from hegel_sdk import (
     start_span,
     stop_span,
     text,
+    times,
     tuples,
+    urls,
 )
 from hegel_sdk.client import (
     _current_channel,
@@ -385,6 +393,91 @@ def test_sampled_from_with_objects():
     assert schema["type"] == "integer"
     assert schema["min_value"] == 0
     assert schema["max_value"] == 1
+
+
+# ---- format generators ----
+
+
+def test_emails_generator(client):
+    def test():
+        v = emails().generate()
+        assert isinstance(v, str)
+        assert "@" in v
+
+    client.run_test("test_emails", test, test_cases=10)
+
+
+def test_urls_generator(client):
+    def test():
+        v = urls().generate()
+        assert isinstance(v, str)
+        assert "://" in v
+
+    client.run_test("test_urls", test, test_cases=10)
+
+
+def test_domains_generator(client):
+    def test():
+        v = domains().generate()
+        assert isinstance(v, str)
+        assert len(v) > 0
+
+    client.run_test("test_domains", test, test_cases=10)
+
+
+def test_dates_generator(client):
+    import datetime
+
+    def test():
+        v = dates().generate()
+        assert isinstance(v, str)
+        datetime.date.fromisoformat(v)
+
+    client.run_test("test_dates", test, test_cases=10)
+
+
+def test_times_generator(client):
+    import datetime
+
+    def test():
+        v = times().generate()
+        assert isinstance(v, str)
+        datetime.time.fromisoformat(v)
+
+    client.run_test("test_times", test, test_cases=10)
+
+
+def test_datetimes_generator(client):
+    import datetime
+
+    def test():
+        v = datetimes().generate()
+        assert isinstance(v, str)
+        datetime.datetime.fromisoformat(v)
+
+    client.run_test("test_datetimes", test, test_cases=10)
+
+
+def test_from_regex_generator(client):
+    import re
+
+    def test():
+        v = from_regex("[a-z]+").generate()
+        assert isinstance(v, str)
+        assert re.fullmatch("[a-z]+", v) or re.search("[a-z]+", v)
+
+    client.run_test("test_from_regex", test, test_cases=10)
+
+
+def test_ip_addresses_generator(client):
+    import ipaddress
+
+    def test():
+        v = ip_addresses().generate()
+        assert isinstance(v, str)
+        ipaddress.ip_address(v)
+
+    client.run_test("test_ip_addresses", test, test_cases=10)
 
 
 # ---- binary() generator ----
