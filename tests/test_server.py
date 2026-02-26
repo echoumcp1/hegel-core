@@ -282,16 +282,16 @@ def test_pool_basic(client):
         assert isinstance(pool_id, int)
 
         # Add some variables to the pool
-        v1 = _request({"command": "pool_add", "pool": pool_id})
-        v2 = _request({"command": "pool_add", "pool": pool_id})
+        v1 = _request({"command": "pool_add", "pool_id": pool_id})
+        v2 = _request({"command": "pool_add", "pool_id": pool_id})
         assert v1 != v2
 
         # Generate a variable from the pool
-        v = _request({"command": "pool_generate", "pool": pool_id})
+        v = _request({"command": "pool_generate", "pool_id": pool_id})
         assert v in (v1, v2)
 
         # Consume a variable from the pool
-        _request({"command": "pool_consume", "pool": pool_id, "variable": v1})
+        _request({"command": "pool_consume", "pool_id": pool_id, "variable_id": v1})
 
     client.run_test("test_pool_basic", test, test_cases=10)
 
@@ -301,11 +301,11 @@ def test_pool_generate_with_consume(client):
 
     def test():
         pool_id = _request({"command": "new_pool"})
-        _request({"command": "pool_add", "pool": pool_id})
-        _request({"command": "pool_add", "pool": pool_id})
+        _request({"command": "pool_add", "pool_id": pool_id})
+        _request({"command": "pool_add", "pool_id": pool_id})
 
         # Generate and consume in one step
-        v = _request({"command": "pool_generate", "pool": pool_id, "consume": True})
+        v = _request({"command": "pool_generate", "pool_id": pool_id, "consume": True})
         assert isinstance(v, int)
 
     client.run_test("test_pool_generate_consume", test, test_cases=10)
@@ -319,7 +319,7 @@ def test_pool_generate_from_empty_pool(client):
         # Pool is empty, generate should cause the test case to be marked invalid
         # which results in UnsatisfiedAssumption -> DataExhausted on the client side
         # or it just gets marked invalid and the server moves on
-        _request({"command": "pool_generate", "pool": pool_id})
+        _request({"command": "pool_generate", "pool_id": pool_id})
 
     client.run_test("test_pool_empty", test, test_cases=10)
 
@@ -336,7 +336,7 @@ def test_pool_generate_with_mostly_removed_variables(client):
         # Add many variables
         variables = []
         for _ in range(20):
-            v = _request({"command": "pool_add", "pool": pool_id})
+            v = _request({"command": "pool_add", "pool_id": pool_id})
             variables.append(v)
 
         # Consume all except the last one. The last one won't be trimmed
@@ -344,12 +344,12 @@ def test_pool_generate_with_mostly_removed_variables(client):
         # Actually, consume trims from the end of the list, so consuming
         # variables that are NOT at the end won't trigger trimming.
         for v in variables[:-1]:
-            _request({"command": "pool_consume", "pool": pool_id, "variable": v})
+            _request({"command": "pool_consume", "pool_id": pool_id, "variable_id": v})
 
         # Now generate - with 19/20 variables removed, the 3-attempt loop
         # will very likely fail to find a non-removed variable, triggering
         # the fallback path.
-        result = _request({"command": "pool_generate", "pool": pool_id})
+        result = _request({"command": "pool_generate", "pool_id": pool_id})
         assert result == variables[-1]
 
     client.run_test("test_pool_mostly_removed", test, test_cases=50)

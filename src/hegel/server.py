@@ -206,15 +206,15 @@ def make_test_function(
                         variable_pools.append(v)
                         return i
                     elif command == "pool_consume":
-                        pool_id = message["pool"]
-                        variable_id = message["variable"]
+                        pool_id = message["pool_id"]
+                        variable_id = message["variable_id"]
                         variable_pools[pool_id].consume(variable_id)
                         return None
                     elif command == "pool_add":
-                        pool_id = message["pool"]
+                        pool_id = message["pool_id"]
                         return variable_pools[pool_id].next()
                     elif command == "pool_generate":
-                        pool_id = message["pool"]
+                        pool_id = message["pool_id"]
                         consume = message.get("consume", False)
                         pool = variable_pools[pool_id]
                         v = pool.generate(data)

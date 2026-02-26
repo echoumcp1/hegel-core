@@ -290,6 +290,7 @@ class collection:
     def __init__(
         self,
         name: str | None,
+        *,
         min_size: int = 0,
         max_size: int | None = None,
         size_hint: float | None = None,

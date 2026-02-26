@@ -22,7 +22,7 @@ class Variables(Generator[T]):
         variable_id = self.__channel.send_request(
             {
                 "command": "pool_add",
-                "pool": self.__pool_id,
+                "pool_id": self.__pool_id,
             }
         ).get()
         self.__values[variable_id] = value
@@ -37,7 +37,7 @@ class Variables(Generator[T]):
         variable_id = self.__channel.send_request(
             {
                 "command": "pool_generate",
-                "pool": self.__pool_id,
+                "pool_id": self.__pool_id,
                 "consume": consume,
             }
         ).get()
