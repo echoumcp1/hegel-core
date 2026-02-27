@@ -4,12 +4,12 @@ Universal property-based testing, backed by [Hypothesis](https://hypothesis.work
 
 Hegel generates random inputs for your tests, finds failures, and automatically
 shrinks them to minimal counterexamples. This repository contains the Hegel
-server, CLI, and the reference Python SDK.
+server and CLI.
 
 ## Installation
 
 ```bash
-pip install "hegel-sdk @ git+ssh://git@github.com/antithesishq/hegel-core.git#subdirectory=sdk"
+pip install "hegel-sdk @ git+ssh://git@github.com/antithesishq/hegel-python.git"
 ```
 
 The SDK requires the `hegel` server:
@@ -38,7 +38,7 @@ For a full walkthrough, see [docs/getting-started.md](docs/getting-started.md).
 
 ## SDKs
 
-- [Python](https://github.com/antithesishq/hegel-core) (this repository)
+- [Python](https://github.com/antithesishq/hegel-python)
 - [Go](https://github.com/antithesishq/hegel-go)
 - [TypeScript](https://github.com/antithesishq/hegel-typescript)
 - [Rust](https://github.com/antithesishq/hegel-rust)
