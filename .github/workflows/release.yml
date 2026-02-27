@@ -53,7 +53,6 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Release
