@@ -156,6 +156,42 @@ def test_future_cancel_on_connection_error():
     thread.join(timeout=10)
 
 
+def test_exception_in_run_one_is_printed_and_reraised():
+    """Tests the except Exception handler in _run_one that prints traceback.
+
+    When an unexpected exception occurs inside _run_one (e.g., during
+    ConjectureRunner.run()), it's caught, the traceback is printed,
+    and the exception is re-raised.
+    """
+    server_socket, client_socket = socket.socketpair()
+
+    with patch(
+        "hegel.server.ConjectureRunner.run",
+        side_effect=RuntimeError("simulated runner failure"),
+    ):
+        thread = Thread(
+            target=run_server_on_connection,
+            args=(Connection(server_socket),),
+            daemon=True,
+        )
+        thread.start()
+
+        with Connection(client_socket) as client_connection:
+            client = Client(client_connection)
+            channel = client_connection.new_channel(role="Test")
+            client._control.send_request(
+                {
+                    "command": "run_test",
+                    "name": "doomed_test",
+                    "channel_id": channel.channel_id,
+                    "test_cases": 10,
+                    "seed": None,
+                },
+            ).get()
+
+    thread.join(timeout=10)
+
+
 def test_base_exception_in_server():
     """Test that BaseException in server loop is caught and printed.
 
