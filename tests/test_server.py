@@ -246,3 +246,84 @@ def test_target(client):
         target(float(x), "size")
 
     client.run_test("test_target", test, test_cases=50)
+
+
+def test_pool_basic(client):
+    """Tests new_pool, pool_add, pool_generate, and pool_consume commands."""
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        assert isinstance(pool_id, int)
+
+        # Add some variables to the pool
+        v1 = _request({"command": "pool_add", "pool_id": pool_id})
+        v2 = _request({"command": "pool_add", "pool_id": pool_id})
+        assert v1 != v2
+
+        # Generate a variable from the pool
+        v = _request({"command": "pool_generate", "pool_id": pool_id})
+        assert v in (v1, v2)
+
+        # Consume a variable from the pool
+        _request({"command": "pool_consume", "pool_id": pool_id, "variable_id": v1})
+
+    client.run_test("test_pool_basic", test, test_cases=10)
+
+
+def test_pool_generate_with_consume(client):
+    """Tests pool_generate with consume=True."""
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        _request({"command": "pool_add", "pool_id": pool_id})
+        _request({"command": "pool_add", "pool_id": pool_id})
+
+        # Generate and consume in one step
+        v = _request({"command": "pool_generate", "pool_id": pool_id, "consume": True})
+        assert isinstance(v, int)
+
+    client.run_test("test_pool_generate_consume", test, test_cases=10)
+
+
+def test_pool_generate_from_empty_pool(client):
+    """Tests that generating from an empty pool marks the test case invalid."""
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        # Pool is empty, generate should cause the test case to be marked invalid
+        # which results in UnsatisfiedAssumption -> DataExhausted on the client side
+        # or it just gets marked invalid and the server moves on
+        _request({"command": "pool_generate", "pool_id": pool_id})
+
+    client.run_test("test_pool_empty", test, test_cases=10)
+
+
+def test_pool_generate_with_mostly_removed_variables(client):
+    """Tests the fallback path in Variables.generate when random picks hit removed variables.
+
+    When all 3 random picks land on removed variables, the method falls back to
+    using the last variable in the list (lines 82-90 of server.py).
+    """
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        # Add many variables
+        variables = []
+        for _ in range(20):
+            v = _request({"command": "pool_add", "pool_id": pool_id})
+            variables.append(v)
+
+        # Consume all except the last one. The last one won't be trimmed
+        # because it's not at the end of the removed set after consume().
+        # Actually, consume trims from the end of the list, so consuming
+        # variables that are NOT at the end won't trigger trimming.
+        for v in variables[:-1]:
+            _request({"command": "pool_consume", "pool_id": pool_id, "variable_id": v})
+
+        # Now generate - with 19/20 variables removed, the 3-attempt loop
+        # will very likely fail to find a non-removed variable, triggering
+        # the fallback path.
+        result = _request({"command": "pool_generate", "pool_id": pool_id})
+        assert result == variables[-1]
+
+    client.run_test("test_pool_mostly_removed", test, test_cases=50)

@@ -288,7 +288,11 @@ def stop_span(*, discard: bool = False) -> None:
 
 class collection:
     def __init__(
-        self, name: str | None, min_size: int = 0, max_size: int | None = None
+        self,
+        name: str | None,
+        *,
+        min_size: int = 0,
+        max_size: int | None = None,
     ):
         self.__base_name = name
         self.__server_name = None
