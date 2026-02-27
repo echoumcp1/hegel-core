@@ -60,9 +60,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install dependencies
-        run: |
-          pip install --group dev -e .
-          pip install --group dev -e sdk/
+        run: pip install --group dev -e .
       - name: Run tests with coverage
         run: coverage run -m pytest
       - run: coverage combine

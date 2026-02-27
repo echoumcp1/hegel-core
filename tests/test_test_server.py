@@ -290,6 +290,29 @@ class TestConnectionErrorHandling:
 
         server_thread.join(timeout=5.0)
 
+    def test_server_handles_connection_error_from_channel(self):
+        """Tests the except ConnectionError handler in run_test_server.
+
+        Closing the server's Connection puts SHUTDOWN in channel queues,
+        causing ConnectionError when the handler tries to read/write.
+        """
+        s1, s2 = _create_socket_pair()
+        server_conn = Connection(s1)
+        server_thread = Thread(
+            target=run_test_server,
+            args=(server_conn, "stop_test_on_generate"),
+            daemon=True,
+        )
+        server_thread.start()
+
+        conn = _setup_client(s2)
+        _send_run_test(conn)
+        # Close the server connection, putting SHUTDOWN in all channels.
+        # The handler will get ConnectionError when it tries to use a channel.
+        server_conn.close()
+
+        server_thread.join(timeout=5.0)
+
 
 class TestStopTestOnCollectionMore:
     def test_server_sends_stop_test_on_collection_more(self):

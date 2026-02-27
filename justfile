@@ -1,5 +1,3 @@
-mod sdk
-
 ci: lint typecheck coverage
 
 test:
@@ -28,7 +26,6 @@ check: typecheck format coverage
 
 setup:
     uv sync --group dev
-    uv pip install -e sdk/
 
 docs:
     @echo "Documentation build not yet configured"

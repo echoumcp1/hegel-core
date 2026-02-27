@@ -4,7 +4,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-SOURCE_DIRS = ["src/", "sdk/src/"]
+SOURCE_DIRS = ["src/"]
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -100,13 +100,12 @@ def release() -> None:
     new_version = bump_version(m.group(1), release_type)
 
     set_version(ROOT / "pyproject.toml", new_version)
-    set_version(ROOT / "sdk" / "pyproject.toml", new_version)
 
     add_changelog(ROOT / "CHANGELOG.md", version=new_version, content=content)
 
     git("config", "user.name", "hegel-release[bot]", cwd=ROOT)
     git("config", "user.email", "noreply@github.com", cwd=ROOT)
-    git("add", "pyproject.toml", "sdk/pyproject.toml", "CHANGELOG.md", cwd=ROOT)
+    git("add", "pyproject.toml", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
     git(
         "commit",
