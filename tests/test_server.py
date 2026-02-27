@@ -124,38 +124,34 @@ def test_future_cancel_on_connection_error():
     """Test that pending futures with ConnectionError are cancelled.
 
     Tests the except (ConnectionError, TimeoutError): f.cancel() branch
-    in run_server_on_connection's cleanup. When the client disconnects while
-    a test is running, _run_one raises ConnectionError. After the
-    executor shuts down, f.result() re-raises that ConnectionError, which
-    is caught, and f.cancel() is called.
+    in run_server_on_connection's cleanup. We patch _run_one to raise
+    ConnectionError, ensuring f.result() deterministically hits that path.
     """
     server_socket, client_socket = socket.socketpair()
-    thread = Thread(
-        target=run_server_on_connection,
-        args=(Connection(server_socket),),
-        daemon=True,
-    )
-    thread.start()
 
-    with Connection(client_socket) as client_connection:
-        client = Client(client_connection)
+    def raise_connection_error(*args, **kwargs):
+        raise ConnectionError("test disconnect")
 
-        # Send a run_test request, then immediately close
-        channel = client_connection.new_channel(role="Test")
-        client._control.send_request(
-            {
-                "command": "run_test",
-                "name": "doomed_test",
-                "channel_id": channel.channel_id,
-                "test_cases": 100,
-                "seed": None,
-            },
-        ).get()
+    with patch("hegel.server._run_one", side_effect=raise_connection_error):
+        thread = Thread(
+            target=run_server_on_connection,
+            args=(Connection(server_socket),),
+            daemon=True,
+        )
+        thread.start()
 
-        # Give the server a moment to start handling the test
-        time.sleep(0.1)
-        # Close the client connection — this causes the server to get ConnectionError
-        # both in the main loop and in _run_one
+        with Connection(client_socket) as client_connection:
+            client = Client(client_connection)
+            channel = client_connection.new_channel(role="Test")
+            client._control.send_request(
+                {
+                    "command": "run_test",
+                    "name": "doomed_test",
+                    "channel_id": channel.channel_id,
+                    "test_cases": 100,
+                    "seed": None,
+                },
+            ).get()
 
     thread.join(timeout=10)
 
