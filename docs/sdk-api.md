@@ -86,7 +86,7 @@ A generator is basic (i.e. has a schema and optional transform) in these cases:
 | Generator | Basic? | Schema | Transform |
 |-----------|--------|--------|-----------|
 | `integers(...)` | Always | `{"type": "integer", ...}` | None (identity) |
-| `floats(...)` | Always | `{"type": "number", ...}` | None |
+| `floats(...)` | Always | `{"type": "float", ...}` | None |
 | `booleans(...)` | Always | `{"type": "boolean", ...}` | None |
 | `text(...)` | Always | `{"type": "string", ...}` | None |
 | `binary(...)` | Always | `{"type": "binary", ...}` | None |
@@ -155,7 +155,7 @@ Generate floating-point numbers.
 **Schema:**
 ```json
 {
-  "type": "number",
+  "type": "float",
   "min_value": <min>,
   "max_value": <max>,
   "exclude_min": <bool>,

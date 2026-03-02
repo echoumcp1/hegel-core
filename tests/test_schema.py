@@ -73,7 +73,7 @@ def schemas():
         hashable_schemas()
         | st.builds(
             lambda min_val, max_val: {
-                "type": "number",
+                "type": "float",
                 "min_value": min_val,
                 "max_value": max_val,
                 "allow_nan": False,
@@ -167,11 +167,11 @@ def test_integer():
     )
 
 
-def test_number():
+def test_float():
     assert_all_examples(
         from_schema(
             {
-                "type": "number",
+                "type": "float",
                 "min_value": 0.0,
                 "max_value": 1.0,
                 "allow_nan": False,
@@ -185,11 +185,11 @@ def test_number():
     )
 
 
-def test_number_exclusive():
+def test_float_exclusive():
     assert_all_examples(
         from_schema(
             {
-                "type": "number",
+                "type": "float",
                 "min_value": 0.0,
                 "max_value": 1.0,
                 "exclude_min": True,
@@ -487,9 +487,9 @@ def test_domain_with_max_length(example):
     assert len(example) <= 50
 
 
-def test_number_defaults():
+def test_float_defaults():
     assert_all_examples(
-        from_schema({"type": "number"}),
+        from_schema({"type": "float"}),
         lambda x: isinstance(x, float),
     )
 

@@ -34,7 +34,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             min_value=schema.get("min_value"),
             max_value=schema.get("max_value"),
         )
-    if schema_type == "number":
+    if schema_type == "float":
         return st.floats(
             schema.get("min_value"),
             schema.get("max_value"),
