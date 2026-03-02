@@ -24,6 +24,9 @@ from hegel.protocol.utils import SHUTDOWN, ChannelId
 if TYPE_CHECKING:
     from hegel.protocol.channel import Channel
 
+PROTOCOL_VERSION = 0.2
+HANDSHAKE_STRING = b"hegel_handshake_start"
+
 
 def _is_protocol_debug():
     value = os.environ.get("HEGEL_PROTOCOL_DEBUG")
@@ -40,10 +43,6 @@ def _is_protocol_debug():
             f"'false', or unset, but got {value!r}"
         )
     return value in {"1", "true"}
-
-
-PROTOCOL_VERSION = 0.1
-HANDSHAKE_STRING = b"hegel_handshake_start"
 
 
 class ConnectionState(Enum):
