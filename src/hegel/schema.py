@@ -34,7 +34,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             min_value=schema.get("min_value"),
             max_value=schema.get("max_value"),
         )
-    if schema_type == "number":
+    if schema_type == "float":
         return st.floats(
             schema.get("min_value"),
             schema.get("max_value"),
@@ -84,14 +84,6 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if schema_type == "tuple":
         elements = [from_schema(s) for s in schema["elements"]]
         return st.tuples(*elements)
-    if schema_type == "object":
-        properties = schema.get("properties", {})
-        return st.fixed_dictionaries(
-            {
-                name: from_schema(prop_schema)
-                for name, prop_schema in properties.items()
-            },
-        )
     if schema_type == "email":
         return st.emails()
     if schema_type == "url":

@@ -3,7 +3,6 @@
 import socket
 import time
 from threading import Thread
-from unittest.mock import patch
 
 import pytest
 from client import (
@@ -108,19 +107,21 @@ def test_collection_reject_on_server(client):
     client.run_test("test_collection_reject", test, test_cases=20)
 
 
-def test_unsatisfied_assumption_in_handler(client):
+def test_unsatisfied_assumption_in_handler(client, monkeypatch):
     class AlwaysRejectStrategy(st.SearchStrategy):
         def do_draw(self, data):
             raise UnsatisfiedAssumption
 
+    reject = AlwaysRejectStrategy()
+    monkeypatch.setattr("hegel.server.cached_from_schema", lambda _: reject)
+
     def test():
         generate_from_schema({"type": "integer"})
 
-    with patch("hegel.server.cached_from_schema", return_value=AlwaysRejectStrategy()):
-        client.run_test("test_unsatisfied_in_handler", test, test_cases=10)
+    client.run_test("test_unsatisfied_in_handler", test, test_cases=10)
 
 
-def test_future_cancel_on_connection_error():
+def test_future_cancel_on_connection_error(monkeypatch):
     """Test that pending futures with ConnectionError are cancelled.
 
     Tests the except (ConnectionError, TimeoutError): f.cancel() branch
@@ -132,31 +133,31 @@ def test_future_cancel_on_connection_error():
     def raise_connection_error(*args, **kwargs):
         raise ConnectionError("test disconnect")
 
-    with patch("hegel.server._run_one", side_effect=raise_connection_error):
-        thread = Thread(
-            target=run_server_on_connection,
-            args=(Connection(server_socket),),
-            daemon=True,
-        )
-        thread.start()
+    monkeypatch.setattr("hegel.server._run_one", raise_connection_error)
+    thread = Thread(
+        target=run_server_on_connection,
+        args=(Connection(server_socket),),
+        daemon=True,
+    )
+    thread.start()
 
-        with Connection(client_socket) as client_connection:
-            client = Client(client_connection)
-            channel = client_connection.new_channel(role="Test")
-            client._control.send_request(
-                {
-                    "command": "run_test",
-                    "name": "doomed_test",
-                    "channel_id": channel.channel_id,
-                    "test_cases": 100,
-                    "seed": None,
-                },
-            ).get()
+    with Connection(client_socket) as client_connection:
+        client = Client(client_connection)
+        channel = client_connection.new_channel(role="Test")
+        client._control.send_request(
+            {
+                "command": "run_test",
+                "name": "doomed_test",
+                "channel_id": channel.channel_id,
+                "test_cases": 100,
+                "seed": None,
+            },
+        ).get()
 
     thread.join(timeout=10)
 
 
-def test_exception_in_run_one_is_printed_and_reraised():
+def test_exception_in_run_one_is_printed_and_reraised(monkeypatch):
     """Tests the except Exception handler in _run_one that prints traceback.
 
     When an unexpected exception occurs inside _run_one (e.g., during
@@ -165,29 +166,29 @@ def test_exception_in_run_one_is_printed_and_reraised():
     """
     server_socket, client_socket = socket.socketpair()
 
-    with patch(
-        "hegel.server.ConjectureRunner.run",
-        side_effect=RuntimeError("simulated runner failure"),
-    ):
-        thread = Thread(
-            target=run_server_on_connection,
-            args=(Connection(server_socket),),
-            daemon=True,
-        )
-        thread.start()
+    def raise_runtime_error(*args, **kwargs):
+        raise RuntimeError("simulated runner failure")
 
-        with Connection(client_socket) as client_connection:
-            client = Client(client_connection)
-            channel = client_connection.new_channel(role="Test")
-            client._control.send_request(
-                {
-                    "command": "run_test",
-                    "name": "doomed_test",
-                    "channel_id": channel.channel_id,
-                    "test_cases": 10,
-                    "seed": None,
-                },
-            ).get()
+    monkeypatch.setattr("hegel.server.ConjectureRunner.run", raise_runtime_error)
+    thread = Thread(
+        target=run_server_on_connection,
+        args=(Connection(server_socket),),
+        daemon=True,
+    )
+    thread.start()
+
+    with Connection(client_socket) as client_connection:
+        client = Client(client_connection)
+        channel = client_connection.new_channel(role="Test")
+        client._control.send_request(
+            {
+                "command": "run_test",
+                "name": "doomed_test",
+                "channel_id": channel.channel_id,
+                "test_cases": 10,
+                "seed": None,
+            },
+        ).get()
 
     thread.join(timeout=10)
 
@@ -214,11 +215,8 @@ def test_base_exception_in_server():
         return original_receive(*args, **kwargs)
 
     def server():
-        with patch.object(
-            server_conn.control_channel,
-            "read_request",
-            side_effect=patched_receive,
-        ):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(server_conn.control_channel, "read_request", patched_receive)
             run_server_on_connection(server_conn)
 
     thread = Thread(target=server, daemon=True)
