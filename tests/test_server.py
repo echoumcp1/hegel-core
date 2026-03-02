@@ -124,38 +124,70 @@ def test_future_cancel_on_connection_error():
     """Test that pending futures with ConnectionError are cancelled.
 
     Tests the except (ConnectionError, TimeoutError): f.cancel() branch
-    in run_server_on_connection's cleanup. When the client disconnects while
-    a test is running, _run_one raises ConnectionError. After the
-    executor shuts down, f.result() re-raises that ConnectionError, which
-    is caught, and f.cancel() is called.
+    in run_server_on_connection's cleanup. We patch _run_one to raise
+    ConnectionError, ensuring f.result() deterministically hits that path.
     """
     server_socket, client_socket = socket.socketpair()
-    thread = Thread(
-        target=run_server_on_connection,
-        args=(Connection(server_socket),),
-        daemon=True,
-    )
-    thread.start()
 
-    with Connection(client_socket) as client_connection:
-        client = Client(client_connection)
+    def raise_connection_error(*args, **kwargs):
+        raise ConnectionError("test disconnect")
 
-        # Send a run_test request, then immediately close
-        channel = client_connection.new_channel(role="Test")
-        client._control.send_request(
-            {
-                "command": "run_test",
-                "name": "doomed_test",
-                "channel_id": channel.channel_id,
-                "test_cases": 100,
-                "seed": None,
-            },
-        ).get()
+    with patch("hegel.server._run_one", side_effect=raise_connection_error):
+        thread = Thread(
+            target=run_server_on_connection,
+            args=(Connection(server_socket),),
+            daemon=True,
+        )
+        thread.start()
 
-        # Give the server a moment to start handling the test
-        time.sleep(0.1)
-        # Close the client connection — this causes the server to get ConnectionError
-        # both in the main loop and in _run_one
+        with Connection(client_socket) as client_connection:
+            client = Client(client_connection)
+            channel = client_connection.new_channel(role="Test")
+            client._control.send_request(
+                {
+                    "command": "run_test",
+                    "name": "doomed_test",
+                    "channel_id": channel.channel_id,
+                    "test_cases": 100,
+                    "seed": None,
+                },
+            ).get()
+
+    thread.join(timeout=10)
+
+
+def test_exception_in_run_one_is_printed_and_reraised():
+    """Tests the except Exception handler in _run_one that prints traceback.
+
+    When an unexpected exception occurs inside _run_one (e.g., during
+    ConjectureRunner.run()), it's caught, the traceback is printed,
+    and the exception is re-raised.
+    """
+    server_socket, client_socket = socket.socketpair()
+
+    with patch(
+        "hegel.server.ConjectureRunner.run",
+        side_effect=RuntimeError("simulated runner failure"),
+    ):
+        thread = Thread(
+            target=run_server_on_connection,
+            args=(Connection(server_socket),),
+            daemon=True,
+        )
+        thread.start()
+
+        with Connection(client_socket) as client_connection:
+            client = Client(client_connection)
+            channel = client_connection.new_channel(role="Test")
+            client._control.send_request(
+                {
+                    "command": "run_test",
+                    "name": "doomed_test",
+                    "channel_id": channel.channel_id,
+                    "test_cases": 10,
+                    "seed": None,
+                },
+            ).get()
 
     thread.join(timeout=10)
 
@@ -246,3 +278,84 @@ def test_target(client):
         target(float(x), "size")
 
     client.run_test("test_target", test, test_cases=50)
+
+
+def test_pool_basic(client):
+    """Tests new_pool, pool_add, pool_generate, and pool_consume commands."""
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        assert isinstance(pool_id, int)
+
+        # Add some variables to the pool
+        v1 = _request({"command": "pool_add", "pool_id": pool_id})
+        v2 = _request({"command": "pool_add", "pool_id": pool_id})
+        assert v1 != v2
+
+        # Generate a variable from the pool
+        v = _request({"command": "pool_generate", "pool_id": pool_id})
+        assert v in (v1, v2)
+
+        # Consume a variable from the pool
+        _request({"command": "pool_consume", "pool_id": pool_id, "variable_id": v1})
+
+    client.run_test("test_pool_basic", test, test_cases=10)
+
+
+def test_pool_generate_with_consume(client):
+    """Tests pool_generate with consume=True."""
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        _request({"command": "pool_add", "pool_id": pool_id})
+        _request({"command": "pool_add", "pool_id": pool_id})
+
+        # Generate and consume in one step
+        v = _request({"command": "pool_generate", "pool_id": pool_id, "consume": True})
+        assert isinstance(v, int)
+
+    client.run_test("test_pool_generate_consume", test, test_cases=10)
+
+
+def test_pool_generate_from_empty_pool(client):
+    """Tests that generating from an empty pool marks the test case invalid."""
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        # Pool is empty, generate should cause the test case to be marked invalid
+        # which results in UnsatisfiedAssumption -> DataExhausted on the client side
+        # or it just gets marked invalid and the server moves on
+        _request({"command": "pool_generate", "pool_id": pool_id})
+
+    client.run_test("test_pool_empty", test, test_cases=10)
+
+
+def test_pool_generate_with_mostly_removed_variables(client):
+    """Tests the fallback path in Variables.generate when random picks hit removed variables.
+
+    When all 3 random picks land on removed variables, the method falls back to
+    using the last variable in the list (lines 82-90 of server.py).
+    """
+
+    def test():
+        pool_id = _request({"command": "new_pool"})
+        # Add many variables
+        variables = []
+        for _ in range(20):
+            v = _request({"command": "pool_add", "pool_id": pool_id})
+            variables.append(v)
+
+        # Consume all except the last one. The last one won't be trimmed
+        # because it's not at the end of the removed set after consume().
+        # Actually, consume trims from the end of the list, so consuming
+        # variables that are NOT at the end won't trigger trimming.
+        for v in variables[:-1]:
+            _request({"command": "pool_consume", "pool_id": pool_id, "variable_id": v})
+
+        # Now generate - with 19/20 variables removed, the 3-attempt loop
+        # will very likely fail to find a non-removed variable, triggering
+        # the fallback path.
+        result = _request({"command": "pool_generate", "pool_id": pool_id})
+        assert result == variables[-1]
+
+    client.run_test("test_pool_mostly_removed", test, test_cases=50)

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 - 2026-02-27
+
+This release adds a stateful testing API and makes Generator a generic type.
+
+
+## 0.2.0 - 2026-02-27
+
+Add format generators to the Python SDK: `emails`, `urls`, `domains`, `dates`, `times`, `datetimes`, `ip_addresses`, and `from_regex`. These provide convenient ways to generate structured string data in property-based tests.
+
+
 ## 0.1.4 - 2026-02-24
 
 Fix JSONL parsing in conformance tests to split only on `\n` instead of using `splitlines()`, which incorrectly splits on Unicode line boundary characters (`\x85`, `\u2028`, `\u2029`) that are valid inside JSON string values.

@@ -1,5 +1,3 @@
-mod sdk
-
 ci: lint typecheck coverage
 
 test:
@@ -25,3 +23,9 @@ format:
 
 check: typecheck format coverage
     echo "Checks passed successfully"
+
+setup:
+    uv sync --group dev
+
+docs:
+    @echo "Documentation build not yet configured"
