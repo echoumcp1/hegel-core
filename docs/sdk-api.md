@@ -595,7 +595,6 @@ Followed by a CBOR-encoded payload and a terminator byte (`0x0A`).
 ### Important Notes
 
 - **Request ID matching**: Always verify reply ID matches request ID.
-- **additionalProperties**: Server automatically adds `"additionalProperties": false` to object schemas — SDKs should NOT add this.
 
 ## Error Handling
 
@@ -789,10 +788,6 @@ Then convert the tuple `[name, age]` back to an object `{name: ..., age: ...}`.
 
 When schemas aren't composable, generate each field separately within a
 labeled group.
-
-**Note:** The Rust derive macro generates `type: "object"` schemas with
-`properties` and `required` fields. This format is planned for future parser
-support.
 
 ### Thread Safety
 

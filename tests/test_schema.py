@@ -472,22 +472,6 @@ def test_binary_schema(example):
     assert 1 <= len(example) <= 10
 
 
-@given(
-    from_schema(
-        {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "min_size": 0},
-                "age": {"type": "integer", "min_value": 0, "max_value": 100},
-            },
-        }
-    ),
-)
-def test_object_schema(example):
-    assert isinstance(example["name"], str)
-    assert isinstance(example["age"], int)
-
-
 @given(from_schema({"type": "url"}))
 def test_url_schema(example):
     assert "://" in example
