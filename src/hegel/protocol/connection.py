@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 PROTOCOL_VERSION = 0.2
 HANDSHAKE_STRING = b"hegel_handshake_start"
 
+
 def _is_protocol_debug():
     value = os.environ.get("HEGEL_PROTOCOL_DEBUG")
     value = value.lower() if value is not None else None
