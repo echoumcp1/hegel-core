@@ -2,8 +2,8 @@ import io
 import re
 
 import cbor2
-from cbor2 import _decoder as cbor2_python
 import pytest
+from cbor2 import _decoder as cbor2_python
 from hypothesis import given, settings as Settings, strategies as st
 from hypothesis._settings import local_settings
 from hypothesis.control import _current_build_context
