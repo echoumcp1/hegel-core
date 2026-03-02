@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 - 2026-03-02
+
+In the protocol, remove `{"type": "object"}` and rename `{"type": "number"}` to `{"type": "float"}`.
+
+
 ## 0.3.1 - 2026-03-02
 
 Remove `{"type": "set"}` from the protocol in favor of `{"type": "list", "unique": True}`.
