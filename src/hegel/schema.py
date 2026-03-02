@@ -71,7 +71,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             from_schema(schema["elements"]),
             min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
-            unique=schema.get("unique", False)
+            unique=schema.get("unique", False),
         )
     if schema_type == "dict":
         # Convert to [[k, v], ...] format to support non-string keys
