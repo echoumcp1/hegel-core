@@ -15,7 +15,7 @@ from hegel.protocol import RequestError
 from hegel.protocol.channel import Channel
 from hegel.protocol.connection import Connection
 
-SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.1)
+SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.2)
 
 # Context variables for the current test case
 _current_channel: ContextVar[Channel | None] = ContextVar(
