@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - 2026-03-02
+
+Remove `{"type": "set"}` from the protocol in favor of `{"type": "list", "unique": True}`.
+
+
 ## 0.3.0 - 2026-02-27
 
 This release adds a stateful testing API and makes Generator a generic type.
