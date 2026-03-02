@@ -7,7 +7,7 @@ from threading import Thread
 import cbor2
 import pytest
 
-from hegel.protocol.connection import Connection, PROTOCOL_VERSION
+from hegel.protocol.connection import PROTOCOL_VERSION, Connection
 from hegel.protocol.packet import Packet
 from hegel.protocol.utils import SHUTDOWN
 
@@ -476,7 +476,7 @@ def test_send_handshake_returns_server_version(socket_pair):
         t.start()
 
         version = client_conn.send_handshake()
-        assert version == PROTOCOL_VERSION
+        assert float(version) == PROTOCOL_VERSION
 
         t.join(timeout=5)
 
