@@ -1,5 +1,8 @@
+import io
 import re
 
+import cbor2
+from cbor2 import _decoder as cbor2_python
 import pytest
 from hypothesis import given, settings as Settings, strategies as st
 from hypothesis._settings import local_settings
@@ -110,10 +113,11 @@ def schemas():
                 elements=inner,
                 max_size=st.integers(min_value=0, max_value=3),
             )
-            # set - only hashable elements
+            # unique list - only hashable elements
             | st.builds(
                 lambda elements, max_size: {
-                    "type": "set",
+                    "type": "list",
+                    "unique": True,
                     "elements": elements,
                     "min_size": 0,
                     "max_size": max_size,
@@ -286,17 +290,18 @@ def test_list_size():
     )
 
 
-def test_set():
+def test_unique_list():
     assert_all_examples(
         from_schema(
             {
-                "type": "set",
+                "type": "list",
+                "unique": True,
                 "elements": {"type": "integer", "min_value": 0, "max_value": 100},
                 "min_size": 5,
                 "max_size": 10,
             }
         ),
-        lambda x: len(x) == len(set(x)) and 5 <= len(x) <= 10,
+        lambda x: isinstance(x, list) and len(x) == len(set(x)) and 5 <= len(x) <= 10,
     )
 
 
@@ -385,14 +390,15 @@ def test_tuple_empty():
     )
 
 
-def test_set_of_tuples():
+def test_unique_list_of_tuples():
     def check(x):
-        return isinstance(x, set) and all(isinstance(elem, tuple) for elem in x)
+        return isinstance(x, list) and all(isinstance(elem, tuple) for elem in x)
 
     assert_all_examples(
         from_schema(
             {
-                "type": "set",
+                "type": "list",
+                "unique": True,
                 "elements": {
                     "type": "tuple",
                     "elements": [{"type": "integer"}, {"type": "integer"}],
@@ -432,9 +438,25 @@ def test_nested_dict_of_lists():
     )
 
 
-@given(schemas())
-def test_from_schema(schema):
-    from_schema(schema)
+@given(st.data())
+def test_from_schema(data):
+    schema = data.draw(schemas())
+    value = data.draw(from_schema(schema))
+
+    def tag_hook(decoder, tag):
+        # Unsigned bignum and negative bignum respectively
+        # https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml
+        if tag.tag in {2, 3}:
+            return
+        raise AssertionError(f"Saw CBOR tag {tag}")
+
+    encoded = cbor2.dumps(value)
+    # use the pure-python implementation instead of the default c one so we can
+    # monkeypatch its automatic conversion of tags to types to disable it and forward
+    # everything to tag_hook.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(cbor2_python, "semantic_decoders", {})
+        cbor2_python.CBORDecoder(io.BytesIO(encoded), tag_hook=tag_hook).decode()
 
 
 def test_invalid_schema():
@@ -516,15 +538,16 @@ def test_list_min_size_default():
     )
 
 
-def test_set_min_size_default():
+def test_unique_list_min_size_default():
     assert_all_examples(
         from_schema(
             {
-                "type": "set",
+                "type": "list",
+                "unique": True,
                 "elements": {"type": "integer", "min_value": 0, "max_value": 100},
             }
         ),
-        lambda x: isinstance(x, set),
+        lambda x: isinstance(x, list),
     )
 
 
