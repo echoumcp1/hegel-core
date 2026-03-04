@@ -34,6 +34,10 @@ class DataExhausted(Exception):
     """Raised when the server runs out of test data (StopTest)."""
 
 
+class InvalidArgument(Exception):
+    """Raised when invalid arguments are passed to a generator."""
+
+
 class Client:
     """Test client for connecting to a Hegel server."""
 
@@ -226,7 +230,12 @@ def _request(payload: dict) -> Any:
 
 def generate_from_schema(schema: dict) -> Any:
     """Generate a value from a schema."""
-    return _request({"command": "generate", "schema": schema})
+    try:
+        return _request({"command": "generate", "schema": schema})
+    except RequestError as e:
+        if e.error_type == "InvalidArgument":
+            raise InvalidArgument(str(e)) from e
+        raise
 
 
 def assume(condition: bool) -> None:

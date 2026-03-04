@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from client import (
     Client,
+    InvalidArgument,
     _request,
     assume,
     collection,
@@ -359,3 +360,23 @@ def test_pool_generate_with_mostly_removed_variables(client):
         assert result == variables[-1]
 
     client.run_test("test_pool_mostly_removed", test, test_cases=50)
+
+
+def test_invalid_argument_contradictory_bounds(client):
+    """Test that contradictory bounds raise InvalidArgument."""
+
+    def test():
+        with pytest.raises(InvalidArgument):
+            generate_from_schema({"type": "integer", "min_value": 10, "max_value": 5})
+
+    client.run_test("test_invalid_bounds", test, test_cases=1)
+
+
+def test_unsupported_schema_type_raises_request_error(client):
+    """Test that unsupported schema types raise RequestError (server sends ValueError)."""
+
+    def test():
+        with pytest.raises(RequestError):
+            generate_from_schema({"type": "unsupported_type"})
+
+    client.run_test("test_unsupported_schema", test, test_cases=1)

@@ -613,11 +613,29 @@ Hegel will try different inputs.
 
 ### Error Categories
 
-| Error Type | Action |
-|------------|--------|
-| JSON parse error | `assume(false)` |
-| Server returns error | `assume(false)` |
-| Filter exhaustion | `assume(false)` |
+| Error Type | Source | Action |
+|------------|--------|--------|
+| JSON parse error | generate | `assume(false)` |
+| Server returns error (generic) | any command | `assume(false)` |
+| `InvalidArgument` error | generate | Raise as SDK-level `InvalidArgument` exception/panic |
+| Filter exhaustion | client-side | `assume(false)` |
+
+### InvalidArgument Errors
+
+The `generate()` call may raise an `InvalidArgument` error when the server
+detects that the generator arguments are contradictory (e.g.,
+`integers(min_value=10, max_value=5)`).
+
+When the SDK receives a `RequestError` with `error_type` of `"InvalidArgument"`
+from a `generate` command, it must convert this into an SDK-level
+`InvalidArgument` exception (or equivalent in the target language) rather than
+treating it as a generic error.
+
+Shrinking still applies to `InvalidArgument` errors: the arguments leading to
+the invalid state might themselves be generated data. The server will mark the
+test case as INTERESTING and shrink it, replaying the final (minimized) test
+case with `is_final=True`. On the final run, the SDK should let the
+`InvalidArgument` exception propagate to the user.
 
 ### Filter Implementation
 
