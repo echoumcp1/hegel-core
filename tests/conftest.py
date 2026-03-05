@@ -3,10 +3,10 @@ import socket as socket_module
 from threading import Thread
 
 import pytest
-from client import Client
 
 from hegel.protocol.connection import Connection
 from hegel.server import run_server_on_connection
+from tests.client import Client, ClientConnection
 
 
 @pytest.fixture
@@ -22,10 +22,15 @@ def socket_pair():
 
 @pytest.fixture
 def socket():
-    s = socket_module.socket()
-    yield s
+    # Use a socketpair so the socket is connected — recv() on an unconnected
+    # socket raises immediately, which would cause the reader thread to exit
+    # and close the connection before the test runs.
+    s1, s2 = socket_module.socketpair()
+    yield s1
     with contextlib.suppress(OSError):
-        s.close()
+        s1.close()
+    with contextlib.suppress(OSError):
+        s2.close()
 
 
 def _make_client():
@@ -36,7 +41,7 @@ def _make_client():
         daemon=True,
     )
     thread.start()
-    client_connection = Connection(client_socket, name="Client")
+    client_connection = ClientConnection(client_socket)
     client = Client(client_connection)
     return client, client_connection, thread
 

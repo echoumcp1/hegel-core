@@ -74,7 +74,11 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             unique=schema.get("unique", False),
         )
     if schema_type == "dict":
-        # Convert to [[k, v], ...] format to support non-string keys
+        # Possibly "dict" should be removed entirely and replaced by sdks calling "tuple"
+        # themselves.
+        #
+        # We initially returned a tuple here to avoid json requiring string keys in dicts,
+        # but since we switched to cbor that's no longer a problem.
         return st.dictionaries(
             keys=from_schema(schema["keys"]),
             values=from_schema(schema["values"]),

@@ -1,6 +1,6 @@
 [project]
 name = "hegel"
-version = "0.3.2"
+version = "0.3.3"
 description = "Prototype universal property-based testing implementation"
 readme = "README.md"
 requires-python = ">=3.10"
