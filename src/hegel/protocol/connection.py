@@ -165,7 +165,7 @@ class Connection:
 
     def _make_channel(
         self, channel_id: ChannelId, *, role: str | None = None
-    ) -> Channel:
+    ) -> "Channel":
         """Create and register a channel."""
         from hegel.protocol.channel import Channel
 
@@ -174,7 +174,7 @@ class Connection:
             self.channels[channel.channel_id] = channel
         return channel
 
-    def new_channel(self, *, role: str | None = None) -> Channel:
+    def new_channel(self, *, role: str | None = None) -> "Channel":
         """Create a new logical channel on this connection (even IDs for server)."""
         assert self._handshake_done
         channel_id = ChannelId(self.__next_channel_id << 1)
@@ -183,7 +183,7 @@ class Connection:
 
     def connect_channel(
         self, channel_id: ChannelId, *, role: str | None = None
-    ) -> Channel:
+    ) -> "Channel":
         """Connect to a channel created by the client (odd IDs)."""
         assert self._handshake_done
         assert channel_id not in self.channels
