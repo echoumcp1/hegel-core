@@ -302,7 +302,7 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
-        if failure_blob:
+        if failure_blob is not None:
             choices = decode_failure(failure_blob)
             test_function = make_test_function(
                 connection, channel, is_final=False
@@ -310,9 +310,8 @@ def _run_one(
             data = ConjectureData.for_choices(choices)
             with contextlib.suppress(StopTest):
                 test_function(data)
-            interesting = data.status is Status.INTERESTING
 
-            if interesting:
+            if data.status is Status.INTERESTING:
                 result: dict[str, Any] = {
                     "passed": False,
                     "test_cases": 1,
@@ -320,14 +319,7 @@ def _run_one(
                     "invalid_test_cases": 0,
                     "interesting_test_cases": 1,
                 }
-                channel.send_request(
-                    {"event": "test_done", "results": result}
-                ).get()
-                final_test_function = make_test_function(
-                    connection, channel, is_final=True
-                )
-                with contextlib.suppress(StopTest):
-                    final_test_function(ConjectureData.for_choices(choices))
+                interesting_choices = [choices]
             else:
                 result = {
                     "passed": True,
@@ -337,49 +329,44 @@ def _run_one(
                     "interesting_test_cases": 0,
                     "error": "failure blob did not reproduce the failure",
                 }
-                channel.send_request(
-                    {"event": "test_done", "results": result}
-                ).get()
-            return result
+                interesting_choices = []
+        else:
+            seed = random.getrandbits(128) if seed is None else seed
+            runner = ConjectureRunner(
+                make_test_function(connection, channel, is_final=False),
+                settings=settings(
+                    deadline=None,
+                    database=DATABASE,
+                    max_examples=test_cases,
+                ),
+                random=Random(seed),
+                database_key=test_name.encode("utf-8"),
+            )
+            runner.run()
 
-        seed = random.getrandbits(128) if seed is None else seed
-        runner = ConjectureRunner(
-            make_test_function(connection, channel, is_final=False),
-            settings=settings(
-                deadline=None,
-                database=DATABASE,
-                max_examples=test_cases,
-            ),
-            random=Random(seed),
-            database_key=test_name.encode("utf-8"),
-        )
-        runner.run()
-
-        result = {
-            "passed": len(runner.interesting_examples) == 0,
-            "test_cases": runner.call_count,
-            "valid_test_cases": runner.valid_examples,
-            "invalid_test_cases": runner.invalid_examples,
-            "interesting_test_cases": len(runner.interesting_examples),
-            "seed": str(seed),
-        }
-
-        if runner.interesting_examples:
-            smallest = min(
+            interesting_examples = sorted(
                 runner.interesting_examples.values(),
                 key=lambda d: sort_key(d.nodes),
             )
-            result["failure_blob"] = encode_failure(smallest.choices)
+            result = {
+                "passed": len(interesting_examples) == 0,
+                "test_cases": runner.call_count,
+                "valid_test_cases": runner.valid_examples,
+                "invalid_test_cases": runner.invalid_examples,
+                "interesting_test_cases": len(interesting_examples),
+                "seed": str(seed),
+            }
+            if interesting_examples:
+                result["failure_blob"] = encode_failure(
+                    interesting_examples[0].choices
+                )
+            interesting_choices = [v.choices for v in interesting_examples]
 
         channel.send_request({"event": "test_done", "results": result}).get()
         final_test_function = make_test_function(connection, channel, is_final=True)
-
-        for v in sorted(
-            runner.interesting_examples.values(),
-            key=lambda d: sort_key(d.nodes),
-        ):
+        for choices in interesting_choices:
             with contextlib.suppress(StopTest):
-                final_test_function(ConjectureData.for_choices(v.choices))
+                final_test_function(ConjectureData.for_choices(choices))
 
         return result
     except Exception:
