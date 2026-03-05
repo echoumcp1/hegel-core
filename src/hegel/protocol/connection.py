@@ -126,7 +126,8 @@ class Connection:
                     self._debug_print(f"Received close for {channel}")
                     channel.closed = True
                     channel.unprocessed_packets.put(SHUTDOWN)
-                elif not channel.closed:
+                else:
+                    assert not channel.closed
                     channel.unprocessed_packets.put(packet)
         finally:
             if acquired:
