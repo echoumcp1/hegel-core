@@ -59,6 +59,7 @@ class Client:
         *,
         test_cases: int = 100,
         seed: int | None = None,
+        print_blob: bool = False,
         failure_blob: bytes | None = None,
     ) -> None:
         """Run a property test."""
@@ -72,6 +73,7 @@ class Client:
                     "name": name,
                     "test_cases": test_cases,
                     "seed": seed,
+                    "print_blob": print_blob,
                     "failure_blob": failure_blob,
                     "channel_id": test_channel.channel_id,
                 },
@@ -113,6 +115,8 @@ class Client:
 
         n_interesting = result_data["interesting_test_cases"]
 
+        if result_data["passed"] and failure_blob:
+            raise AssertionError("failure blob did not reproduce")
         if n_interesting == 0:
             return
 

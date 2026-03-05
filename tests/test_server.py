@@ -336,7 +336,7 @@ def test_reproduce_failure(client):
         )
 
     with pytest.raises(AssertionError):
-        client.run_test("test_repro", test, test_cases=100)
+        client.run_test("test_repro", test, test_cases=100, print_blob=True)
 
     blob = client.last_result["failure_blob"]
     assert isinstance(blob, bytes)
@@ -355,12 +355,12 @@ def test_reproduce_failure_blob_no_longer_fails(client):
         )
 
     with pytest.raises(AssertionError):
-        client.run_test("test_stale_blob", failing_test, test_cases=100)
+        client.run_test("test_stale_blob", failing_test, test_cases=100, print_blob=True)
 
     blob = client.last_result["failure_blob"]
 
     # The blob was for failing_test, but we replay with a test that always passes.
-    with pytest.raises(RuntimeError, match="failure blob did not reproduce"):
+    with pytest.raises(AssertionError, match="failure blob did not reproduce"):
         client.run_test("test_stale_replay", lambda: None, failure_blob=blob)
 
 

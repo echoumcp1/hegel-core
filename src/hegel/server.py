@@ -263,6 +263,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             test_name=test_name,
                             test_cases=message["test_cases"],
                             seed=message.get("seed"),
+                            print_blob=message.get("print_blob"),
                             failure_blob=message.get("failure_blob"),
                         ),
                     )
@@ -290,6 +291,7 @@ def _run_one(
     test_name: str,
     test_cases: int,
     seed: int | None,
+    print_blob: bool,
     failure_blob: bytes | None = None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
@@ -355,7 +357,7 @@ def _run_one(
                 "interesting_test_cases": len(interesting_examples),
                 "seed": str(seed),
             }
-            if interesting_examples:
+            if print_blob and interesting_examples:
                 result["failure_blob"] = encode_failure(
                     interesting_examples[0].choices
                 )
