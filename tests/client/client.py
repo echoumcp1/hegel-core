@@ -12,13 +12,12 @@ except NameError:  # pragma: no cover
 import cbor2
 
 from hegel.protocol import RequestError
-from hegel.protocol.channel import Channel
-from hegel.protocol.connection import Connection
+from tests.client.protocol import ClientChannel, ClientConnection
 
 SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.3)
 
 # Context variables for the current test case
-_current_channel: ContextVar[Channel | None] = ContextVar(
+_current_channel: ContextVar[ClientChannel | None] = ContextVar(
     "_current_channel",
     default=None,
 )
@@ -37,7 +36,7 @@ class DataExhausted(Exception):
 class Client:
     """Test client for connecting to a Hegel server."""
 
-    def __init__(self, connection: Connection):
+    def __init__(self, connection: ClientConnection):
         server_version = float(connection.send_handshake())
         lo, hi = SUPPORTED_PROTOCOL_VERSIONS
         if not (lo <= server_version <= hi):
@@ -61,7 +60,7 @@ class Client:
     ) -> None:
         """Run a property test."""
 
-        test_channel = self.connection.new_channel(role="Test")
+        test_channel = self.connection.new_channel()
 
         with self.__lock:
             self._control.send_request(
@@ -72,7 +71,7 @@ class Client:
                     "seed": seed,
                     "channel_id": test_channel.channel_id,
                 },
-            ).get()
+            )
 
         result_data = None
 
@@ -86,10 +85,7 @@ class Client:
             if event == "test_case":
                 channel_id = message["channel_id"]
                 test_channel.write_reply(packet.message_id, None)
-                test_case_channel = self.connection.connect_channel(
-                    channel_id,
-                    role="Test Case",
-                )
+                test_case_channel = self.connection.connect_channel(channel_id)
                 self._run_test_case(test_case_channel, test_fn, is_final=False)
             elif event == "test_done":
                 test_channel.write_reply(packet.message_id, True)
@@ -119,10 +115,7 @@ class Client:
 
                 channel_id = message["channel_id"]
                 test_channel.write_reply(packet.message_id, None)
-                test_case_channel = self.connection.connect_channel(
-                    channel_id,
-                    role="Test Case",
-                )
+                test_case_channel = self.connection.connect_channel(channel_id)
                 self._run_test_case(test_case_channel, test_fn, is_final=True)
                 if n_interesting > 1:
                     raise AssertionError(
@@ -138,7 +131,7 @@ class Client:
 
     def _run_test_case(
         self,
-        channel: Channel,
+        channel: ClientChannel,
         test_fn: Callable[[], None],
         *,
         is_final: bool,
@@ -199,7 +192,7 @@ def _extract_origin(exc: Exception, tb: Any) -> str:
     return f"{type(exc).__name__} at {filename}:{lineno}"
 
 
-def _get_channel() -> Channel:
+def _get_channel() -> ClientChannel:
     """Get the current test channel, raising if not in a test."""
     channel = _current_channel.get()
     if channel is None:
@@ -216,7 +209,7 @@ def _request(payload: dict) -> Any:
     DataExhausted so the client knows the test case is already complete.
     """
     try:
-        return _get_channel().send_request(payload).get()
+        return _get_channel().send_request(payload)
     except RequestError as e:
         if e.error_type == "StopTest":
             _test_aborted.set(True)

@@ -993,7 +993,7 @@ def test_conformance(subtests):
 
 - [ ] `lists(elements)` with min/max size and unique
 - [ ] `sets(elements)`
-- [ ] `dictionaries(keys, values)` (string keys only)
+- [ ] `dictionaries(keys, values)`
 - [ ] `tuples(generators...)`
 - [ ] Schema composition for all collections (via `as_basic()`)
 - [ ] Compositional fallback when generators are not basic

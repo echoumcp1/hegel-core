@@ -1,11 +1,8 @@
-from __future__ import annotations
-
 import contextlib
 import os
 import socket
 import sys
 from collections.abc import Callable
-from enum import Enum
 from threading import Lock
 from time import sleep
 from typing import TYPE_CHECKING, Any
@@ -45,14 +42,8 @@ def _is_protocol_debug():
     return value in {"1", "true"}
 
 
-class ConnectionState(Enum):
-    UNRESOLVED = 0
-    CLIENT = 1
-    SERVER = 2
-
-
 class Connection:
-    """Thread-safe multiplexed socket connection to a Hegel peer."""
+    """Thread-safe multiplexed socket connection to a Hegel server"""
 
     def __init__(
         self,
@@ -71,10 +62,10 @@ class Connection:
         self.__reader_lock = Lock()
         self.__socket = socket
         self.__next_channel_id = 1
-        self._state = ConnectionState.UNRESOLVED
+        self._handshake_done = False
 
         # special channel for connection-level commands
-        self.control_channel = self.new_channel(role="Control")
+        self.control_channel = self._make_channel(ChannelId(0), role="Control")
 
     def __enter__(self):
         return self
@@ -135,7 +126,8 @@ class Connection:
                     self._debug_print(f"Received close for {channel}")
                     channel.closed = True
                     channel.unprocessed_packets.put(SHUTDOWN)
-                elif not channel.closed:
+                else:
+                    assert not channel.closed
                     channel.unprocessed_packets.put(packet)
         finally:
             if acquired:
@@ -161,62 +153,40 @@ class Connection:
             if not v.closed:
                 v.unprocessed_packets.put(SHUTDOWN)
 
-    def send_handshake(self) -> str:
-        """Initiate handshake as a client.
-
-        Returns the server protocol version.
-        """
-        assert self._state is ConnectionState.UNRESOLVED
-
-        self._state = ConnectionState.CLIENT
-        packet = self.control_channel.write_request(HANDSHAKE_STRING)
-        reply = self.control_channel.read_reply(packet.message_id)
-        payload = reply.payload.decode("utf-8")
-        assert payload.startswith("Hegel/")
-        return payload.removeprefix("Hegel/")
-
     def receive_handshake(self):
         """Accept handshake as a server."""
-        assert self._state is ConnectionState.UNRESOLVED
+        assert not self._handshake_done
 
-        self._state = ConnectionState.SERVER
+        self._handshake_done = True
         packet = self.control_channel.read_request()
         assert packet.payload == HANDSHAKE_STRING
         self.control_channel.write_reply_bytes(
             packet.message_id, f"Hegel/{PROTOCOL_VERSION}".encode()
         )
 
-    def new_channel(self, *, role: str | None = None) -> Channel:
-        """Create a new logical channel on this connection."""
+    def _make_channel(
+        self, channel_id: ChannelId, *, role: str | None = None
+    ) -> "Channel":
+        """Create and register a channel."""
         from hegel.protocol.channel import Channel
-
-        if not self.channels:
-            channel_id = ChannelId(0)
-        else:
-            assert self._state is not ConnectionState.UNRESOLVED
-            channel_id = ChannelId(
-                (self.__next_channel_id << 1)
-                | int(self._state is ConnectionState.CLIENT)
-            )
-            self.__next_channel_id += 1
 
         channel = Channel(connection=self, channel_id=channel_id, role=role)
         with self.__writer_lock:
             self.channels[channel.channel_id] = channel
         return channel
+
+    def new_channel(self, *, role: str | None = None) -> "Channel":
+        """Create a new logical channel on this connection (even IDs for server)."""
+        assert self._handshake_done
+        channel_id = ChannelId(self.__next_channel_id << 1)
+        self.__next_channel_id += 1
+        return self._make_channel(channel_id, role=role)
 
     def connect_channel(
         self, channel_id: ChannelId, *, role: str | None = None
-    ) -> Channel:
-        """Connect to a channel created by the peer."""
-        from hegel.protocol.channel import Channel
-
-        assert self._state is not ConnectionState.UNRESOLVED
-
+    ) -> "Channel":
+        """Connect to a channel created by the client (odd IDs)."""
+        assert self._handshake_done
         assert channel_id not in self.channels
-        assert channel_id & 1 != int(self._state is ConnectionState.CLIENT)
-
-        channel = Channel(connection=self, channel_id=channel_id, role=role)
-        with self.__writer_lock:
-            self.channels[channel.channel_id] = channel
-        return channel
+        assert channel_id & 1 != 0  # client channels are odd
+        return self._make_channel(channel_id, role=role)

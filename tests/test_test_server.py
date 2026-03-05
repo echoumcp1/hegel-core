@@ -7,6 +7,7 @@ import cbor2
 
 from hegel.protocol.connection import Connection
 from hegel.test_server import run_test_server
+from tests.client import ClientConnection
 
 
 def _create_socket_pair():
@@ -25,7 +26,7 @@ def _start_server(server_sock, mode):
 
 def _setup_client(client_sock):
     """Set up client connection and perform handshake."""
-    conn = Connection(client_sock)
+    conn = ClientConnection(client_sock)
     conn.send_handshake()
     return conn
 
@@ -413,7 +414,7 @@ class TestTestServerErrors:
             with _setup_client(s2) as client:
                 # Send run_test but don't wait for response — the server will
                 # raise ValueError after receiving it, closing the connection.
-                test_channel = client.new_channel(role="Test")
+                test_channel = client.new_channel()
                 client.control_channel.write_request(
                     cbor2.dumps(
                         {
