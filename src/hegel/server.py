@@ -21,6 +21,7 @@ from typing import Any
 import cbor2
 from hypothesis import settings
 from hypothesis.control import BuildContext
+from hypothesis.core import decode_failure, encode_failure
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.cache import LRUCache
@@ -262,6 +263,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             test_name=test_name,
                             test_cases=message["test_cases"],
                             seed=message.get("seed"),
+                            failure_blob=message.get("failure_blob"),
                         ),
                     )
                     connection.control_channel.write_reply(packet.message_id, True)
@@ -288,6 +290,7 @@ def _run_one(
     test_name: str,
     test_cases: int,
     seed: int | None,
+    failure_blob: bytes | None = None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -299,6 +302,46 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
+        if failure_blob:
+            choices = decode_failure(failure_blob)
+            test_function = make_test_function(
+                connection, channel, is_final=False
+            )
+            data = ConjectureData.for_choices(choices)
+            with contextlib.suppress(StopTest):
+                test_function(data)
+            interesting = data.status is Status.INTERESTING
+
+            if interesting:
+                result: dict[str, Any] = {
+                    "passed": False,
+                    "test_cases": 1,
+                    "valid_test_cases": 0,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": 1,
+                }
+                channel.send_request(
+                    {"event": "test_done", "results": result}
+                ).get()
+                final_test_function = make_test_function(
+                    connection, channel, is_final=True
+                )
+                with contextlib.suppress(StopTest):
+                    final_test_function(ConjectureData.for_choices(choices))
+            else:
+                result = {
+                    "passed": True,
+                    "test_cases": 1,
+                    "valid_test_cases": 1,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": 0,
+                    "error": "failure blob did not reproduce the failure",
+                }
+                channel.send_request(
+                    {"event": "test_done", "results": result}
+                ).get()
+            return result
+
         seed = random.getrandbits(128) if seed is None else seed
         runner = ConjectureRunner(
             make_test_function(connection, channel, is_final=False),
@@ -312,7 +355,7 @@ def _run_one(
         )
         runner.run()
 
-        result: dict[str, Any] = {
+        result = {
             "passed": len(runner.interesting_examples) == 0,
             "test_cases": runner.call_count,
             "valid_test_cases": runner.valid_examples,
@@ -320,6 +363,13 @@ def _run_one(
             "interesting_test_cases": len(runner.interesting_examples),
             "seed": str(seed),
         }
+
+        if runner.interesting_examples:
+            smallest = min(
+                runner.interesting_examples.values(),
+                key=lambda d: sort_key(d.nodes),
+            )
+            result["failure_blob"] = encode_failure(smallest.choices)
 
         channel.send_request({"event": "test_done", "results": result}).get()
         final_test_function = make_test_function(connection, channel, is_final=True)

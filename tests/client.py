@@ -50,6 +50,7 @@ class Client:
         self.connection = connection
         self._control = connection.control_channel
         self.__lock = threading.Lock()
+        self.last_result: dict | None = None
 
     def run_test(
         self,
@@ -58,6 +59,7 @@ class Client:
         *,
         test_cases: int = 100,
         seed: int | None = None,
+        failure_blob: bytes | None = None,
     ) -> None:
         """Run a property test."""
 
@@ -70,6 +72,7 @@ class Client:
                     "name": name,
                     "test_cases": test_cases,
                     "seed": seed,
+                    "failure_blob": failure_blob,
                     "channel_id": test_channel.channel_id,
                 },
             ).get()
@@ -103,6 +106,10 @@ class Client:
                 )
 
         assert result_data is not None
+        self.last_result = result_data
+
+        if "error" in result_data:
+            raise RuntimeError(result_data["error"])
 
         n_interesting = result_data["interesting_test_cases"]
 

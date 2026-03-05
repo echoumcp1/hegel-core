@@ -328,6 +328,51 @@ def test_pool_generate_from_empty_pool(client):
     client.run_test("test_pool_empty", test, test_cases=10)
 
 
+def test_reproduce_failure(client):
+    def test():
+        assert (
+            generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+            <= 10
+        )
+
+    with pytest.raises(AssertionError):
+        client.run_test("test_repro", test, test_cases=100)
+
+    blob = client.last_result["failure_blob"]
+    assert isinstance(blob, bytes)
+
+    with pytest.raises(AssertionError):
+        client.run_test("test_repro_replay", test, failure_blob=blob)
+
+
+def test_reproduce_failure_blob_no_longer_fails(client):
+    """When a blob no longer reproduces, the client raises RuntimeError."""
+
+    def failing_test():
+        assert (
+            generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+            <= 10
+        )
+
+    with pytest.raises(AssertionError):
+        client.run_test("test_stale_blob", failing_test, test_cases=100)
+
+    blob = client.last_result["failure_blob"]
+
+    # The blob was for failing_test, but we replay with a test that always passes.
+    with pytest.raises(RuntimeError, match="failure blob did not reproduce"):
+        client.run_test("test_stale_replay", lambda: None, failure_blob=blob)
+
+
+def test_reproduce_failure_result_not_in_passing_test(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x >= 0
+
+    client.run_test("test_passing_no_repro", test, test_cases=50)
+    assert "failure_blob" not in client.last_result
+
+
 def test_pool_generate_with_mostly_removed_variables(client):
     """Tests the fallback path in Variables.generate when random picks hit removed variables.
 
