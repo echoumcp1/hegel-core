@@ -11,10 +11,9 @@ from threading import Thread
 
 import pytest
 from click.testing import CliRunner
-from client import Client
 
 from hegel.__main__ import main
-from hegel.protocol.connection import Connection
+from tests.client import Client, ClientConnection
 
 
 @pytest.fixture
@@ -69,7 +68,7 @@ def _client_and_server(socket_path, *args, env=None):
             time.sleep(0.01)
             continue
 
-        with Connection(sock) as conn:
+        with ClientConnection(sock) as conn:
             yield Client(conn)
         t.join(timeout=5)
         return

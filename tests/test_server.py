@@ -5,9 +5,19 @@ import time
 from threading import Thread
 
 import pytest
-from client import (
+from hypothesis import strategies as st
+from hypothesis.errors import UnsatisfiedAssumption
+
+from hegel.protocol import RequestError
+from hegel.protocol.connection import Connection
+from hegel.server import (
+    FROM_SCHEMA_CACHE,
+    cached_from_schema,
+    run_server_on_connection,
+)
+from tests.client import (
     Client,
-    _request,
+    ClientConnection,
     assume,
     collection,
     generate_from_schema,
@@ -15,16 +25,7 @@ from client import (
     stop_span,
     target,
 )
-from hypothesis import strategies as st
-from hypothesis.errors import UnsatisfiedAssumption
-
-from hegel.protocol import ProtocolError, RequestError
-from hegel.protocol.connection import Connection
-from hegel.server import (
-    FROM_SCHEMA_CACHE,
-    cached_from_schema,
-    run_server_on_connection,
-)
+from tests.client.client import _request
 
 
 def test_start_and_stop_span(client):
@@ -46,8 +47,8 @@ def test_stop_span_with_discard(client):
 
 
 def test_unknown_command(client):
-    with pytest.raises(ProtocolError):
-        client._control.send_request({"command": "bogus"}).get()
+    with pytest.raises(ConnectionError):
+        client._control.send_request({"command": "bogus"})
 
 
 def test_unknown_command_on_data_channel(client):
@@ -141,9 +142,9 @@ def test_future_cancel_on_connection_error(monkeypatch):
     )
     thread.start()
 
-    with Connection(client_socket) as client_connection:
+    with ClientConnection(client_socket) as client_connection:
         client = Client(client_connection)
-        channel = client_connection.new_channel(role="Test")
+        channel = client_connection.new_channel()
         client._control.send_request(
             {
                 "command": "run_test",
@@ -152,7 +153,7 @@ def test_future_cancel_on_connection_error(monkeypatch):
                 "test_cases": 100,
                 "seed": None,
             },
-        ).get()
+        )
 
     thread.join(timeout=10)
 
@@ -177,9 +178,9 @@ def test_exception_in_run_one_is_printed_and_reraised(monkeypatch):
     )
     thread.start()
 
-    with Connection(client_socket) as client_connection:
+    with ClientConnection(client_socket) as client_connection:
         client = Client(client_connection)
-        channel = client_connection.new_channel(role="Test")
+        channel = client_connection.new_channel()
         client._control.send_request(
             {
                 "command": "run_test",
@@ -188,7 +189,7 @@ def test_exception_in_run_one_is_printed_and_reraised(monkeypatch):
                 "test_cases": 10,
                 "seed": None,
             },
-        ).get()
+        )
 
     thread.join(timeout=10)
 
@@ -222,7 +223,7 @@ def test_base_exception_in_server():
     thread = Thread(target=server, daemon=True)
     thread.start()
 
-    with Connection(client_socket) as client_conn:
+    with ClientConnection(client_socket) as client_conn:
         client_conn.send_handshake()
         time.sleep(0.3)
     thread.join(timeout=5)

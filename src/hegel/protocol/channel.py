@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections import deque
 from queue import Empty, SimpleQueue
 from time import time
@@ -27,7 +25,7 @@ if TYPE_CHECKING:
 class PendingRequest:
     """Future-like handle for an in-flight request."""
 
-    def __init__(self, channel: Channel, message_id: MessageId) -> None:
+    def __init__(self, channel: "Channel", message_id: MessageId) -> None:
         self.__channel = channel
         self.__message_id = message_id
         self._closed = False

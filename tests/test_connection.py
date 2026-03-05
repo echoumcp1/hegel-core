@@ -7,12 +7,14 @@ from threading import Thread
 import cbor2
 import pytest
 
+from hegel.protocol import RequestError
 from hegel.protocol.connection import PROTOCOL_VERSION, Connection
 from hegel.protocol.packet import Packet
 from hegel.protocol.utils import SHUTDOWN
+from tests.client import ClientConnection
 
 
-def _do_handshake(server: Connection, client: Connection):
+def _do_handshake(server: Connection, client: ClientConnection):
     t = Thread(target=server.receive_handshake, daemon=True)
     t.start()
     client.send_handshake()
@@ -35,13 +37,13 @@ def test_request_handling(socket_pair):
         daemon=True,
     )
     thread.start()
-    with Connection(client_socket) as client_connection:
+    with ClientConnection(client_socket) as client_connection:
         client_connection.send_handshake()
 
         # Server creates channel with id=2 (first non-control,
         # __next_channel_id=1, id = (1 << 1) | 0 = 2)
         send_channel = client_connection.connect_channel(2)
-        assert send_channel.send_request({"x": 2, "y": 3}).get() == {"sum": 5}
+        assert send_channel.send_request({"x": 2, "y": 3}) == {"sum": 5}
 
 
 def test_handle_requests_until(socket_pair):
@@ -62,7 +64,7 @@ def test_handle_requests_until(socket_pair):
         daemon=True,
     )
     thread.start()
-    with Connection(client_socket) as client_connection:
+    with ClientConnection(client_socket) as client_connection:
         client_connection.send_handshake()
     thread.join(timeout=5)
 
@@ -82,20 +84,20 @@ def test_connection_debug_mode(socket, name, payload):
 
 
 @pytest.mark.parametrize(
-    "role, send_fn",
+    "send_fn",
     [
-        ("DebugTest", lambda ch: ch.send_request({"test": "data"})),
-        (None, lambda ch: ch.write_request(b"\xfc\xfd\xfe")),
+        lambda ch: ch.write_request(cbor2.dumps({"test": "data"})),
+        lambda ch: ch.write_request(b"\xfc\xfd\xfe"),
     ],
 )
-def test_connection_debug_with_handshake(socket_pair, role, send_fn):
+def test_connection_debug_with_handshake(socket_pair, send_fn):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket, name="Server", debug=True) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
-        ch_client = client_conn.new_channel(role=role)
+        ch_client = client_conn.new_channel()
         server_conn.connect_channel(ch_client.channel_id)
         send_fn(ch_client)
         time.sleep(0.2)
@@ -108,11 +110,11 @@ def test_channel_close(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = client_conn.new_channel()
+        channel = server_conn.new_channel()
         channel.close()
         # Closing again should be a no-op
         channel.close()
@@ -127,13 +129,13 @@ def test_channel_close_when_connection_not_live(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = client_conn.new_channel()
+        channel = server_conn.new_channel()
         # Close the connection first
-        client_conn.close()
+        server_conn.close()
         # Now close the channel — connection is not live
         channel.close()
 
@@ -143,13 +145,18 @@ def test_channel_process_message_when_closed(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = client_conn.new_channel()
+        channel = server_conn.new_channel()
         channel.close()
 
+        # First read consumes SHUTDOWN from the queue
+        with pytest.raises(ConnectionError):
+            channel.read_request(timeout=0.1)
+
+        # Second read hits the empty-queue-but-closed path
         with pytest.raises(ConnectionError):
             channel.read_request(timeout=0.1)
 
@@ -159,11 +166,11 @@ def test_channel_timeout(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = client_conn.new_channel()
+        channel = server_conn.new_channel()
 
         with pytest.raises(TimeoutError):
             channel.read_request(timeout=0.1)
@@ -185,10 +192,10 @@ def test_channel_repr_variations(socket_pair, role, expected):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
-        channel = client_conn.new_channel(role=role)
+        channel = server_conn.new_channel(role=role)
         assert expected in repr(channel)
 
 
@@ -197,19 +204,19 @@ def test_message_to_closed_channel(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
 
-        ch_client = client_conn.new_channel()
-        ch_server = server_conn.connect_channel(ch_client.channel_id)
+        ch_server = server_conn.new_channel()
+        ch_client = client_conn.connect_channel(ch_server.channel_id)
 
-        # Close the channel on client side
-        ch_client.close()
+        # Close the channel on server side
+        ch_server.close()
         time.sleep(0.2)
 
-        # Now send a request to the closed channel from server
-        ch_server.write_request(cbor2.dumps({"test": "data"}))
+        # Now send a request to the closed channel from client
+        ch_client.write_request(cbor2.dumps({"test": "data"}))
         time.sleep(0.2)
 
 
@@ -219,7 +226,7 @@ def test_close_channel_marks_closed(socket_pair, create_channel_first):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket, name="Server", debug=True) as server_conn,
-        Connection(client_socket, name="Client", debug=True) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
 
         def server_side():
@@ -246,13 +253,13 @@ def test_close_channel_marks_closed(socket_pair, create_channel_first):
         assert (
             client_conn.control_channel.send_request(
                 {"channel_id": client_channel_to_close.channel_id},
-            ).get()
+            )
             == "Ok"
         )
 
         client_channel_to_close.close()
 
-        assert client_conn.control_channel.send_request({}).get() == "Ok"
+        assert client_conn.control_channel.send_request({}) == "Ok"
 
         # The channel should now be closed on the server side
         channel = server_conn.channels[client_channel_to_close.channel_id]
@@ -265,56 +272,118 @@ def test_close_channel_marks_closed(socket_pair, create_channel_first):
 
 
 def test_pending_request_double_get_raises(socket_pair):
-    """Test PendingRequest raises ValueError on second get()."""
+    """Test server-side PendingRequest raises ValueError on second get()."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
+        errors = []
 
         def server_side():
             server_conn.receive_handshake()
+            # Tell client which channel we're creating via control channel
             channel = server_conn.new_channel()
-
-            @channel.handle_requests
-            def _(msg):
-                return msg["value"] * 2
+            server_conn.control_channel.send_request(
+                {"channel_id": channel.channel_id}
+            ).get()
+            pending = channel.send_request({"value": 21})
+            assert pending.get() == 42
+            try:
+                pending.get()
+            except ValueError as e:
+                errors.append(e)
 
         t = Thread(target=server_side, daemon=True)
         t.start()
         client_conn.send_handshake()
 
-        channel = client_conn.connect_channel(2)
-        pending = channel.send_request({"value": 21})
-        assert pending.get() == 42
-        with pytest.raises(ValueError, match=r"Cannot \.get\(\) more than once"):
-            pending.get()
+        # Server tells us the channel ID via control channel
+        ctrl_packet = client_conn.control_channel.read_request()
+        channel_id = cbor2.loads(ctrl_packet.payload)["channel_id"]
+        channel = client_conn.connect_channel(channel_id)
+        client_conn.control_channel.write_reply(ctrl_packet.message_id, "Ok")
+
+        # Client receives server's request and replies
+        packet = channel.read_request()
+        channel.write_reply(packet.message_id, 42)
+        t.join(timeout=5)
+        assert len(errors) == 1
+        assert "Cannot .get() more than once" in str(errors[0])
+
+
+def test_pending_request_error_response(socket_pair):
+    """Test server-side PendingRequest raises RequestError on error reply."""
+    server_socket, client_socket = socket_pair
+    with (
+        Connection(server_socket) as server_conn,
+        ClientConnection(client_socket) as client_conn,
+    ):
+        errors = []
+
+        def server_side():
+            server_conn.receive_handshake()
+            channel = server_conn.new_channel()
+            server_conn.control_channel.send_request(
+                {"channel_id": channel.channel_id}
+            ).get()
+            pending = channel.send_request({"value": 21})
+            try:
+                pending.get()
+            except RequestError as e:
+                errors.append(e)
+
+        t = Thread(target=server_side, daemon=True)
+        t.start()
+        client_conn.send_handshake()
+
+        ctrl_packet = client_conn.control_channel.read_request()
+        channel_id = cbor2.loads(ctrl_packet.payload)["channel_id"]
+        channel = client_conn.connect_channel(channel_id)
+        client_conn.control_channel.write_reply(ctrl_packet.message_id, "Ok")
+
+        # Client receives server's request and replies with an error
+        packet = channel.read_request()
+        channel.write_reply_error(
+            packet.message_id, error="test error", error_type="TestError"
+        )
+        t.join(timeout=5)
+        assert len(errors) == 1
+        assert errors[0].error_type == "TestError"
 
 
 def test_receive_reply(socket_pair):
-    """Test receive_reply returns raw bytes."""
+    """Test receive_reply returns raw bytes on server side."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
+        results = []
 
         def server_side():
             server_conn.receive_handshake()
             channel = server_conn.new_channel()
-
-            @channel.handle_requests
-            def _(msg):
-                return 42
+            server_conn.control_channel.send_request(
+                {"channel_id": channel.channel_id}
+            ).get()
+            packet = channel.write_request(cbor2.dumps({"test": True}))
+            result = cbor2.loads(channel.read_reply(packet.message_id).payload)
+            results.append(result)
 
         t = Thread(target=server_side, daemon=True)
         t.start()
         client_conn.send_handshake()
 
-        channel = client_conn.connect_channel(2)
-        packet = channel.write_request(cbor2.dumps({"test": True}))
-        result = cbor2.loads(channel.read_reply(packet.message_id).payload)
-        assert result == {"result": 42}
+        ctrl_packet = client_conn.control_channel.read_request()
+        channel_id = cbor2.loads(ctrl_packet.payload)["channel_id"]
+        channel = client_conn.connect_channel(channel_id)
+        client_conn.control_channel.write_reply(ctrl_packet.message_id, "Ok")
+
+        packet = channel.read_request()
+        channel.write_reply(packet.message_id, 42)
+        t.join(timeout=5)
+        assert results == [{"result": 42}]
 
 
 # ---- Duplicate reply ID ----
@@ -358,25 +427,12 @@ def test_duplicate_reply_error(socket):
 # ---- Connection handshake ----
 
 
-def test_double_handshake_send_raises(socket_pair):
-    """Test that calling send_handshake twice raises."""
-    server_socket, client_socket = socket_pair
-    with (
-        Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
-    ):
-        _do_handshake(server_conn, client_conn)
-
-        with pytest.raises(AssertionError):
-            client_conn.send_handshake()
-
-
 def test_double_handshake_receive_raises(socket_pair):
     """Test that calling receive_handshake twice raises."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
 
         def server_side():
@@ -404,13 +460,13 @@ def test_connect_channel_already_exists_raises(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
 
         # Connect to channel 0 which already exists (control channel)
         with pytest.raises(AssertionError):
-            client_conn.connect_channel(0)
+            server_conn.connect_channel(0)
 
 
 def test_new_channel_before_handshake_raises(socket):
@@ -427,7 +483,7 @@ def test_bad_handshake_negotiation(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
 
         def send_bad():
@@ -443,34 +499,12 @@ def test_bad_handshake_negotiation(socket_pair):
         t.join(timeout=5)
 
 
-def test_send_handshake_bad_reply(socket_pair):
-    """Test send_handshake raises when server returns bad reply."""
-    server_socket, client_socket = socket_pair
-    with (
-        Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
-    ):
-
-        def bad_server():
-            channel = server_conn.control_channel
-            packet = channel.read_request()
-            channel.write_reply_bytes(packet.message_id, b"NotOk")
-
-        t = Thread(target=bad_server, daemon=True)
-        t.start()
-
-        with pytest.raises(AssertionError):
-            client_conn.send_handshake()
-
-        t.join(timeout=5)
-
-
 def test_send_handshake_returns_server_version(socket_pair):
     """Test send_handshake returns the server's protocol version."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
-        Connection(client_socket) as client_conn,
+        ClientConnection(client_socket) as client_conn,
     ):
         t = Thread(target=server_conn.receive_handshake, daemon=True)
         t.start()
@@ -517,7 +551,7 @@ def test_reader_loop_clean_exit(socket_pair):
     """
     server_socket, client_socket = socket_pair
     server_conn = Connection(server_socket)
-    client_conn = Connection(client_socket)
+    client_conn = ClientConnection(client_socket)
 
     _do_handshake(server_conn, client_conn)
 
