@@ -45,7 +45,7 @@ class PendingRequest:
 class Channel:
     def __init__(
         self,
-        connection: Connection,
+        connection: "Connection",
         channel_id: ChannelId,
         role: str | None = None,
     ) -> None:
