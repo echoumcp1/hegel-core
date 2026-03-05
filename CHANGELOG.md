@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 - 2026-03-05
+
+Remove code that was only for the client.
+
 ## 0.3.2 - 2026-03-02
 
 In the protocol, remove `{"type": "object"}` and rename `{"type": "number"}` to `{"type": "float"}`.
