@@ -324,10 +324,9 @@ def _run_one(
                 result = {
                     "passed": True,
                     "test_cases": 1,
-                    "valid_test_cases": 1,
+                    "valid_test_cases": 0,
                     "invalid_test_cases": 0,
                     "interesting_test_cases": 0,
-                    "error": "failure blob did not reproduce the failure",
                 }
                 interesting_choices = []
         else:
