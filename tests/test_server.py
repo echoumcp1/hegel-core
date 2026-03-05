@@ -355,7 +355,9 @@ def test_reproduce_failure_blob_no_longer_fails(client):
         )
 
     with pytest.raises(AssertionError):
-        client.run_test("test_stale_blob", failing_test, test_cases=100, print_blob=True)
+        client.run_test(
+            "test_stale_blob", failing_test, test_cases=100, print_blob=True
+        )
 
     blob = client.last_result["failure_blob"]
 

@@ -306,9 +306,7 @@ def _run_one(
     try:
         if failure_blob is not None:
             choices = decode_failure(failure_blob)
-            test_function = make_test_function(
-                connection, channel, is_final=False
-            )
+            test_function = make_test_function(connection, channel, is_final=False)
             data = ConjectureData.for_choices(choices)
             with contextlib.suppress(StopTest):
                 test_function(data)
@@ -358,9 +356,7 @@ def _run_one(
                 "seed": str(seed),
             }
             if print_blob and interesting_examples:
-                result["failure_blob"] = encode_failure(
-                    interesting_examples[0].choices
-                )
+                result["failure_blob"] = encode_failure(interesting_examples[0].choices)
             interesting_choices = [v.choices for v in interesting_examples]
 
         channel.send_request({"event": "test_done", "results": result}).get()
