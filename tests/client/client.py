@@ -43,7 +43,7 @@ class Client:
             raise ConnectionError(
                 f"hegel-python supports protocol versions {lo} through {hi}, but "
                 f"got server version {server_version}. Upgrading hegel-python or downgrading "
-                "your hegel cli might help."
+                "your hegel server might help."
             )
 
         self.connection = connection
