@@ -31,7 +31,7 @@ from tests.client.client import _request
 def test_start_and_stop_span(client):
     def test():
         start_span(1)
-        _x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span()
 
     client.run_test("test_spans", test, test_cases=10)
@@ -40,7 +40,7 @@ def test_start_and_stop_span(client):
 def test_stop_span_with_discard(client):
     def test():
         start_span(1)
-        _x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span(discard=True)
 
     client.run_test("test_spans_discard", test, test_cases=10)
@@ -148,10 +148,8 @@ def test_future_cancel_on_connection_error(monkeypatch):
         client._control.send_request(
             {
                 "command": "run_test",
-                "name": "doomed_test",
                 "channel_id": channel.channel_id,
                 "test_cases": 100,
-                "seed": None,
             },
         )
 
@@ -184,10 +182,8 @@ def test_exception_in_run_one_is_printed_and_reraised(monkeypatch):
         client._control.send_request(
             {
                 "command": "run_test",
-                "name": "doomed_test",
                 "channel_id": channel.channel_id,
                 "test_cases": 10,
-                "seed": None,
             },
         )
 

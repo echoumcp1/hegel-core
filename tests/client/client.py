@@ -66,7 +66,6 @@ class Client:
             self._control.send_request(
                 {
                     "command": "run_test",
-                    "name": name,
                     "test_cases": test_cases,
                     "seed": seed,
                     "channel_id": test_channel.channel_id,
