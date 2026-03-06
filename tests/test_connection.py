@@ -220,6 +220,47 @@ def test_message_to_closed_channel(socket_pair):
         time.sleep(0.2)
 
 
+def test_reply_after_local_close_is_dropped(socket_pair):
+    """A reply arriving after the local side has closed the channel is silently dropped.
+
+    This reproduces a real scenario: an SDK sends a fire-and-forget request
+    (e.g. mark_complete) and immediately closes the channel. The server sends
+    back a reply which arrives after the channel is already locally closed.
+    The reader should drop the packet rather than crashing.
+    """
+    server_socket, client_socket = socket_pair
+    with (
+        Connection(server_socket) as server_conn,
+        ClientConnection(client_socket) as client_conn,
+    ):
+        _do_handshake(server_conn, client_conn)
+
+        ch_server = server_conn.new_channel()
+        ch_client = client_conn.connect_channel(ch_server.channel_id)
+
+        # Also need a second channel so the server's reader is actively running
+        # when the late reply arrives.
+        ch_server2 = server_conn.new_channel()
+        ch_client2 = client_conn.connect_channel(ch_server2.channel_id)
+
+        # Server sends a request and immediately closes the channel
+        packet = ch_server.write_request(cbor2.dumps({"command": "mark_complete"}))
+        ch_server.close()
+
+        # Client reads the request and sends a reply (after the close)
+        req = ch_client.read_request()
+        ch_client.write_reply(req.message_id, None)
+
+        # Give the reply time to arrive
+        time.sleep(0.1)
+
+        # Use the second channel to force the reader to process pending packets.
+        # If the late reply causes an assertion, this will fail.
+        ch_client2.write_request(cbor2.dumps({"ping": True}))
+        req2 = ch_server2.read_request(timeout=2)
+        assert cbor2.loads(req2.payload) == {"ping": True}
+
+
 @pytest.mark.parametrize("create_channel_first", [False, True])
 def test_close_channel_marks_closed(socket_pair, create_channel_first):
     """Test that closing a channel marks it as closed."""
