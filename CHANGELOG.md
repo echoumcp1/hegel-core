@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4 - 2026-03-09
+
+Avoid creation of `.hypothesis` directory on disk, preferring `.hegel`.
+
 ## 0.3.3 - 2026-03-05
 
 Remove code that was only for the client.
