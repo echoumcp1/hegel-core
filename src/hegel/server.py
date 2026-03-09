@@ -1,11 +1,3 @@
-"""
-Hegel server - drives test execution via Hypothesis ConjectureRunner.
-
-The server accepts a single client connection and handles test execution
-requests. Each test runs through ConjectureRunner which generates test
-cases and manages shrinking.
-"""
-
 import contextlib
 import hashlib
 import json
@@ -33,8 +25,6 @@ from hegel.protocol import ProtocolError
 from hegel.protocol.channel import Channel
 from hegel.protocol.connection import Connection
 from hegel.schema import from_schema
-
-DATABASE = DirectoryBasedExampleDatabase(".hegel")
 
 FROM_SCHEMA_CACHE: LRUCache = LRUCache(1024)
 
@@ -121,10 +111,7 @@ def make_test_function(
         collection_name_counter: Counter[str] = Counter()
 
         with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
-            # Create a channel for this test case
             test_case_channel = connection.new_channel(role="Test Case")
-
-            # Send test_case message to SDK on test case channel
             channel.send_request(
                 {
                     "event": "test_case",
@@ -134,8 +121,6 @@ def make_test_function(
             ).get()
 
             done = False
-
-            # Now handle requests from SDK on the test channel
             def handle_sdk_request(message: dict) -> Any:
                 nonlocal done
                 try:
@@ -304,7 +289,6 @@ def _run_one(
             make_test_function(connection, channel, is_final=False),
             settings=settings(
                 deadline=None,
-                database=DATABASE,
                 max_examples=test_cases,
             ),
             random=Random(seed),
