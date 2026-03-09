@@ -13,7 +13,6 @@ from typing import Any
 import cbor2
 from hypothesis import settings
 from hypothesis.control import BuildContext
-from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
@@ -121,6 +120,7 @@ def make_test_function(
             ).get()
 
             done = False
+
             def handle_sdk_request(message: dict) -> Any:
                 nonlocal done
                 try:

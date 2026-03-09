@@ -7,11 +7,11 @@ from pathlib import Path
 
 import click
 from hypothesis import Verbosity
+from hypothesis.configuration import set_hypothesis_home_dir
 
 from hegel.protocol.connection import Connection
 from hegel.server import run_server_on_connection
 from hegel.test_server import run_test_server
-from hypothesis.configuration import set_hypothesis_home_dir
 
 
 @click.command()
