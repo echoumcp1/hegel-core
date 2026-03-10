@@ -2,9 +2,7 @@ import contextlib
 import os
 import socket
 import sys
-from collections.abc import Callable
-from threading import Lock
-from time import sleep
+from threading import Lock, Thread
 from typing import TYPE_CHECKING, Any
 
 import cbor2
@@ -59,13 +57,15 @@ class Connection:
         self.running = True
 
         self.__writer_lock = Lock()
-        self.__reader_lock = Lock()
         self.__socket = socket
         self.__next_channel_id = 1
         self._handshake_done = False
 
         # special channel for connection-level commands
         self.control_channel = self._make_channel(ChannelId(0), role="Control")
+
+        self._reader_thread = Thread(target=self._reader_loop, daemon=True)
+        self._reader_thread.start()
 
     def __enter__(self):
         return self
@@ -98,26 +98,10 @@ class Connection:
             f" {'reply' if packet.is_reply else 'request'}: {payload_repr!r}",
         )
 
-    def run_reader(self, until: Callable[[], bool]) -> None:
-        if until():
-            return
-
-        acquired = False
+    def _reader_loop(self) -> None:
         try:
-            while True:
-                acquired = self.__reader_lock.acquire(blocking=False)
-                if acquired:
-                    break
-                if until():
-                    return
-                # Very short sleep to avoid busy waiting
-                sleep(0.001)
-
-            while self.running and not until():
-                try:
-                    packet = read_packet(self.__socket, timeout=0.1)
-                except TimeoutError:
-                    continue
+            while self.running:
+                packet = read_packet(self.__socket)
 
                 channel = self.channels[packet.channel_id]
                 self._debug_packet(packet, direction="RECEIVE")
@@ -130,8 +114,8 @@ class Connection:
                     assert not channel.closed
                     channel.unprocessed_packets.put(packet)
         finally:
-            if acquired:
-                self.__reader_lock.release()
+            if self.running:
+                self.close()
 
     def write_packet(self, packet: Packet) -> None:
         """Write a packet to the socket. Thread-safe."""

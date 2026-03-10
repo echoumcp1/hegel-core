@@ -1,6 +1,5 @@
 from collections import deque
 from queue import Empty, SimpleQueue
-from time import time
 from typing import TYPE_CHECKING, Any
 
 import cbor2
@@ -75,6 +74,7 @@ class Channel:
             return
 
         self.closed = True
+        self.unprocessed_packets.put(SHUTDOWN)
         if self.connection.running:
             self.connection.write_packet(
                 Packet(
@@ -86,16 +86,13 @@ class Channel:
             )
 
     def __read_one_packet(self, timeout: float | None = CHANNEL_TIMEOUT) -> None:
-        """Read one packet from the socket."""
-        start = time()
-        self.connection.run_reader(
-            until=lambda: self.closed
-            or (timeout is not None and time() - start > timeout)
-            or not self.unprocessed_packets.empty()
-        )
-
+        """Wait for one packet from the reader thread."""
+        # When the channel is closed, drain any already-queued packets with a
+        # non-blocking get before raising.  The reader thread may have enqueued
+        # packets *before* setting self.closed (from a peer close notification),
+        # and those packets must still be consumed.
         try:
-            packet = self.unprocessed_packets.get_nowait()
+            packet = self.unprocessed_packets.get(timeout=0 if self.closed else timeout)
         except Empty:
             if self.closed:
                 raise ConnectionError(f"{self!r} is closed") from None
