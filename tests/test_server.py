@@ -34,7 +34,7 @@ def test_start_and_stop_span(client):
         generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span()
 
-    client.run_test("test_spans", test, test_cases=10)
+    client.run_test(test, test_cases=10)
 
 
 def test_stop_span_with_discard(client):
@@ -43,7 +43,7 @@ def test_stop_span_with_discard(client):
         generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
         stop_span(discard=True)
 
-    client.run_test("test_spans_discard", test, test_cases=10)
+    client.run_test(test, test_cases=10)
 
 
 def test_unknown_command(client):
@@ -58,7 +58,7 @@ def test_unknown_command_on_data_channel(client):
         with pytest.raises(RequestError, match="Unknown command"):
             _request({"command": "bogus_data_command"})
 
-    client.run_test("test_unknown_data_cmd", test, test_cases=1)
+    client.run_test(test, test_cases=1)
 
 
 def test_cache_eviction():
@@ -81,7 +81,7 @@ def test_collection_with_no_max_size(client):
             result.append(val)
         assert len(result) >= 1
 
-    client.run_test("test_collection_no_max", test, test_cases=10)
+    client.run_test(test, test_cases=10)
 
 
 def test_collection_reject_on_server(client):
@@ -105,7 +105,7 @@ def test_collection_reject_on_server(client):
             else:
                 result.append(val)
 
-    client.run_test("test_collection_reject", test, test_cases=20)
+    client.run_test(test, test_cases=20)
 
 
 def test_unsatisfied_assumption_in_handler(client, monkeypatch):
@@ -119,7 +119,7 @@ def test_unsatisfied_assumption_in_handler(client, monkeypatch):
     def test():
         generate_from_schema({"type": "integer"})
 
-    client.run_test("test_unsatisfied_in_handler", test, test_cases=10)
+    client.run_test(test, test_cases=10)
 
 
 def test_future_cancel_on_connection_error(monkeypatch):
@@ -231,7 +231,7 @@ def test_passing(client):
         assert x >= 0
         assert x <= 100
 
-    client.run_test("test_simple", test, test_cases=50)
+    client.run_test(test, test_cases=50)
 
 
 def test_failing(client):
@@ -242,7 +242,7 @@ def test_failing(client):
         )
 
     with pytest.raises(AssertionError):
-        client.run_test("test_fail", test, test_cases=100)
+        client.run_test(test, test_cases=100)
 
 
 def test_assume(client):
@@ -251,7 +251,7 @@ def test_assume(client):
         assume(x % 2 == 0)
         assert x % 2 == 0
 
-    client.run_test("test_assume", test, test_cases=100)
+    client.run_test(test, test_cases=100)
 
 
 def test_multiple_tests_on_connection(client):
@@ -263,8 +263,8 @@ def test_multiple_tests_on_connection(client):
         s = generate_from_schema({"type": "string", "min_size": 0, "max_size": 10})
         assert isinstance(s, str)
 
-    client.run_test("test1", test1, test_cases=20)
-    client.run_test("test2", test2, test_cases=20)
+    client.run_test(test1, test_cases=20)
+    client.run_test(test2, test_cases=20)
 
 
 def test_target(client):
@@ -272,7 +272,7 @@ def test_target(client):
         x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
         target(float(x), "size")
 
-    client.run_test("test_target", test, test_cases=50)
+    client.run_test(test, test_cases=50)
 
 
 def test_pool_basic(client):
@@ -294,7 +294,7 @@ def test_pool_basic(client):
         # Consume a variable from the pool
         _request({"command": "pool_consume", "pool_id": pool_id, "variable_id": v1})
 
-    client.run_test("test_pool_basic", test, test_cases=10)
+    client.run_test(test, test_cases=10)
 
 
 def test_pool_generate_with_consume(client):
@@ -309,7 +309,7 @@ def test_pool_generate_with_consume(client):
         v = _request({"command": "pool_generate", "pool_id": pool_id, "consume": True})
         assert isinstance(v, int)
 
-    client.run_test("test_pool_generate_consume", test, test_cases=10)
+    client.run_test(test, test_cases=10)
 
 
 def test_pool_generate_from_empty_pool(client):
@@ -322,7 +322,7 @@ def test_pool_generate_from_empty_pool(client):
         # or it just gets marked invalid and the server moves on
         _request({"command": "pool_generate", "pool_id": pool_id})
 
-    client.run_test("test_pool_empty", test, test_cases=10)
+    client.run_test(test, test_cases=10)
 
 
 def test_pool_generate_with_mostly_removed_variables(client):
@@ -353,4 +353,4 @@ def test_pool_generate_with_mostly_removed_variables(client):
         result = _request({"command": "pool_generate", "pool_id": pool_id})
         assert result == variables[-1]
 
-    client.run_test("test_pool_mostly_removed", test, test_cases=50)
+    client.run_test(test, test_cases=50)
