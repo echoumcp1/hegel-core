@@ -20,7 +20,7 @@ from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
-import hypothesis.internal.conjecture.engine as engine 
+import hypothesis.internal.conjecture.engine as engine
 
 from hegel.protocol import ProtocolError
 from hegel.protocol.channel import Channel
