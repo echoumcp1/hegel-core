@@ -19,7 +19,7 @@ from hegel.protocol.utils import SHUTDOWN, ChannelId
 if TYPE_CHECKING:
     from hegel.protocol.channel import Channel
 
-PROTOCOL_VERSION = 0.3
+PROTOCOL_VERSION = 0.4
 HANDSHAKE_STRING = b"hegel_handshake_start"
 
 
