@@ -317,7 +317,6 @@ def _run_one(
                 interesting_choices = []
         else:
             seed = random.getrandbits(128) if seed is None else seed
-            engine.BUFFER_SIZE = 2 ** 32 - 1
             runner = ConjectureRunner(
                 make_test_function(connection, channel, is_final=False),
                 settings=settings(
