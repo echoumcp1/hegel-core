@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6 - 2026-03-10
+
+Rename `test` to `database_key` in the `run_test` command, and change its type from `string` to `bytes | None`.
+
 ## 0.3.5 - 2026-03-10
 
 Switch packet reader from a co-operative concurrency model to a background thread reader.
