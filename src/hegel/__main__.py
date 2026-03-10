@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 from hypothesis import Verbosity
+from hypothesis.configuration import set_hypothesis_home_dir
 
 from hegel.protocol.connection import Connection
 from hegel.server import run_server_on_connection
@@ -39,6 +40,8 @@ def main(socket_path, verbosity):
 def run_server(socket_path: Path, *, verbosity: Verbosity = Verbosity.normal) -> None:
     if verbosity >= Verbosity.debug:
         os.environ["HEGEL_PROTOCOL_DEBUG"] = "1"
+
+    set_hypothesis_home_dir(".hegel")
 
     server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server_sock.bind(str(socket_path))
