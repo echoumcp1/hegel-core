@@ -8,9 +8,11 @@ from hegel.protocol.utils import ChannelId, MessageId, ProtocolError
 # 5 unsigned 32-bit integers, big-endian:
 # magic cookie, checksum, channel, message ID, payload length
 PACKET_HEADER_FORMAT = ">5I"
-# defined as HEGL in hex
+# ASCII for "HEGL"
 PACKET_MAGIC = 0x4845474C
 PACKET_TERMINATOR = 0x0A  # '\n'
+# If this is set in the message id, this packet is a reply to a previous packet
+REPLY_BIT = 1 << 31
 
 # Special payload that is sent on a channel when it is shut down. The shutdown
 # is not acked and is handled specifially.
@@ -20,13 +22,53 @@ PACKET_TERMINATOR = 0x0A  # '\n'
 CLOSE_CHANNEL_PAYLOAD = bytes([0b11111110])
 CLOSE_CHANNEL_MESSAGE_ID = MessageId((1 << 31) - 1)
 
-# If this is set in the message id, this packet is a reply to a previous packet
-REPLY_BIT = 1 << 31
-
 
 @dataclass(frozen=True, slots=True)
 class Packet:
-    """A message sent to (or read from) a socket."""
+    """
+    A logical message in the protocol.
+
+    Packets are the only valid way to send bytes over the wire in the protocol. No "raw"
+    bytes are ever sent.
+
+    Wire format:
+
+        0                   1                   2                   3
+        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        |                     Magic (0x4845474C)                        |
+        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        |                     Checksum (CRC32)                          |
+        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        |                     Channel id                              |S|
+        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        |R|                   Message id                                |
+        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        |                     Payload length                            |
+        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        |                     Payload (variable length)                 |
+        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        | Terminator 0x0A |
+        +-+-+-+-+-+-+-+-+-+
+
+    The first five fields comprise the header. Each field is a unsigned 32-bit big-endian
+    integer:
+    - Magic: The constant 0x4845474C (ASCII for "HEGL").
+    - Checksum: CRC32 of the header with the checksum field zeroed, concatenated with
+       the payload.
+    - Channel id: The logical channel this packet is being sent over. The S (source) bit
+       is 1 for channels created by the client, and 0 for channels created by the server.
+       The S bit is only part of the protocol to allow both the client and server to
+       create channels without coordination.
+    - Message id: The id of the message. The R (reply) bit is set if this packet is a reply
+       to a previous packet. The message id of a reply packet will be the same as the
+       message id of a non-reply packet, just with the R bit set. The message id is
+       included in the protocol to support out-of-order replies over the same channel.
+    - Payload length: The length of the payload, in bytes.
+
+    The header is followed by the variable-length payload field, and then a single
+    terminator byte (0x0A).
+    """
 
     channel_id: ChannelId
     message_id: MessageId
@@ -35,7 +77,7 @@ class Packet:
 
 
 def read_exact(sock: socket.socket, *, n: int) -> bytes:
-    """Reads exactly n bytes from the socket."""
+    """Read exactly n bytes from the socket."""
     assert n >= 0
     if n == 0:
         return b""
@@ -54,7 +96,6 @@ def read_exact(sock: socket.socket, *, n: int) -> bytes:
 
 
 def read_packet(sock: socket.socket, *, timeout: float | None = None) -> Packet:
-    """Reads a packet from the socket."""
     sock.settimeout(timeout)
     header = read_exact(sock, n=struct.calcsize(PACKET_HEADER_FORMAT))
     sock.settimeout(None)
@@ -85,7 +126,6 @@ def read_packet(sock: socket.socket, *, timeout: float | None = None) -> Packet:
 
 
 def write_packet(sock: socket.socket, packet: Packet) -> None:
-    """Writes a packet to the socket."""
     message_id: int = packet.message_id
     if packet.is_reply:
         message_id |= REPLY_BIT

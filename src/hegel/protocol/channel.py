@@ -35,14 +35,28 @@ class PendingRequest:
         if self._closed:
             raise ValueError("Cannot .get() more than once")
         self._closed = True
-        reply = self.__channel.read_reply(self.__message_id)
-        payload = cbor2.loads(reply.payload)
+        packet = self.__channel.read_reply(self.__message_id)
+        payload = cbor2.loads(packet.payload)
         if "error" in payload:
             raise RequestError(payload["error"], error_type=payload["type"])
         return payload["result"]
 
 
 class Channel:
+    """
+    A channel organizes packets sent over the protocol. Every packet is attached to a
+    single channel, according to that packet's channel_id.
+
+    Channels may be "created" by either the client or the server. There is no explicit
+    negotiation to create a new channel. Rather, the client or server simply sends packets
+    with a channel_id of the new channel's id. In practice, however, the only place the
+    protocol currently allows implicitly creating a new channel is in the run_test command,
+    where that packet's channel_id is treated as a new channel created by the client.
+
+    There is always a control channel with id 0, which is used for protocol-level
+    communication such as the handshake negotiation.
+    """
+
     def __init__(
         self,
         connection: "Connection",

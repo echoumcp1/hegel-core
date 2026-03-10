@@ -43,7 +43,55 @@ def _is_protocol_debug():
 
 
 class Connection:
-    """Thread-safe multiplexed socket connection to a Hegel server"""
+    """
+    The server-side half of the Hegel wire protocol. The other half is the client, and
+    is intended to be a Hegel library like hegel-rust.
+
+    The intended use is for a single connection to be used for the entire test suite.
+    A connection can be used simultaneously by multiple tests.
+
+    At the lowest level, the protocol is bytes moving across the transport layer. The
+    transport layer is currently unix sockets, though this may change to support windows.
+    Bytes sent over the socket always consist of logical packets (see the Packet class).
+    Packets on the protocol have a channel_id, which logically organizes packets. See the
+    Channel class for details.
+
+    Protocol
+    --------
+
+    A high-level description of the full protocol between a server and a client.
+
+    Handshake
+    ~~~~~~~~~
+
+    The protocol between a server and a client starts with a handshake:
+
+    - The client sends a packet on the control channel with payload
+      b"hegel_handshake_start"
+    - The server responds with a packet on the control channel with payload
+      b"Hegel/{PROTOCOL_VERSION}"
+
+    Test case lifetime
+    ~~~~~~~~~~~~~~~~~~
+
+    After the handshake, the lifetime of a test on the protocol is:
+
+    - The client sends a {"command": "run_test"} cbor packet on the control
+      channel. The payload includes a channel_id C1 and various test settings.
+    - The server responds with a reply packet containing the cbor payload True.
+    - We now start sending and executing test cases. The server sends a
+      {"event": "test_case", "channel_id": C2} cbor packet on channel C1.
+      C2 is conceptually the channel for this specific test case.
+    - The client sends a {"command": ...} cbor packet, typically "generate",
+      on C2. The server responds with an appropriate cbor packet, typically the result
+      of drawing from the requested schema.
+    - The client repeats until it sends a {"command": "mark_complete"} cbor packet,
+      at which point the server breaks out of its listening loop.
+    - The server sends a {"event": "test_done", "results": ...} cbor packet on C1.
+    - For any test cases which were marked complete with status "interesting", the
+      server repeats the test case loop, but now with the {"event": "test_case"} cbor
+      packet including `"is_final": True`.
+    """
 
     def __init__(
         self,
@@ -98,6 +146,20 @@ class Connection:
             f" {'reply' if packet.is_reply else 'request'}: {payload_repr!r}",
         )
 
+    def close(self) -> None:
+        """Close the connection and clean up resources."""
+        if not self.running:
+            return
+
+        self.running = False
+        with contextlib.suppress(OSError):
+            self.__socket.shutdown(socket.SHUT_RDWR)
+        self.__socket.close()
+
+        for v in self.channels.values():
+            if not v.closed:
+                v.unprocessed_packets.put(SHUTDOWN)
+
     def run_reader(self, until: Callable[[], bool]) -> None:
         if until():
             return
@@ -134,34 +196,21 @@ class Connection:
                 self.__reader_lock.release()
 
     def write_packet(self, packet: Packet) -> None:
-        """Write a packet to the socket. Thread-safe."""
         with self.__writer_lock:
             self._debug_packet(packet, direction="SEND")
             write_packet(self.__socket, packet)
 
-    def close(self) -> None:
-        """Close the connection and clean up resources."""
-        if not self.running:
-            return
-
-        self.running = False
-        with contextlib.suppress(OSError):
-            self.__socket.shutdown(socket.SHUT_RDWR)
-        self.__socket.close()
-
-        for v in self.channels.values():
-            if not v.closed:
-                v.unprocessed_packets.put(SHUTDOWN)
-
     def receive_handshake(self):
-        """Accept handshake as a server."""
         assert not self._handshake_done
 
         self._handshake_done = True
         packet = self.control_channel.read_request()
         assert packet.payload == HANDSHAKE_STRING
+        # we expect the payload to be pure ASCII. ASCII and utf-8 overlap, so passing
+        # "ascii" as the encoding is equivalent in the standard case, but gives us a
+        # fail-fast error otherwise.
         self.control_channel.write_reply_bytes(
-            packet.message_id, f"Hegel/{PROTOCOL_VERSION}".encode()
+            packet.message_id, f"Hegel/{PROTOCOL_VERSION}".encode("ascii")
         )
 
     def _make_channel(
@@ -176,17 +225,28 @@ class Connection:
         return channel
 
     def new_channel(self, *, role: str | None = None) -> "Channel":
-        """Create a new logical channel on this connection (even IDs for server)."""
         assert self._handshake_done
+        # server channels get even ids
         channel_id = ChannelId(self.__next_channel_id << 1)
         self.__next_channel_id += 1
         return self._make_channel(channel_id, role=role)
 
-    def connect_channel(
+    def register_client_channel(
         self, channel_id: ChannelId, *, role: str | None = None
     ) -> "Channel":
-        """Connect to a channel created by the client (odd IDs)."""
+        """
+        Register a new channel created by a client.
+
+        Because both a client and a server may create a channel in the protocol, this
+        method lets the server create the logical Channel object required to store packets
+        sent over that channel.
+
+        In practice, once a channel is made, no distinction is made between it having
+        been created by the client or the server. This method's name explicitly mentions
+        the client origin for protocol hygiene, not because it has a fundamental impact.
+        """
         assert self._handshake_done
         assert channel_id not in self.channels
-        assert channel_id & 1 != 0  # client channels are odd
+        # client channels have odd ids
+        assert channel_id & 1 == 1
         return self._make_channel(channel_id, role=role)

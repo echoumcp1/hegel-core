@@ -18,9 +18,7 @@ import time
 
 import cbor2
 
-from hegel.protocol import MessageId
-from hegel.protocol.channel import Channel
-from hegel.protocol.connection import Connection
+from hegel.protocol import Channel, Connection, MessageId
 
 
 def run_test_server(connection: Connection, mode: str) -> None:
@@ -45,7 +43,7 @@ def run_test_server(connection: Connection, mode: str) -> None:
         packet = connection.control_channel.read_request()
         message = cbor2.loads(packet.payload)
         assert message.get("command") == "run_test"
-        test_channel = connection.connect_channel(
+        test_channel = connection.register_client_channel(
             message["channel_id"],
             role="Test channel",
         )

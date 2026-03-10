@@ -1,6 +1,4 @@
 import contextlib
-import hashlib
-import json
 import os
 import random
 import traceback
@@ -14,29 +12,13 @@ import cbor2
 from hypothesis import settings
 from hypothesis.control import BuildContext
 from hypothesis.errors import StopTest, UnsatisfiedAssumption
-from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
 
-from hegel.protocol import ProtocolError
-from hegel.protocol.channel import Channel
-from hegel.protocol.connection import Connection
+from hegel.protocol import Channel, Connection, ProtocolError
 from hegel.schema import from_schema
-
-FROM_SCHEMA_CACHE: LRUCache = LRUCache(1024)
-
-
-def cached_from_schema(schema: dict) -> Any:
-    key = hashlib.sha1(json.dumps(schema, sort_keys=True).encode("utf-8")).digest()[:32]
-    try:
-        return FROM_SCHEMA_CACHE[key]
-    except KeyError:
-        result = from_schema(schema)
-        FROM_SCHEMA_CACHE[key] = result
-        return result
-
 
 VARIABLES_LABEL = calc_label_from_name("Variables")
 
@@ -128,7 +110,7 @@ def make_test_function(
 
                     if command == "generate":
                         schema = message["schema"]
-                        strategy = cached_from_schema(schema)
+                        strategy = from_schema(schema)
                         return data.draw(strategy)
                     elif command == "start_span":
                         label = message.get("label", 0)
@@ -219,7 +201,6 @@ def make_test_function(
 
 
 def run_server_on_connection(connection: Connection) -> None:
-    """Handle a single client connection."""
     connection.receive_handshake()
 
     pending_futures = []
@@ -234,14 +215,14 @@ def run_server_on_connection(connection: Connection) -> None:
                 command = message["command"]
                 if command == "run_test":
                     test_name = message.get("name", f"test {test_count}")
-                    channel = connection.connect_channel(
+                    channel = connection.register_client_channel(
                         message["channel_id"],
                         role=f"Test channel for {test_name}",
                     )
 
                     pending_futures.append(
                         thread_pool.submit(
-                            _run_one,
+                            _run_test,
                             connection,
                             channel,
                             test_name=test_name,
@@ -266,7 +247,7 @@ def run_server_on_connection(connection: Connection) -> None:
             f.cancel()
 
 
-def _run_one(
+def _run_test(
     connection: Connection,
     channel: Channel,
     *,
