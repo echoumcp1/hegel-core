@@ -14,13 +14,13 @@ import cbor2
 from hypothesis import settings
 from hypothesis.control import BuildContext
 from hypothesis.core import decode_failure, encode_failure
-from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import StopTest, UnsatisfiedAssumption
 from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
+import hypothesis.internal.conjecture.engine as engine 
 
 from hegel.protocol import ProtocolError
 from hegel.protocol.channel import Channel
@@ -317,11 +317,11 @@ def _run_one(
                 interesting_choices = []
         else:
             seed = random.getrandbits(128) if seed is None else seed
+            engine.BUFFER_SIZE = 2 ** 32 - 1
             runner = ConjectureRunner(
                 make_test_function(connection, channel, is_final=False),
                 settings=settings(
                     deadline=None,
-                    database=DATABASE,
                     max_examples=test_cases,
                 ),
                 random=Random(seed),
