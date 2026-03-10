@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5 - 2026-03-10
+
+Switch packet reader from a co-operative concurrency model to a background thread reader.
+
 ## 0.3.4 - 2026-03-09
 
 Avoid creation of `.hypothesis` directory on disk, preferring `.hegel`.
