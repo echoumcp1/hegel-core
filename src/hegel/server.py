@@ -322,7 +322,7 @@ def _run_one(
                 runner.interesting_examples.values(),
                 key=lambda d: sort_key(d.nodes),
             )
-            result: dict[str, int | bytes | str] = {
+            result = {
                 "passed": len(interesting_examples) == 0,
                 "test_cases": runner.call_count,
                 "valid_test_cases": runner.valid_examples,
