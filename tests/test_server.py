@@ -333,13 +333,13 @@ def test_reproduce_failure(client):
         )
 
     with pytest.raises(AssertionError):
-        client.run_test("test_repro", test, test_cases=100, print_blob=True)
+        client.run_test(test, test_cases=100, print_blob=True)
 
     blob = client.last_result["failure_blob"]
     assert isinstance(blob, bytes)
 
     with pytest.raises(AssertionError):
-        client.run_test("test_repro_replay", test, failure_blob=blob)
+        client.run_test(test, failure_blob=blob)
 
 
 def test_reproduce_failure_blob_no_longer_fails(client):
@@ -353,14 +353,14 @@ def test_reproduce_failure_blob_no_longer_fails(client):
 
     with pytest.raises(AssertionError):
         client.run_test(
-            "test_stale_blob", failing_test, test_cases=100, print_blob=True
+            failing_test, test_cases=100, print_blob=True
         )
 
     blob = client.last_result["failure_blob"]
 
     # The blob was for failing_test, but we replay with a test that always passes.
     with pytest.raises(AssertionError, match="failure blob did not reproduce"):
-        client.run_test("test_stale_replay", lambda: None, failure_blob=blob)
+        client.run_test(lambda: None, failure_blob=blob)
 
 
 def test_reproduce_failure_result_not_in_passing_test(client):
@@ -368,7 +368,7 @@ def test_reproduce_failure_result_not_in_passing_test(client):
         x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
         assert x >= 0
 
-    client.run_test("test_passing_no_repro", test, test_cases=50)
+    client.run_test(test, test_cases=50)
     assert "failure_blob" not in client.last_result
 
 
