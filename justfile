@@ -5,6 +5,7 @@ test:
 
 coverage:
     uv run coverage run -m pytest tests
+    ANTITHESIS_OUTPUT_DIR="$HOME/antithesis-output" uv run coverage run -m pytest tests
     uv run coverage combine
     uv run coverage report
 
