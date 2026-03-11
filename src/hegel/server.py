@@ -292,7 +292,7 @@ def _run_one(
                 test_function(data)
 
             is_interesting = data.status is Status.INTERESTING
-            result = {
+            result: dict[str, int | bytes | str] = {
                 "passed": not is_interesting,
                 "test_cases": 1,
                 "valid_test_cases": 0,
@@ -322,7 +322,7 @@ def _run_one(
                 runner.interesting_examples.values(),
                 key=lambda d: sort_key(d.nodes),
             )
-            result = {
+            result: dict[str, int | bytes | str] = {
                 "passed": len(interesting_examples) == 0,
                 "test_cases": runner.call_count,
                 "valid_test_cases": runner.valid_examples,
