@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 - 2026-03-11
+
+Add absolute barebones requirement for Antithesis support: If the ANTITHESIS_OUTPUT_DIR
+environment variable is set (indicating that we are running on the Antithesis system),
+use the hypothesis-urandom backend, which will get its entropy from the Antithesis fuzzer.
+
 ## 0.3.6 - 2026-03-10
 
 Rename `test` to `database_key` in the `run_test` command, and change its type from `string` to `bytes | None`.
