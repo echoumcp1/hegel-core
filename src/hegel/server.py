@@ -316,6 +316,11 @@ def _run_one(
                 settings=settings(
                     deadline=None,
                     max_examples=test_cases,
+                    backend=(
+                        "hypothesis-urandom"
+                        if os.environ.get("ANTITHESIS_OUTPUT_DIR")
+                        else "hypothesis"
+                    ),
                 ),
                 random=Random(seed),
                 database_key=database_key,
