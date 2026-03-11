@@ -284,35 +284,26 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
+        test_function = make_test_function(connection, channel, is_final=False)
         if failure_blob is not None:
             choices = decode_failure(failure_blob)
-            test_function = make_test_function(connection, channel, is_final=False)
             data = ConjectureData.for_choices(choices)
             with contextlib.suppress(StopTest):
                 test_function(data)
 
-            if data.status is Status.INTERESTING:
-                result: dict[str, Any] = {
-                    "passed": False,
-                    "test_cases": 1,
-                    "valid_test_cases": 0,
-                    "invalid_test_cases": 0,
-                    "interesting_test_cases": 1,
-                }
-                interesting_choices = [choices]
-            else:
-                result = {
-                    "passed": True,
-                    "test_cases": 1,
-                    "valid_test_cases": 0,
-                    "invalid_test_cases": 0,
-                    "interesting_test_cases": 0,
-                }
-                interesting_choices = []
+            is_interesting = data.status is Status.INTERESTING
+            result = {
+                "passed": not is_interesting,
+                "test_cases": 1,
+                "valid_test_cases": 0,
+                "invalid_test_cases": 0,
+                "interesting_test_cases": int(is_interesting),
+            }
+            interesting_choices = [choices] if is_interesting else []
         else:
             seed = random.getrandbits(128) if seed is None else seed
             runner = ConjectureRunner(
-                make_test_function(connection, channel, is_final=False),
+                test_function,
                 settings=settings(
                     deadline=None,
                     max_examples=test_cases,
