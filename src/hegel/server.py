@@ -20,7 +20,6 @@ from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
-import hypothesis.internal.conjecture.engine as engine
 
 from hegel.protocol import ProtocolError
 from hegel.protocol.channel import Channel
@@ -227,18 +226,13 @@ def run_server_on_connection(connection: Connection) -> None:
     pending_futures = []
     try:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as thread_pool:
-            # Main request loop - handle run_test requests
-            test_count = 0
             while True:
-                test_count += 1
                 packet = connection.control_channel.read_request(timeout=None)
                 message = cbor2.loads(packet.payload)
                 command = message["command"]
                 if command == "run_test":
-                    test_name = message.get("name", f"test {test_count}")
                     channel = connection.connect_channel(
-                        message["channel_id"],
-                        role=f"Test channel for {test_name}",
+                        message["channel_id"], role="Test channel"
                     )
 
                     pending_futures.append(
@@ -246,7 +240,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             _run_one,
                             connection,
                             channel,
-                            test_name=test_name,
+                            database_key=message.get("database_key"),
                             test_cases=message["test_cases"],
                             seed=message.get("seed"),
                             print_blob=message.get("print_blob"),
@@ -274,7 +268,7 @@ def _run_one(
     connection: Connection,
     channel: Channel,
     *,
-    test_name: str,
+    database_key: bytes | None,
     test_cases: int,
     seed: int | None,
     print_blob: bool,
@@ -324,7 +318,7 @@ def _run_one(
                     max_examples=test_cases,
                 ),
                 random=Random(seed),
-                database_key=test_name.encode("utf-8"),
+                database_key=database_key,
             )
             runner.run()
 

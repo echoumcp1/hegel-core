@@ -14,8 +14,6 @@ import cbor2
 from hegel.protocol import RequestError
 from tests.client.protocol import ClientChannel, ClientConnection
 
-SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.3)
-
 # Context variables for the current test case
 _current_channel: ContextVar[ClientChannel | None] = ContextVar(
     "_current_channel",
@@ -37,15 +35,7 @@ class Client:
     """Test client for connecting to a Hegel server."""
 
     def __init__(self, connection: ClientConnection):
-        server_version = float(connection.send_handshake())
-        lo, hi = SUPPORTED_PROTOCOL_VERSIONS
-        if not (lo <= server_version <= hi):
-            raise ConnectionError(
-                f"hegel-python supports protocol versions {lo} through {hi}, but "
-                f"got server version {server_version}. Upgrading hegel-python or downgrading "
-                "your hegel cli might help."
-            )
-
+        _version = connection.send_handshake()
         self.connection = connection
         self._control = connection.control_channel
         self.__lock = threading.Lock()
@@ -53,7 +43,6 @@ class Client:
 
     def run_test(
         self,
-        name: str,
         test_fn: Callable[[], None],
         *,
         test_cases: int = 100,
@@ -69,7 +58,6 @@ class Client:
             self._control.send_request(
                 {
                     "command": "run_test",
-                    "name": name,
                     "test_cases": test_cases,
                     "seed": seed,
                     "print_blob": print_blob,

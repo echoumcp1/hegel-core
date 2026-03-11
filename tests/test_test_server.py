@@ -38,7 +38,6 @@ def _send_run_test(conn):
         cbor2.dumps(
             {
                 "command": "run_test",
-                "name": "test",
                 "test_cases": 1,
                 "channel_id": test_channel.channel_id,
             },
@@ -419,7 +418,6 @@ class TestTestServerErrors:
                     cbor2.dumps(
                         {
                             "command": "run_test",
-                            "name": "test",
                             "test_cases": 1,
                             "channel_id": test_channel.channel_id,
                         },

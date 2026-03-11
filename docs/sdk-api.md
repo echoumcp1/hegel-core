@@ -543,15 +543,15 @@ will try to maximize the target value, which can help find edge cases.
 
 ## Protocol
 
-SDKs communicate with the Hegel server (hegeld) via a binary protocol over
+SDKs communicate with the Hegel server via a binary protocol over
 Unix domain sockets.
 
 ### Connection Lifecycle
 
 1. SDK creates a socket path.
-2. SDK spawns hegeld with that socket path.
-3. hegeld binds to the socket and listens.
-4. SDK connects to hegeld's socket as a client.
+2. SDK spawns hegel server with that socket path.
+3. hegel server binds to the socket and listens.
+4. SDK connects to the hegel server socket as a client.
 5. A single persistent connection is maintained per program run.
 6. Multiple tests run over the same connection.
 
