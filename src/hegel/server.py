@@ -243,7 +243,6 @@ def run_server_on_connection(connection: Connection) -> None:
                             database_key=message.get("database_key"),
                             test_cases=message["test_cases"],
                             seed=message.get("seed"),
-                            print_blob=message.get("print_blob"),
                             failure_blob=message.get("failure_blob"),
                         ),
                     )
@@ -271,7 +270,6 @@ def _run_one(
     database_key: bytes | None,
     test_cases: int,
     seed: int | None,
-    print_blob: bool,
     failure_blob: bytes | None = None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
@@ -285,6 +283,7 @@ def _run_one(
     """
     try:
         test_function = make_test_function(connection, channel, is_final=False)
+
         if failure_blob is not None:
             choices = decode_failure(failure_blob)
             data = ConjectureData.for_choices(choices)
@@ -292,14 +291,19 @@ def _run_one(
                 test_function(data)
 
             is_interesting = data.status is Status.INTERESTING
-            result: dict[str, int | bytes | str] = {
+            result: dict[str, int | list[bytes] | str] = {
                 "passed": not is_interesting,
                 "test_cases": 1,
                 "valid_test_cases": 0,
                 "invalid_test_cases": 0,
                 "interesting_test_cases": int(is_interesting),
             }
-            interesting_choices = [choices] if is_interesting else []
+            if is_interesting:
+                result["failure_blobs"] = [failure_blob]
+                interesting_choices = [choices]
+            else:
+                result["failure_blobs"] = []
+                interesting_choices = []
         else:
             seed = random.getrandbits(128) if seed is None else seed
             runner = ConjectureRunner(
@@ -330,9 +334,12 @@ def _run_one(
                 "interesting_test_cases": len(interesting_examples),
                 "seed": str(seed),
             }
-            if print_blob and interesting_examples:
-                result["failure_blob"] = encode_failure(interesting_examples[0].choices)
+
             interesting_choices = [v.choices for v in interesting_examples]
+
+            result["failure_blobs"] = [
+                encode_failure(choices) for choices in interesting_choices
+            ]
 
         channel.send_request({"event": "test_done", "results": result}).get()
         final_test_function = make_test_function(connection, channel, is_final=True)
