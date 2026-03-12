@@ -6,6 +6,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 from hegel.protocol import ProtocolError
+from hegel.protocol.utils import ConnectionClosedError
 from hegel.protocol.packet import (
     PACKET_HEADER_FORMAT,
     PACKET_MAGIC,
@@ -68,7 +69,7 @@ def test_read_exact_connection_closed_with_partial_data(socket_pair):
 def test_read_exact_connection_closed_no_data(socket_pair):
     reader, writer = socket_pair
     writer.close()
-    with pytest.raises(ProtocolError, match="Connection closed during socket read"):
+    with pytest.raises(ConnectionClosedError, match="Connection closed"):
         read_exact(reader, n=10)
 
 

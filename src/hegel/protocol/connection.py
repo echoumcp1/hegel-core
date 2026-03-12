@@ -14,7 +14,7 @@ from hegel.protocol.packet import (
     read_packet,
     write_packet,
 )
-from hegel.protocol.utils import SHUTDOWN, ChannelId
+from hegel.protocol.utils import SHUTDOWN, ChannelId, ConnectionClosedError
 
 if TYPE_CHECKING:
     from hegel.protocol.channel import Channel
@@ -113,6 +113,8 @@ class Connection:
                 else:
                     assert not channel.closed
                     channel.unprocessed_packets.put(packet)
+        except (ConnectionClosedError, OSError):
+            pass
         finally:
             if self.running:
                 self.close()
