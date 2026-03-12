@@ -369,6 +369,7 @@ def test_reproduce_failure_result_not_in_passing_test(client):
     client.run_test(test, test_cases=50)
     assert client.last_result["failure_blobs"] == []
 
+
 def test_multiple_blobs(client):
     def test():
         x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
@@ -380,6 +381,7 @@ def test_multiple_blobs(client):
     with pytest.raises(ExceptionGroup):
         client.run_test(test, test_cases=50)
     assert len(client.last_result["failure_blobs"]) == 2
+
 
 def test_pool_generate_with_mostly_removed_variables(client):
     """Tests the fallback path in Variables.generate when random picks hit removed variables.
