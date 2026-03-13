@@ -74,7 +74,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             unique=schema.get("unique", False),
         )
     if schema_type == "dict":
-        # Possibly "dict" should be removed entirely and replaced by sdks calling "tuple"
+        # Possibly "dict" should be removed entirely and replaced by libraries calling "tuple"
         # themselves.
         #
         # We initially returned a tuple here to avoid json requiring string keys in dicts,

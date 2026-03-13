@@ -54,7 +54,7 @@ def run_server(socket_path: Path, *, verbosity: Verbosity = Verbosity.normal) ->
         client_sock, _ = server_sock.accept()
 
         if verbosity >= Verbosity.verbose:
-            print("SDK connected", file=sys.stderr)
+            print("Client connected", file=sys.stderr)
 
         connection = Connection(client_sock, name="Server")
         test_mode = os.environ.get("HEGEL_PROTOCOL_TEST_MODE")
@@ -64,7 +64,7 @@ def run_server(socket_path: Path, *, verbosity: Verbosity = Verbosity.normal) ->
             run_server_on_connection(connection)
 
         if verbosity >= Verbosity.verbose:
-            print("SDK disconnected", file=sys.stderr)
+            print("Client disconnected", file=sys.stderr)
 
     finally:
         server_sock.close()
