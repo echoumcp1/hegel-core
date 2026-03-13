@@ -1,55 +1,23 @@
-# hegel-core
+# Hegel
 
-Universal property-based testing, backed by [Hypothesis](https://hypothesis.works/).
+> [!IMPORTANT]
+> If you've found this repository, congratulations! You're getting a sneak peak at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
+>
+> We are still making rapid changes and progress.  Feel free to experiment, but don't expect stability from Hegel just yet!
 
-Hegel generates random inputs for your tests, finds failures, and automatically
-shrinks them to minimal counterexamples. This repository contains the Hegel
-server and CLI.
+The Hegel server. Provides communication to the backing Hypothesis library over a socket.
 
-## Installation
+## Hegel libraries
 
-```bash
-pip install "hegel-sdk @ git+ssh://git@github.com/antithesishq/hegel-python.git"
-```
-
-The SDK requires the `hegel` server:
-
-```bash
-pip install "hegel @ git+ssh://git@github.com/antithesishq/hegel-core.git"
-```
-
-## Quick Start
-
-```python
-from hegel_sdk import hegel, integers
-
-
-@hegel
-def test_addition_commutative():
-    a = integers(-1000, 1000).generate()
-    b = integers(-1000, 1000).generate()
-    assert a + b == b + a
-```
-
-Run with `pytest` as normal. Hegel generates 100 random input pairs and reports
-the minimal counterexample if it finds one.
-
-For a full walkthrough, see [docs/getting-started.md](docs/getting-started.md).
-
-## SDKs
-
-- [Python](https://github.com/antithesishq/hegel-python)
-- [Go](https://github.com/antithesishq/hegel-go)
-- [TypeScript](https://github.com/antithesishq/hegel-typescript)
-- [Rust](https://github.com/antithesishq/hegel-rust)
-- [C++](https://github.com/antithesishq/hegel-cpp)
-- [OCaml](https://github.com/antithesishq/hegel-ocaml)
+- [Python](https://github.com/hegeldev/hegel-python)
+- [Go](https://github.com/hegeldev/hegel-go)
+- [Rust](https://github.com/hegeldev/hegel-rust)
 
 ## Development
 
 ```bash
-just setup     # Install dependencies
-just check     # Full CI: lint + typecheck + coverage
-just test      # Run tests only
-just format    # Auto-format code
+just setup     # install dependencies
+just test      # run tests
+just format    # run formatter
+just check     # run PR checks: lint + tests + docs
 ```
