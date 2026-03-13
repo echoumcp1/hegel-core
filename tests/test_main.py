@@ -78,7 +78,7 @@ def _client_and_server(socket_path, *args, env=None):
 
 def test_version():
     result = CliRunner().invoke(main, ["--version"])
-    version = importlib.metadata.version("hegel")
+    version = importlib.metadata.version("hegel-core")
     assert result.output.strip() == f"hegel (version {version})"
 
 
