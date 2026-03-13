@@ -17,19 +17,16 @@ build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.1",
-    "pytest-asyncio>=0.24.0",
-    "mypy>=1.19.0",
-    "coverage",
-    "ruff>=0.14.10",
-    "shed",
+    "pytest==9.0.2",
+    "pytest-asyncio==1.3.0",
+    "mypy==1.19.1",
+    "coverage==7.13.4",
+    "ruff==0.15.6",
+    "shed==2025.6.1",
 ]
 
 [project.scripts]
 hegel = "hegel.__main__:main"
-
-# tools
-# =====
 
 [tool.ruff]
 line-length = 88
@@ -137,7 +134,8 @@ branch = true
 parallel = true
 concurrency = ["thread"]
 source = ["hegel"]
-# intended primarily for consumers
+# conformance tests are intended primarily for consumers. We don't fully
+# cover this in our tests.
 omit = ["src/hegel/conformance.py"]
 
 [tool.coverage.report]
