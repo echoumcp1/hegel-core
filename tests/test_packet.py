@@ -6,7 +6,6 @@ import pytest
 from hypothesis import given, strategies as st
 
 from hegel.protocol import ProtocolError
-from hegel.protocol.utils import ConnectionClosedError
 from hegel.protocol.packet import (
     PACKET_HEADER_FORMAT,
     PACKET_MAGIC,
@@ -16,6 +15,7 @@ from hegel.protocol.packet import (
     read_packet,
     write_packet,
 )
+from hegel.protocol.utils import ConnectionClosedError
 
 
 def packets():
