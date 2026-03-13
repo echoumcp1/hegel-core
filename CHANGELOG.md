@@ -37,7 +37,7 @@ This release adds a stateful testing API and makes Generator a generic type.
 
 ## 0.2.0 - 2026-02-27
 
-Add format generators to the Python SDK: `emails`, `urls`, `domains`, `dates`, `times`, `datetimes`, `ip_addresses`, and `from_regex`. These provide convenient ways to generate structured string data in property-based tests.
+Add format generators to the Python library: `emails`, `urls`, `domains`, `dates`, `times`, `datetimes`, `ip_addresses`, and `from_regex`. These provide convenient ways to generate structured string data in property-based tests.
 
 ## 0.1.4 - 2026-02-24
 

@@ -95,12 +95,12 @@ def make_test_function(
     *,
     is_final: bool = False,
 ) -> Callable[[ConjectureData], None]:
-    """Create a test function that communicates with the SDK.
+    """Create a test function that communicates with the client.
 
     The returned function handles a single test case by:
     1. Creating a channel for communication
-    2. Sending a test_case event to the SDK
-    3. Handling generate/span/target requests until mark_complete
+    2. Sending a test_case event to the client
+    3. Handling generate/span/target requests from the client until mark_complete
     4. Applying the final status to the ConjectureData
     """
 
@@ -121,7 +121,7 @@ def make_test_function(
 
             done = False
 
-            def handle_sdk_request(message: dict) -> Any:
+            def handle_client_request(message: dict) -> Any:
                 nonlocal done
                 try:
                     command = message["command"]
@@ -213,7 +213,7 @@ def make_test_function(
                     done = True
                     raise
 
-            test_case_channel.handle_requests(handle_sdk_request, until=lambda: done)
+            test_case_channel.handle_requests(handle_client_request, until=lambda: done)
 
     return test_function
 
