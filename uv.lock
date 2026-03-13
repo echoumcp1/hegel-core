@@ -260,19 +260,19 @@ wheels = [
 ]
 
 [[package]]
-name = "hegel"
-version = "0.4.1"
+name = "hegel-core"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cbor2" },
     { name = "click" },
-    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
     { name = "hypothesis" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "coverage" },
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -284,13 +284,13 @@ dev = [
 requires-dist = [
     { name = "cbor2", specifier = ">=5.8.0" },
     { name = "click", specifier = ">=8.3.1" },
-    { name = "exceptiongroup", marker = "python_full_version < '3.11'", specifier = ">=1.0.0" },
     { name = "hypothesis", specifier = ">=6.148.5" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", specifier = "==7.13.4" },
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'", specifier = ">=1.0.0" },
     { name = "mypy", specifier = "==1.19.1" },
     { name = "pytest", specifier = "==9.0.2" },
     { name = "pytest-asyncio", specifier = "==1.3.0" },

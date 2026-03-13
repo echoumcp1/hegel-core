@@ -16,7 +16,8 @@ from hegel.test_server import run_test_server
 
 @click.command()
 @click.version_option(
-    version=importlib.metadata.version("hegel"), message="hegel (version %(version)s)"
+    version=importlib.metadata.version("hegel-core"),
+    message="hegel (version %(version)s)",
 )
 @click.argument("socket_path")
 @click.option(
