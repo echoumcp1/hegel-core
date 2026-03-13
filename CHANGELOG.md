@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 - 2026-03-13
+
+Simplify some internal protocol code.
+
 ## 0.4.0 - 2026-03-11
 
 Add absolute barebones requirement for Antithesis support: If the ANTITHESIS_OUTPUT_DIR
