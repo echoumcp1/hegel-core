@@ -26,6 +26,10 @@ from tests.client import (
     target,
 )
 from tests.client.client import _request
+try:
+    ExceptionGroup
+except NameError:  # pragma: no cover
+    from exceptiongroup import ExceptionGroup
 
 
 def test_start_and_stop_span(client):
