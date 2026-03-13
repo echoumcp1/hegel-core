@@ -239,8 +239,8 @@ def run_server_on_connection(connection: Connection) -> None:
                             _run_one,
                             connection,
                             channel,
-                            database_key=message.get("database_key"),
                             test_cases=message["test_cases"],
+                            database_key=message.get("database_key"),
                             seed=message.get("seed"),
                         ),
                     )
@@ -265,8 +265,8 @@ def _run_one(
     connection: Connection,
     channel: Channel,
     *,
-    database_key: bytes | None,
     test_cases: int,
+    database_key: bytes | None,
     seed: int | None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.

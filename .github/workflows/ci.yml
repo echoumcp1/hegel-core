@@ -147,7 +147,7 @@ jobs:
 
   release:
     name: release
-    if: github.event_name == 'push' && github.repository == 'antithesishq/hegel-core'
+    if: github.event_name == 'push' && github.repository == 'hegeldev/hegel-core'
     needs: [lint, check-coverage, typecheck]
     runs-on: ubuntu-latest
     permissions:
