@@ -14,6 +14,7 @@ from hegel.server import run_server_on_connection
 from tests.client import (
     Client,
     ClientConnection,
+    HealthCheckFailure,
     assume,
     collection,
     generate_from_schema,
@@ -350,3 +351,36 @@ def test_pool_generate_with_mostly_removed_variables(client):
         assert result == variables[-1]
 
     client.run_test(test, test_cases=50)
+
+
+def test_health_check_no_failure_by_default(client):
+    """Normal test should not produce a health_check_failure."""
+
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x >= 0
+
+    # Should complete without raising HealthCheckFailure
+    client.run_test(test, test_cases=10)
+
+
+def test_filter_too_much_detected(client):
+    """Test that always calls assume(False) triggers filter_too_much health check."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assume(False)
+
+    with pytest.raises(HealthCheckFailure, match="filter"):
+        client.run_test(test, test_cases=100)
+
+
+def test_filter_too_much_suppressed(client):
+    """Suppressing filter_too_much allows the test to complete normally."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assume(False)
+
+    # Should not raise - the health check is suppressed
+    client.run_test(test, test_cases=100, suppress_health_check=["filter_too_much"])

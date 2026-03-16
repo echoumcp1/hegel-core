@@ -9,9 +9,10 @@ from random import Random
 from typing import Any
 
 import cbor2
-from hypothesis import settings
+from hypothesis import HealthCheck, settings
 from hypothesis.control import BuildContext
-from hypothesis.errors import StopTest, UnsatisfiedAssumption
+from hypothesis.errors import FailedHealthCheck, StopTest, UnsatisfiedAssumption
+from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
@@ -223,6 +224,9 @@ def run_server_on_connection(connection: Connection) -> None:
                             test_cases=message["test_cases"],
                             database_key=message.get("database_key"),
                             seed=message.get("seed"),
+                            suppress_health_check=message.get(
+                                "suppress_health_check", []
+                            ),
                         ),
                     )
                     connection.control_channel.write_reply(packet.message_id, True)
@@ -249,6 +253,7 @@ def _run_test(
     test_cases: int,
     database_key: bytes | None,
     seed: int | None,
+    suppress_health_check: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -261,11 +266,13 @@ def _run_test(
     """
     try:
         seed = random.getrandbits(128) if seed is None else seed
+        suppress = [HealthCheck[name] for name in (suppress_health_check or [])]
         runner = ConjectureRunner(
             make_test_function(connection, channel, is_final=False),
             settings=settings(
                 deadline=None,
                 max_examples=test_cases,
+                suppress_health_check=suppress,
                 backend=(
                     "hypothesis-urandom"
                     if os.environ.get("ANTITHESIS_OUTPUT_DIR")
@@ -275,9 +282,22 @@ def _run_test(
             random=Random(seed),
             database_key=database_key,
         )
-        runner.run()
+        try:
+            runner.run()
+        except FailedHealthCheck as e:
+            result: dict[str, Any] = {
+                "passed": False,
+                "test_cases": runner.call_count,
+                "valid_test_cases": runner.valid_examples,
+                "invalid_test_cases": runner.invalid_examples,
+                "interesting_test_cases": 0,
+                "seed": str(seed),
+                "health_check_failure": str(e),
+            }
+            channel.send_request({"event": "test_done", "results": result}).get()
+            return result
 
-        result: dict[str, Any] = {
+        result = {
             "passed": len(runner.interesting_examples) == 0,
             "test_cases": runner.call_count,
             "valid_test_cases": runner.valid_examples,
