@@ -1,12 +1,12 @@
-# Hegel SDK API Specification
+# Hegel Library API Specification
 
-This document is the complete specification for implementing Hegel SDKs. It
+This document is the complete specification for implementing Hegel libraries. It
 covers the public API, protocol, design guidance, and implementation checklist.
 
 ## Overview
 
-A Hegel SDK enables property-based testing from any language by communicating
-with the Hegel server via Unix socket. The SDK provides:
+A Hegel library enables property-based testing from any language by communicating
+with the Hegel server via Unix socket. The library provides:
 
 1. **Generator types** that produce random values according to constraints
 2. **Combinators** for composing generators into complex structures
@@ -40,7 +40,7 @@ When a generator has no schema, it falls back to **compositional generation**:
 making multiple requests to the server, wrapped in spans for structure tracking.
 
 Schema-based generation is preferred because:
-1. It reduces round-trips between the SDK and the server.
+1. It reduces round-trips between the client and the server.
 2. It gives the server (Hypothesis) a complete picture of the data structure,
    enabling better shrinking.
 
@@ -205,7 +205,7 @@ Generate Unicode text strings.
 ### `binary`
 
 Generate binary data. The server returns CBOR byte strings directly;
-SDKs receive raw bytes with no additional decoding needed.
+Libraries receive raw bytes with no additional decoding needed.
 
 **Parameters:**
 - `min_size` (int): Minimum size in bytes. Default: 0.
@@ -216,7 +216,7 @@ SDKs receive raw bytes with no additional decoding needed.
 {"type": "binary", "min_size": <int>, "max_size": <int>}
 ```
 
-**Basic:** Always. No transform needed in any SDK — CBOR byte strings
+**Basic:** Always. No transform needed in any library — CBOR byte strings
 are deserialized directly to the language's native byte type (`bytes` in
 Python, `Vec<u8>` in Rust, `json::binary_t` in C++).
 
@@ -231,7 +231,7 @@ Generate a constant value.
 
 The schema always uses `null` as the const value (the server generates a null,
 and the client-side transform returns the actual constant). This allows `just`
-to work with non-JSON-serializable values and works uniformly across all SDKs.
+to work with non-JSON-serializable values and works uniformly across all libraries.
 
 **Basic:** Always. Transform: `_ -> value` (ignores server input).
 
@@ -252,7 +252,7 @@ The server generates an index; the client-side transform returns
 
 **Basic:** Always. Transform: `index -> values[index]`.
 
-Note: The index approach is canonical and used by all SDKs except TypeScript,
+Note: The index approach is canonical and used by all libraries except TypeScript,
 which uses a `{"sampled_from": [values...]}` schema for primitive types and
 falls back to compositional generation for non-primitive types.
 
@@ -543,15 +543,15 @@ will try to maximize the target value, which can help find edge cases.
 
 ## Protocol
 
-SDKs communicate with the Hegel server via a binary protocol over
+Client libraries communicate with the Hegel server via a binary protocol over
 Unix domain sockets.
 
 ### Connection Lifecycle
 
-1. SDK creates a socket path.
-2. SDK spawns hegel server with that socket path.
+1. Client creates a socket path.
+2. Client spawns hegel server with that socket path.
 3. hegel server binds to the socket and listens.
-4. SDK connects to the hegel server socket as a client.
+4. Client connects to the hegel server socket.
 5. A single persistent connection is maintained per program run.
 6. Multiple tests run over the same connection.
 
@@ -569,28 +569,28 @@ Followed by a CBOR-encoded payload and a terminator byte (`0x0A`).
 ### Channel Multiplexing
 
 - Channel 0: Control channel (handshake, `run_test`)
-- Odd-numbered channels: Created by the SDK for test communication
+- Odd-numbered channels: Created by the client for test communication
 
 ### Key Commands
 
 | Command | Direction | Description |
 |---------|-----------|-------------|
-| `run_test` | SDK -> Server | Start a property test |
-| `generate` | SDK -> Server | Generate a value from a schema |
-| `start_span` | SDK -> Server | Begin a span group |
-| `stop_span` | SDK -> Server | End a span group |
-| `mark_complete` | SDK -> Server | Report test case outcome |
-| `new_collection` | SDK -> Server | Create a server-managed collection |
-| `collection_more` | SDK -> Server | Ask if more elements needed |
-| `collection_reject` | SDK -> Server | Reject last element |
-| `target` | SDK -> Server | Report optimization target |
+| `run_test` | Client -> Server | Start a property test |
+| `generate` | Client -> Server | Generate a value from a schema |
+| `start_span` | Client -> Server | Begin a span group |
+| `stop_span` | Client -> Server | End a span group |
+| `mark_complete` | Client -> Server | Report test case outcome |
+| `new_collection` | Client -> Server | Create a server-managed collection |
+| `collection_more` | Client -> Server | Ask if more elements needed |
+| `collection_reject` | Client -> Server | Reject last element |
+| `target` | Client -> Server | Report optimization target |
 
 ### Events
 
 | Event | Direction | Description |
 |-------|-----------|-------------|
-| `test_case` | Server -> SDK | Run a test case |
-| `test_done` | Server -> SDK | All test cases complete, results available |
+| `test_case` | Server -> Client | Run a test case |
+| `test_done` | Server -> Client | All test cases complete, results available |
 
 ### Important Notes
 
@@ -600,7 +600,7 @@ Followed by a CBOR-encoded payload and a terminator byte (`0x0A`).
 
 ### The `assume()` Function
 
-Every SDK must implement `assume(condition)`:
+Every library must implement `assume(condition)`:
 
 - If condition is true: returns normally.
 - If condition is false: throws an exception (C++) or panics with a special
@@ -871,11 +871,11 @@ fn test_sorting() {
 
 ## Testing
 
-Each SDK should have **integration tests** that exercise end-to-end behaviors.
+Each library should have **integration tests** that exercise end-to-end behaviors.
 
 Conformance tests validate that each generator produces values matching its
 constraints. The Python package `hegel.conformance` provides a framework that
-drives these tests automatically — the SDK just needs to provide one compiled
+drives these tests automatically — the library just needs to provide one compiled
 binary per generator type.
 
 Each conformance binary:
@@ -908,11 +908,11 @@ integer range (e.g. `i32` for Rust, `int64` for Go, safe integers for JS).
 
 For `FloatConformance`, `allow_nan` and `allow_infinity` are ternary: `true`,
 `false`, or `null`. When `null`, the conformance binary must **not** call the
-setter, letting the SDK apply its own defaults. The correct defaults (matching
+setter, letting the library apply its own defaults. The correct defaults (matching
 Hypothesis) are: `allow_nan` is true only when neither bound is set, and
 `allow_infinity` is true only when at least one bound is unset.
 
-The SDK's `test_conformance.py` file wires everything together:
+The library's `test_conformance.py` file wires everything together:
 
 ```python
 from hegel.conformance import (
@@ -1028,19 +1028,19 @@ def test_conformance(subtests):
 
 - [ ] Unit tests for each generator type
 - [ ] Integration test with actual Hegel server
-- [ ] Property tests using the SDK itself
+- [ ] Property tests using the library itself
 - [ ] Conformance tests (see [Testing](#testing))
 - [ ] API documentation
 - [ ] Usage examples
 
 ## Reference Implementations
 
-- **C++ SDK**: `external/hegel-cpp/`
-- **Rust SDK**: `external/hegel-rust/`
-- **Go SDK**: Separate repository
-- **TypeScript SDK**: Separate repository
+- **C++**: `external/hegel-cpp/`
+- **Rust**: `external/hegel-rust/`
+- **Go**: Separate repository
+- **TypeScript**: Separate repository
 
-The C++ and Rust SDKs implement the full feature set and can serve as
+The C++ and Rust libraries implement the full feature set and can serve as
 reference for new implementations.
 
 ## Language-Specific Notes

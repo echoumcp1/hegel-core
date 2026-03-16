@@ -68,11 +68,9 @@ class Client:
 
         result_data = None
 
-        test_case_count = 0
         while True:
             packet = test_channel.read_request()
             message = cbor2.loads(packet.payload)
-            test_case_count += 1
             event = message.get("event")
 
             if event == "test_case":
@@ -109,7 +107,6 @@ class Client:
             try:
                 packet = test_channel.read_request()
                 message = cbor2.loads(packet.payload)
-                test_case_count += 1
                 assert message["event"] == "test_case"
 
                 channel_id = message["channel_id"]
@@ -117,11 +114,11 @@ class Client:
                 test_case_channel = self.connection.connect_channel(channel_id)
                 self._run_test_case(test_case_channel, test_fn, is_final=True)
                 if n_interesting > 1:
-                    raise AssertionError(
+                    raise ValueError(
                         f"Expected test case {i} to fail but it didn't",
                     )
                 else:
-                    raise AssertionError("Expected test case to fail but it didn't")
+                    raise ValueError("Expected test case to fail but it didn't")
             except Exception as e:
                 if n_interesting == 1:
                     raise

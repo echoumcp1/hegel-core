@@ -13,22 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-release:
-    name: check release
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Check release
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: python .github/scripts/release.py check "$BASE_REF"
-
   lint:
     name: lint
     runs-on: ubuntu-latest
@@ -147,11 +131,14 @@ jobs:
 
   release:
     name: release
-    if: github.event_name == 'push' && github.repository == 'antithesishq/hegel-core'
+    if: github.event_name == 'push' && github.repository == 'hegeldev/hegel-core'
     needs: [lint, check-coverage, typecheck]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # id-token: "enables the workflow to request and use an OIDC token from GitHub's OIDC provider".
+      # Used by our trusted publishing flow
+      id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -183,3 +170,16 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: python .github/scripts/release.py release
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: steps.check.outputs.skip != 'true'
+        with:
+          python-version: '3.13'
+
+      - name: Build package
+        if: steps.check.outputs.skip != 'true'
+        run: pip install build && python -m build
+
+      - name: Publish to PyPI
+        if: steps.check.outputs.skip != 'true'
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0

@@ -1,9 +1,9 @@
 """
-Test server that simulates error conditions for SDK conformance testing.
+Test server that simulates error conditions for library conformance testing.
 
 When HEGEL_PROTOCOL_TEST_MODE is set, the hegel binary runs this simplified server
 instead of the full ConjectureRunner-based server. Each mode injects a
-specific error condition to validate that SDKs handle errors correctly.
+specific error condition to validate that clients handle errors correctly.
 
 Modes:
 - stop_test_on_generate: StopTest error on first generate of 2nd test case
@@ -92,7 +92,7 @@ def _handle_normal_generate(data_channel: Channel) -> None:
 
 
 def _wait_for_mark_complete(data_channel: Channel) -> tuple[MessageId, dict]:
-    """Wait for mark_complete command from SDK."""
+    """Wait for mark_complete command from client."""
     msg_id, message = _read_cbor_request(data_channel)
     assert message.get("command") == "mark_complete"
     return msg_id, message
@@ -122,7 +122,7 @@ def _mode_stop_test_on_generate(
 
     1. Send 1st test_case, handle normally (generate + mark_complete)
     2. Send 2nd test_case, respond to generate with StopTest
-    3. SDK must NOT send mark_complete after StopTest
+    3. client must NOT send mark_complete after StopTest
     4. Wait briefly, close data channel, send test_done
     """
     # First test case: handle normally
@@ -138,7 +138,7 @@ def _mode_stop_test_on_generate(
     assert message.get("command") == "generate"
     data_channel_2.write_reply_error(msg_id, error="StopTest", error_type="StopTest")
 
-    # Wait briefly to see if SDK incorrectly sends mark_complete
+    # Wait briefly to see if client incorrectly sends mark_complete
     time.sleep(0.1)
     data_channel_2.close()
 
@@ -152,8 +152,8 @@ def _mode_stop_test_on_mark_complete(
     """Send StopTest error in response to mark_complete.
 
     1. Send test_case, handle generate normally
-    2. When SDK sends mark_complete, respond with StopTest
-    3. SDK must not send further commands on that channel
+    2. When client sends mark_complete, respond with StopTest
+    3. client must not send further commands on that channel
     4. Wait briefly, close data channel, send test_done
     """
     data_channel = _send_test_case(connection, test_channel)
@@ -205,7 +205,7 @@ def _mode_stop_test_on_collection_more(
 
     1. Send test_case, handle generate/spans/new_collection normally
     2. Respond to first collection_more with StopTest
-    3. SDK must stop the collection loop and not send further commands
+    3. client must stop the collection loop and not send further commands
     4. Wait briefly, close data channel, send test_done
     """
     data_channel = _send_test_case(connection, test_channel)
@@ -227,7 +227,7 @@ def _mode_stop_test_on_new_collection(
 
     1. Send test_case, handle generate/spans normally
     2. Respond to new_collection with StopTest
-    3. SDK must abort immediately
+    3. client must abort immediately
     4. Wait briefly, close data channel, send test_done
     """
     data_channel = _send_test_case(connection, test_channel)
@@ -248,8 +248,8 @@ def _mode_error_response(
     """Send a RequestError on the first generate command.
 
     1. Send test_case
-    2. When SDK sends generate, respond with RequestError
-    3. SDK should handle the error gracefully
+    2. When client sends generate, respond with RequestError
+    3. client should handle the error gracefully
     4. Send test_done
     """
     data_channel = _send_test_case(connection, test_channel)
@@ -262,7 +262,7 @@ def _mode_error_response(
         error_type="RequestError",
     )
 
-    # SDK should send mark_complete with INTERESTING status after the error
+    # client should send mark_complete with INTERESTING status after the error
     try:
         mc_id, _ = _read_cbor_request(data_channel, timeout=2.0)
         data_channel.write_reply(mc_id, None)

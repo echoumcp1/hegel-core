@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hegel is a universal property-based testing framework. A Python server (powered by Hypothesis) communicates with language-specific SDKs via Unix sockets. This repository contains the Python core (CLI + server) and the reference Python SDK (in `sdk/`).
+Hegel is a universal property-based testing framework. A Python server (powered by Hypothesis) communicates with language-specific client libraries via Unix sockets. This repository contains the Python core server:
 
 ## Build & Test Commands
 
@@ -21,22 +21,14 @@ uv run pytest -k test_name     # Run tests matching pattern
 uv run mypy src/                # Type check (targets Python 3.14)
 ```
 
-The Python SDK lives in `sdk/` with its own justfile:
-```bash
-just sdk test                   # Run SDK tests
-just sdk coverage               # Run SDK tests with coverage
-just sdk typecheck              # Type check SDK
-just sdk format                 # Format SDK code
-```
-
 100% branch test coverage is required (`fail_under = 100`). Uses `uv` as package manager, `ruff` + `shed` for formatting.
 
 ## Architecture
 
 ### Client-Server Communication
 
-1. **SDK** creates a Unix socket path and spawns the `hegel` CLI with that path
-2. **The server** binds to the socket and listens for the SDK to connect
+1. **Client** creates a Unix socket path and spawns the `hegel` CLI with that path
+2. **The server** binds to the socket and listens for the client to connect
 3. A single persistent connection supports multiple test executions
 4. **Hypothesis ConjectureRunner** drives test execution on the server side, including shrinking
 
@@ -54,14 +46,14 @@ Binary protocol over Unix socket with CBOR-encoded payloads:
 - `server.py` - Drives test execution via Hypothesis `ConjectureRunner` with a `ThreadPoolExecutor`
 - `protocol.py` - Binary protocol with CBOR encoding, multiplexed channels, thread-safe `Connection`
 - `schema.py` - JSON Schema to Hypothesis strategy conversion (cached by SHA1 hash in `FROM_SCHEMA_CACHE`)
-- `conformance.py` - Framework for testing SDK implementations against specification (`ConformanceTest` base class with `__init_subclass__` auto-registration)
+- `conformance.py` - Framework for testing library implementations against specification (`ConformanceTest` base class with `__init_subclass__` auto-registration)
 
 ### Server Execution Flow
 
-1. SDK sends `run_test` on the control channel (channel 0)
+1. Client sends `run_test` on the control channel (channel 0)
 2. `server.py` creates a `ConjectureRunner` and a per-test channel
-3. For each test case, a `test_case_channel` is created and the SDK is notified
-4. SDK sends commands (`generate`, `start_span`/`stop_span`, `target`, `mark_complete`) on the test case channel
+3. For each test case, a `test_case_channel` is created and the client is notified
+4. Client sends commands (`generate`, `start_span`/`stop_span`, `target`, `mark_complete`) on the test case channel
 5. `generate` calls `data.draw(cached_from_schema(schema))` to produce values
 6. After all test cases, interesting (failing) examples are replayed with `is_final=True`
 
@@ -70,28 +62,28 @@ Binary protocol over Unix socket with CBOR-encoded payloads:
 1. **Schema Composition** (preferred): Compose JSON schemas, single socket request. Generators that have schemas are called "basic generators."
 2. **Compositional Fallback**: Multiple requests wrapped in spans when schemas unavailable (after `map`/`filter` on non-basic generators, or `flatmap`)
 
-Key insight: `map()` on a basic generator preserves the schema by composing the transform function, rather than losing it. This is the central optimization across all SDKs.
+Key insight: `map()` on a basic generator preserves the schema by composing the transform function, rather than losing it. This is the central optimization across all libraries.
 
 ### Key Patterns
 
-**ContextVar-based state** - `tests/client.py` and `sdk/src/hegel_sdk/client.py` use `ContextVar` (`_current_channel`, `_is_final`, `_test_aborted`) so that `generate_from_schema()`, `assume()`, `start_span()` etc. work as free functions without passing channels explicitly.
+**ContextVar-based state** - `tests/client.py` and the library's `client.py` use `ContextVar` (`_current_channel`, `_is_final`, `_test_aborted`) so that `generate_from_schema()`, `assume()`, `start_span()` etc. work as free functions without passing channels explicitly.
 
 **`handle_requests` decorator** - `Channel.handle_requests(handler, until)` dispatches incoming requests to a handler function. Used as `@channel.handle_requests` in both server and test code.
 
-**Test client** - `tests/client.py` is a test-local client that mirrors the SDK's `client.py`. It's used by the `client` pytest fixture (in `conftest.py`) which creates a `socket.socketpair()`, runs the server in a daemon thread, and yields the client side.
+**Test client** - `tests/client.py` is a test-local client that mirrors the library's `client.py`. It's used by the `client` pytest fixture (in `conftest.py`) which creates a `socket.socketpair()`, runs the server in a daemon thread, and yields the client side.
 
 ### Environment Variables
 
 - `HEGEL_PROTOCOL_DEBUG=1` - Enables protocol packet tracing (set via `--verbosity debug` CLI flag)
 - `HEGEL_CHANNEL_TIMEOUT` - Overrides the default 30-second channel timeout
 
-### SDK Specification
+### Library Specification
 
-Comprehensive SDK specification: `docs/sdk-api.md`
+Comprehensive library specification: `docs/library-api.md`
 
 ## Release Process
 
-PRs that change files in `src/` or `sdk/src/` must include a `RELEASE.md` file in the repository root. The format is:
+PRs that change files in `src/` must include a `RELEASE.md` file in the repository root. The format is:
 
 ```
 RELEASE_TYPE: patch
@@ -104,4 +96,4 @@ The first line must be `RELEASE_TYPE: major`, `RELEASE_TYPE: minor`, or `RELEASE
 ## Code Style
 
 - Don't add message strings to pytest asserts (`assert x, "message"`). Pytest provides excellent error messages automatically.
-- Don't reference source line numbers in test comments (e.g., "Covers sdk.py line 42"). Line numbers are not stable identifiers. Instead, describe the condition or branch being tested (e.g., "Tests the except TypeError branch in schema()").
+- Don't reference source line numbers in test comments (e.g., "Covers client.py line 42"). Line numbers are not stable identifiers. Instead, describe the condition or branch being tested (e.g., "Tests the except TypeError branch in schema()").
