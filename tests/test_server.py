@@ -26,6 +26,7 @@ from tests.client import (
     target,
 )
 from tests.client.client import _request
+
 try:
     ExceptionGroup
 except NameError:  # pragma: no cover
