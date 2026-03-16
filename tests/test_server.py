@@ -392,7 +392,5 @@ def test_bad_health_check_name(client):
     def test():
         generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
 
-    with pytest.raises(
-        HealthCheckFailure, match="Unknown health check.*'not_a_real_check'"
-    ):
+    with pytest.raises(ValueError, match=r"Unknown health check.*'not_a_real_check'"):
         client.run_test(test, test_cases=10, suppress_health_check=["not_a_real_check"])

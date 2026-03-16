@@ -280,7 +280,7 @@ def _run_test(
                     "invalid_test_cases": 0,
                     "interesting_test_cases": 0,
                     "seed": str(seed),
-                    "health_check_failure": (
+                    "error": (
                         f"Unknown health check: {name!r}. "
                         f"Valid health checks are: {valid}"
                     ),

@@ -93,6 +93,9 @@ class Client:
 
         assert result_data is not None
 
+        if "error" in result_data:
+            raise ValueError(result_data["error"])
+
         if "health_check_failure" in result_data:
             raise HealthCheckFailure(result_data["health_check_failure"])
 
