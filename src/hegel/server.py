@@ -266,7 +266,28 @@ def _run_test(
     """
     try:
         seed = random.getrandbits(128) if seed is None else seed
-        suppress = [HealthCheck[name] for name in (suppress_health_check or [])]
+
+        suppress = []
+        for name in suppress_health_check or []:
+            try:
+                suppress.append(HealthCheck[name])
+            except KeyError:
+                valid = [h.name for h in HealthCheck]
+                result: dict[str, Any] = {
+                    "passed": False,
+                    "test_cases": 0,
+                    "valid_test_cases": 0,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": 0,
+                    "seed": str(seed),
+                    "health_check_failure": (
+                        f"Unknown health check: {name!r}. "
+                        f"Valid health checks are: {valid}"
+                    ),
+                }
+                channel.send_request({"event": "test_done", "results": result}).get()
+                return result
+
         runner = ConjectureRunner(
             make_test_function(connection, channel, is_final=False),
             settings=settings(
@@ -285,7 +306,7 @@ def _run_test(
         try:
             runner.run()
         except FailedHealthCheck as e:
-            result: dict[str, Any] = {
+            result = {
                 "passed": False,
                 "test_cases": runner.call_count,
                 "valid_test_cases": runner.valid_examples,
