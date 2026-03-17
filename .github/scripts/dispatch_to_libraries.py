@@ -1,8 +1,8 @@
 import json
 import re
 import subprocess
-from pathlib import Path
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -18,7 +18,9 @@ def get_changelog(version: str) -> str:
     text = (ROOT / "CHANGELOG.md").read_text()
     # Each entry starts with "## <version> - <date>". Extract the content
     # of the entry for the given version, up to the next entry or EOF.
-    pattern = rf"^## {re.escape(version)} - \d{{4}}-\d{{2}}-\d{{2}}\n\n(.*?)(?=\n## |\Z)"
+    pattern = (
+        rf"^## {re.escape(version)} - \d{{4}}-\d{{2}}-\d{{2}}\n\n(.*?)(?=\n## |\Z)"
+    )
     m = re.search(pattern, text, re.MULTILINE | re.DOTALL)
     assert m is not None
     return m.group(1).strip()
