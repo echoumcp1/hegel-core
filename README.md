@@ -5,9 +5,9 @@
 >
 > We are still making rapid changes and progress.  Feel free to experiment, but don't expect stability from Hegel just yet!
 
-Hegel is a "universal" family of property-based testing libraries, written to centralise much of the difficult implementation into a single server, with client libraries written in a variety of different languages that can be used as test runners.
+Hegel is a new family of property-based testing libraries across multiple languages. Our goal is for it to be a universal approach to property-based testing which makes it nearly trivial to implement high quality property-based testing in new languages. It achieves this using a client/server approach, where all the difficult implementation can be centralised in the server, and client libraries for each language can be implemented with relatively little work.
 
-This client/server architecture should largely be invisible when writing tests - the client libraries will spin up a server to connect to - and if you are a Hegel end user, you probably don't want to install this server directly, but instead want to use one of the client libraries:
+This client/server architecture should largely be invisible when writing tests and if you are a Hegel end user, you probably don't want to install this server directly, but instead want to use one of the client libraries:
 
 - [Go](https://github.com/hegeldev/hegel-go)
 - [Rust](https://github.com/hegeldev/hegel-rust)
