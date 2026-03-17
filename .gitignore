@@ -17,6 +17,7 @@ devcontainer
 .coverage.*
 htmlcov/
 error.log
+dist/
 
 .claude/reliability-config.yml
 .claude/reliability-config.yaml
