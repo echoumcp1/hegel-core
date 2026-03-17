@@ -394,3 +394,162 @@ def test_bad_health_check_name(client):
 
     with pytest.raises(ValueError, match=r"Unknown health check.*'not_a_real_check'"):
         client.run_test(test, test_cases=10, suppress_health_check=["not_a_real_check"])
+
+
+def test_data_too_large_detected(client):
+    """Generating too much data per test case triggers data_too_large.
+
+    The key difference from large_base_example is that the simplest input
+    must be small (so it passes the zero-input check), but random generation
+    regularly overruns the entropy budget. A boolean guard ensures the zero
+    input (False) does nothing, while random inputs (True) generate lots of data.
+    """
+
+    def test():
+        do_big = generate_from_schema({"type": "boolean"})
+        if do_big:
+            # Generate a huge amount of data to exhaust the entropy budget
+            for _ in range(500):
+                generate_from_schema(
+                    {"type": "string", "min_size": 50, "max_size": 100}
+                )
+
+    with pytest.raises(HealthCheckFailure, match="entropy"):
+        client.run_test(test, test_cases=100)
+
+
+def test_data_too_large_suppressed(client):
+    """Suppressing data_too_large allows the test to complete.
+
+    Uses a lighter workload than the detection test since all test
+    cases run to completion when health checks are suppressed.
+    """
+
+    def test():
+        do_big = generate_from_schema({"type": "boolean"})
+        if do_big:
+            for _ in range(100):
+                generate_from_schema({"type": "integer"})
+
+    client.run_test(
+        test,
+        test_cases=15,
+        suppress_health_check=["data_too_large", "too_slow", "large_base_example"],
+    )
+
+
+def _make_time_warp(monkeypatch):
+    """Monkeypatch time.perf_counter to jump forward during draws.
+
+    This avoids actually sleeping while still triggering the too_slow
+    health check, which measures accumulated draw time.
+    """
+    import time as time_mod
+
+    real_perf_counter = time_mod.perf_counter
+    warp = [0.0]
+
+    def warped_perf_counter():
+        return real_perf_counter() + warp[0]
+
+    monkeypatch.setattr(time_mod, "perf_counter", warped_perf_counter)
+    return warp
+
+
+def test_too_slow_detected(client, monkeypatch):
+    """Slow draw operations trigger too_slow health check."""
+    import hegel.server
+
+    warp = _make_time_warp(monkeypatch)
+    original = hegel.server.cached_from_schema
+
+    def slow_schema(schema):
+        strategy = original(schema)
+
+        class SlowStrategy(st.SearchStrategy):
+            def do_draw(self, data):
+                warp[0] += 5.0  # Each draw appears to take 5 seconds
+                return strategy.do_draw(data)
+
+        return SlowStrategy()
+
+    monkeypatch.setattr("hegel.server.cached_from_schema", slow_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    with pytest.raises(HealthCheckFailure, match="slow"):
+        client.run_test(test, test_cases=100)
+
+
+def test_too_slow_suppressed(client, monkeypatch):
+    """Suppressing too_slow allows the test to complete."""
+    import hegel.server
+
+    warp = _make_time_warp(monkeypatch)
+    original = hegel.server.cached_from_schema
+
+    def slow_schema(schema):
+        strategy = original(schema)
+
+        class SlowStrategy(st.SearchStrategy):
+            def do_draw(self, data):
+                warp[0] += 5.0
+                return strategy.do_draw(data)
+
+        return SlowStrategy()
+
+    monkeypatch.setattr("hegel.server.cached_from_schema", slow_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    client.run_test(test, test_cases=100, suppress_health_check=["too_slow"])
+
+
+def test_large_base_example_detected(client):
+    """A test whose simplest input is very large triggers large_base_example."""
+
+    def test():
+        # Generate many large collections - even the simplest input will be large
+        for _ in range(50):
+            generate_from_schema(
+                {
+                    "type": "list",
+                    "elements": {"type": "integer"},
+                    "min_size": 100,
+                    "max_size": 100,
+                }
+            )
+
+    with pytest.raises(HealthCheckFailure, match="smallest natural input"):
+        client.run_test(test, test_cases=100)
+
+
+def test_large_base_example_suppressed(client):
+    """Suppressing large_base_example allows the test to complete.
+
+    Uses a lighter workload than the detection test since all test
+    cases run to completion when health checks are suppressed.
+    """
+
+    def test():
+        for _ in range(10):
+            generate_from_schema(
+                {
+                    "type": "list",
+                    "elements": {"type": "integer"},
+                    "min_size": 50,
+                    "max_size": 50,
+                }
+            )
+
+    client.run_test(
+        test,
+        test_cases=15,
+        suppress_health_check=[
+            "large_base_example",
+            "data_too_large",
+            "too_slow",
+        ],
+    )
