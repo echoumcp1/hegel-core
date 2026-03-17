@@ -589,6 +589,37 @@ def test_reader_loop_clean_exit(socket_pair):
     server_conn._Connection__socket.close()
 
 
+def test_reader_loop_graceful_exit_on_remote_close(socket_pair):
+    """Test reader loop exits gracefully when the remote end closes the connection.
+
+    When the remote socket is closed, read_packet raises ProtocolError.
+    The reader loop should catch this and exit without printing to stderr.
+    """
+    import threading
+
+    server_socket, client_socket = socket_pair
+    server_conn = Connection(server_socket)
+    client_conn = ClientConnection(client_socket)
+    _do_handshake(server_conn, client_conn)
+
+    thread_errors = []
+    original_excepthook = threading.excepthook
+
+    def capture_excepthook(args):
+        thread_errors.append(args)
+
+    threading.excepthook = capture_excepthook
+    try:
+        # Close the client side — the server's reader loop should exit gracefully
+        client_conn.close()
+        server_conn._reader_thread.join(timeout=5)
+        assert not server_conn.running
+        assert thread_errors == []
+    finally:
+        threading.excepthook = original_excepthook
+        server_conn.close()
+
+
 def test_invalid_hegel_debug_env_var():
     result = subprocess.run(
         [

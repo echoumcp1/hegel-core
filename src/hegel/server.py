@@ -77,12 +77,12 @@ def make_test_function(
     *,
     is_final: bool = False,
 ) -> Callable[[ConjectureData], None]:
-    """Create a test function that communicates with the SDK.
+    """Create a test function that communicates with the client.
 
     The returned function handles a single test case by:
     1. Creating a channel for communication
-    2. Sending a test_case event to the SDK
-    3. Handling generate/span/target requests until mark_complete
+    2. Sending a test_case event to the client
+    3. Handling generate/span/target requests from the client until mark_complete
     4. Applying the final status to the ConjectureData
     """
 
@@ -103,7 +103,7 @@ def make_test_function(
 
             done = False
 
-            def handle_sdk_request(message: dict) -> Any:
+            def handle_client_request(message: dict) -> Any:
                 nonlocal done
                 try:
                     command = message["command"]
@@ -195,7 +195,7 @@ def make_test_function(
                     done = True
                     raise
 
-            test_case_channel.handle_requests(handle_sdk_request, until=lambda: done)
+            test_case_channel.handle_requests(handle_client_request, until=lambda: done)
 
     return test_function
 
@@ -206,18 +206,13 @@ def run_server_on_connection(connection: Connection) -> None:
     pending_futures = []
     try:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as thread_pool:
-            # Main request loop - handle run_test requests
-            test_count = 0
             while True:
-                test_count += 1
                 packet = connection.control_channel.read_request(timeout=None)
                 message = cbor2.loads(packet.payload)
                 command = message["command"]
                 if command == "run_test":
-                    test_name = message.get("name", f"test {test_count}")
                     channel = connection.register_client_channel(
-                        message["channel_id"],
-                        role=f"Test channel for {test_name}",
+                        message["channel_id"], role="Test channel"
                     )
 
                     pending_futures.append(
@@ -225,8 +220,8 @@ def run_server_on_connection(connection: Connection) -> None:
                             _run_test,
                             connection,
                             channel,
-                            test_name=test_name,
                             test_cases=message["test_cases"],
+                            database_key=message.get("database_key"),
                             seed=message.get("seed"),
                         ),
                     )
@@ -251,8 +246,8 @@ def _run_test(
     connection: Connection,
     channel: Channel,
     *,
-    test_name: str,
     test_cases: int,
+    database_key: bytes | None,
     seed: int | None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
@@ -271,9 +266,14 @@ def _run_test(
             settings=settings(
                 deadline=None,
                 max_examples=test_cases,
+                backend=(
+                    "hypothesis-urandom"
+                    if os.environ.get("ANTITHESIS_OUTPUT_DIR")
+                    else "hypothesis"
+                ),
             ),
             random=Random(seed),
-            database_key=test_name.encode("utf-8"),
+            database_key=database_key,
         )
         runner.run()
 

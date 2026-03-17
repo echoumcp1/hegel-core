@@ -11,6 +11,10 @@ class ProtocolError(Exception):
     """
 
 
+class ConnectionClosedError(ProtocolError):
+    """The remote end closed the connection."""
+
+
 class RequestError(Exception):
     """
     The server has encountered an application-level error. This might be expected during

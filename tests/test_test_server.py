@@ -38,7 +38,6 @@ def _send_run_test(conn):
         cbor2.dumps(
             {
                 "command": "run_test",
-                "name": "test",
                 "test_cases": 1,
                 "channel_id": test_channel.channel_id,
             },
@@ -233,7 +232,7 @@ class TestErrorResponse:
             error = _send_generate_expect_error(data_channel)
             assert error["type"] == "RequestError"
 
-            # SDK should send mark_complete with INTERESTING
+            # client should send mark_complete with INTERESTING
             _send_mark_complete(data_channel, status="INTERESTING")
 
             _receive_test_done(test_channel)
@@ -258,7 +257,7 @@ class TestEmptyTest:
 
 class TestErrorResponseNoMarkComplete:
     def test_server_handles_client_not_sending_mark_complete(self):
-        """Test error_response mode when SDK doesn't send mark_complete."""
+        """Test error_response mode when client doesn't send mark_complete."""
         s1, s2 = _create_socket_pair()
         server_thread = _start_server(s1, "error_response")
 
@@ -325,7 +324,7 @@ class TestStopTestOnCollectionMore:
 
             data_channel, _ = _receive_test_case(test_channel, conn)
 
-            # SDK sends start_span (LIST) + new_collection normally
+            # client sends start_span (LIST) + new_collection normally
             _send_start_span(data_channel, label=1)
             collection = _send_new_collection(data_channel)
             assert isinstance(collection, str)
@@ -367,7 +366,7 @@ class TestStopTestOnNewCollection:
 
             data_channel, _ = _receive_test_case(test_channel, conn)
 
-            # SDK sends start_span (LIST) normally
+            # client sends start_span (LIST) normally
             _send_start_span(data_channel, label=1)
 
             # new_collection should get StopTest
@@ -419,7 +418,6 @@ class TestTestServerErrors:
                     cbor2.dumps(
                         {
                             "command": "run_test",
-                            "name": "test",
                             "test_cases": 1,
                             "channel_id": test_channel.channel_id,
                         },

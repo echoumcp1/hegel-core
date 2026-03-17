@@ -25,7 +25,7 @@
     let
       inherit (nixpkgs) lib;
 
-      workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./.; };
+      workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./..; };
       overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
       mkPythonSet = system:
         let

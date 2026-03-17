@@ -67,15 +67,15 @@ class ConformanceTest(ABC):
         metrics_list: list[dict[str, Any]],
         params: dict[str, Any],
     ) -> None:
-        """Validate that the SDK output matches the expected constraints."""
+        """Validate that the library output matches the expected constraints."""
         ...
 
     def extra_env(self) -> dict[str, str]:
-        """Return additional environment variables for the conformance binary."""
+        """Return additional environment variables for the library binary."""
         return {}
 
     def run(self, params: dict[str, Any]) -> None:
-        """Run the conformance binary and validate its output."""
+        """Run the library binary and validate its output."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl") as f:
             metrics_file = Path(f.name)
             input_json = json.dumps(params)
@@ -94,7 +94,7 @@ class ConformanceTest(ABC):
 
             if result.returncode != 0:
                 raise RuntimeError(
-                    f"Conformance binary failed with exit code {result.returncode}\n"
+                    f"Library binary failed with exit code {result.returncode}\n"
                     f"stdout: {result.stdout}\n"
                     f"stderr: {result.stderr}",
                 )
@@ -112,7 +112,7 @@ class ErrorHandlingConformance(ConformanceTest):
     """Base class for error handling conformance tests.
 
     These tests set HEGEL_PROTOCOL_TEST_MODE to activate the test server,
-    which injects specific error conditions. The SDK binary is run
+    which injects specific error conditions. The library binary is run
     with empty params and must exit cleanly (exit code 0).
     """
 
@@ -263,7 +263,7 @@ class FloatConformance(ConformanceTest):
 
             # allow_nan/allow_infinity are ternary: True, False, or None.
             # None means the conformance binary should not call the setter,
-            # letting the SDK apply its own defaults (which must match
+            # letting the library apply its own defaults (which must match
             # Hypothesis: nan disallowed when any bound is set, infinity
             # disallowed when both bounds are set).
             allow_nan: bool | None = draw(

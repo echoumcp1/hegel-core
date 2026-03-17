@@ -1,4 +1,5 @@
 import argparse
+import os
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -81,6 +82,18 @@ def check(base_ref: str) -> None:
         return
 
     release_file = ROOT / "RELEASE.md"
+
+    process = subprocess.run(
+        ["git", "cat-file", "-e", f"origin/{base_ref}:RELEASE.md"],
+        capture_output=True,
+        cwd=ROOT,
+    )
+    if process.returncode == 0:
+        raise ValueError(
+            f"RELEASE.md already exists on {base_ref}. It's possible the CI job "
+            "responsible for cutting a new release is in progress, or has failed."
+        )
+
     if not release_file.exists():
         lines = [
             "Every pull request to hegel-core requires a RELEASE.md file.",
@@ -116,7 +129,13 @@ def release() -> None:
     add_changelog(ROOT / "CHANGELOG.md", version=new_version, content=content)
 
     git("config", "user.name", "hegel-release[bot]", cwd=ROOT)
-    git("config", "user.email", "noreply@github.com", cwd=ROOT)
+    app_id = os.environ["HEGEL_RELEASE_APP_ID"]
+    git(
+        "config",
+        "user.email",
+        f"{app_id}+hegel-release[bot]@users.noreply.github.com",
+        cwd=ROOT,
+    )
     git("add", "pyproject.toml", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
     git(

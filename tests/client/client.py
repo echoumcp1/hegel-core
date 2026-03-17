@@ -14,8 +14,6 @@ import cbor2
 from hegel.protocol import RequestError
 from tests.client.protocol import ClientChannel, ClientConnection
 
-SUPPORTED_PROTOCOL_VERSIONS = (0.1, 0.3)
-
 # Context variables for the current test case
 _current_channel: ContextVar[ClientChannel | None] = ContextVar(
     "_current_channel",
@@ -37,22 +35,13 @@ class Client:
     """Test client for connecting to a Hegel server."""
 
     def __init__(self, connection: ClientConnection):
-        server_version = float(connection.send_handshake())
-        lo, hi = SUPPORTED_PROTOCOL_VERSIONS
-        if not (lo <= server_version <= hi):
-            raise ConnectionError(
-                f"hegel-python supports protocol versions {lo} through {hi}, but "
-                f"got server version {server_version}. Upgrading hegel-python or downgrading "
-                "your hegel cli might help."
-            )
-
+        _version = connection.send_handshake()
         self.connection = connection
         self._control = connection.control_channel
         self.__lock = threading.Lock()
 
     def run_test(
         self,
-        name: str,
         test_fn: Callable[[], None],
         *,
         test_cases: int = 100,
@@ -66,7 +55,6 @@ class Client:
             self._control.send_request(
                 {
                     "command": "run_test",
-                    "name": name,
                     "test_cases": test_cases,
                     "seed": seed,
                     "channel_id": test_channel.channel_id,
@@ -75,11 +63,9 @@ class Client:
 
         result_data = None
 
-        test_case_count = 0
         while True:
             packet = test_channel.read_request()
             message = cbor2.loads(packet.payload)
-            test_case_count += 1
             event = message.get("event")
 
             if event == "test_case":
@@ -110,7 +96,6 @@ class Client:
             try:
                 packet = test_channel.read_request()
                 message = cbor2.loads(packet.payload)
-                test_case_count += 1
                 assert message["event"] == "test_case"
 
                 channel_id = message["channel_id"]
@@ -118,11 +103,11 @@ class Client:
                 test_case_channel = self.connection.connect_channel(channel_id)
                 self._run_test_case(test_case_channel, test_fn, is_final=True)
                 if n_interesting > 1:
-                    raise AssertionError(
+                    raise ValueError(
                         f"Expected test case {i} to fail but it didn't",
                     )
                 else:
-                    raise AssertionError("Expected test case to fail but it didn't")
+                    raise ValueError("Expected test case to fail but it didn't")
             except Exception as e:
                 if n_interesting == 1:
                     raise

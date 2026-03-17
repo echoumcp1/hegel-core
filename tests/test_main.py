@@ -78,25 +78,25 @@ def _client_and_server(socket_path, *args, env=None):
 
 def test_version():
     result = CliRunner().invoke(main, ["--version"])
-    version = importlib.metadata.version("hegel")
+    version = importlib.metadata.version("hegel-core")
     assert result.output.strip() == f"hegel (version {version})"
 
 
 @pytest.mark.parametrize("verbosity", ["normal", "verbose", "debug"])
 def test_cli(socket_path, verbosity):
     with _client_and_server(socket_path, "--verbosity", verbosity) as client:
-        client.run_test("test", lambda: None, test_cases=1)
+        client.run_test(lambda: None, test_cases=1)
 
 
 def test_cli_cleans_up_stale_socket(socket_path):
     socket_path.touch()
 
     with _client_and_server(socket_path) as client:
-        client.run_test("test", lambda: None, test_cases=1)
+        client.run_test(lambda: None, test_cases=1)
 
 
 def test_run_server_with_test_mode(socket_path):
     with _client_and_server(
         socket_path, env={"HEGEL_PROTOCOL_TEST_MODE": "empty_test"}
     ) as client:
-        client.run_test("test", lambda: None, test_cases=1)
+        client.run_test(lambda: None, test_cases=1)
