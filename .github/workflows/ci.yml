@@ -190,8 +190,4 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          VERSION=$(python -c "import re, pathlib; print(re.search(r'version = \"([^\"]+)\"', pathlib.Path('pyproject.toml').read_text()).group(1))")
-          gh api repos/hegeldev/hegel-rust/dispatches \
-            -f event_type=hegel-core-release \
-            -f "client_payload[version]=$VERSION"
+        run: python .github/scripts/dispatch_to_libraries.py hegel-rust
