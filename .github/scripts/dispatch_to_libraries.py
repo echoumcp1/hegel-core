@@ -14,27 +14,14 @@ def get_version() -> str:
     return m.group(1)
 
 
-def get_changelog(version: str) -> str:
-    text = (ROOT / "CHANGELOG.md").read_text()
-    # Each entry starts with "## <version> - <date>". Extract the content
-    # of the entry for the given version, up to the next entry or EOF.
-    pattern = (
-        rf"^## {re.escape(version)} - \d{{4}}-\d{{2}}-\d{{2}}\n\n(.*?)(?=\n## |\Z)"
-    )
-    m = re.search(pattern, text, re.MULTILINE | re.DOTALL)
-    assert m is not None
-    return m.group(1).strip()
-
-
 def dispatch(repos: list[str]) -> None:
     version = get_version()
-    changelog = get_changelog(version)
 
     for repo in repos:
         body = json.dumps(
             {
                 "event_type": "hegel-core-release",
-                "client_payload": {"version": version, "changelog": changelog},
+                "client_payload": {"version": version},
             }
         )
         subprocess.run(
