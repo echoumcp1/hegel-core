@@ -399,23 +399,21 @@ def test_bad_health_check_name(client):
 def test_data_too_large_detected(client):
     """Generating too much data per test case triggers data_too_large.
 
-    The key difference from large_base_example is that the simplest input
-    must be small (so it passes the zero-input check), but random generation
-    regularly overruns the entropy budget. A boolean guard ensures the zero
-    input (False) does nothing, while random inputs (True) generate lots of data.
+    We suppress large_base_example so the zero-input check passes,
+    then the health check period fires data_too_large when inputs
+    repeatedly overrun the entropy budget.
     """
 
     def test():
-        do_big = generate_from_schema({"type": "boolean"})
-        if do_big:
-            # Generate a huge amount of data to exhaust the entropy budget
-            for _ in range(500):
-                generate_from_schema(
-                    {"type": "string", "min_size": 50, "max_size": 100}
-                )
+        for _ in range(500):
+            generate_from_schema({"type": "string", "min_size": 50, "max_size": 100})
 
     with pytest.raises(HealthCheckFailure, match="entropy"):
-        client.run_test(test, test_cases=100)
+        client.run_test(
+            test,
+            test_cases=100,
+            suppress_health_check=["large_base_example"],
+        )
 
 
 def test_data_too_large_suppressed(client):
