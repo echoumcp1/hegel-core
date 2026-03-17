@@ -14,7 +14,7 @@ This client/server architecture should largely be invisible when writing tests -
 
 These will automatically manage a hegel-core install of the appropriate version using [uv](https://docs.astral.sh/uv/). 
 
-If you do want to install hegel yourself, it may be installed like any other Python project, using your choice of pip or uv, and you can point your tests to a specific install by setting the environment variable `HEGEL_SERVER_COMMAND` to point to an appropriate `hegel` executable.
+If you do want to install Hegel yourself, you can install it like any other Python project, with your choice of `pip` or `uv`. You can point your tests to a specific install by setting the environment variable `HEGEL_SERVER_COMMAND` to point to an appropriate `hegel` executable.
 
 ## Development
 
