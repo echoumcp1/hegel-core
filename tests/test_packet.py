@@ -5,12 +5,11 @@ import zlib
 import pytest
 from hypothesis import given, strategies as st
 
-from hegel.protocol import ProtocolError
+from hegel.protocol import Packet, ProtocolError
 from hegel.protocol.packet import (
     PACKET_HEADER_FORMAT,
     PACKET_MAGIC,
     PACKET_TERMINATOR,
-    Packet,
     read_exact,
     read_packet,
     write_packet,

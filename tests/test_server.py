@@ -8,13 +8,9 @@ import pytest
 from hypothesis import strategies as st
 from hypothesis.errors import UnsatisfiedAssumption
 
-from hegel.protocol import RequestError
-from hegel.protocol.connection import Connection
-from hegel.server import (
-    FROM_SCHEMA_CACHE,
-    cached_from_schema,
-    run_server_on_connection,
-)
+from hegel.protocol import Connection, RequestError
+from hegel.schema import FROM_SCHEMA_CACHE, from_schema
+from hegel.server import run_server_on_connection
 from tests.client import (
     Client,
     ClientConnection,
@@ -65,7 +61,7 @@ def test_cache_eviction():
     # Fill the cache beyond its max size
     for i in range(FROM_SCHEMA_CACHE.max_size + 10):
         schema = {"type": "integer", "min_value": i, "max_value": i + 100}
-        cached_from_schema(schema)
+        from_schema(schema)
 
     assert len(FROM_SCHEMA_CACHE) <= FROM_SCHEMA_CACHE.max_size
 
@@ -114,7 +110,7 @@ def test_unsatisfied_assumption_in_handler(client, monkeypatch):
             raise UnsatisfiedAssumption
 
     reject = AlwaysRejectStrategy()
-    monkeypatch.setattr("hegel.server.cached_from_schema", lambda _: reject)
+    monkeypatch.setattr("hegel.server.from_schema", lambda _: reject)
 
     def test():
         generate_from_schema({"type": "integer"})
@@ -134,7 +130,7 @@ def test_future_cancel_on_connection_error(monkeypatch):
     def raise_connection_error(*args, **kwargs):
         raise ConnectionError("test disconnect")
 
-    monkeypatch.setattr("hegel.server._run_one", raise_connection_error)
+    monkeypatch.setattr("hegel.server._run_test", raise_connection_error)
     thread = Thread(
         target=run_server_on_connection,
         args=(Connection(server_socket),),
