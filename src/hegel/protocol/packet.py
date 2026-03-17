@@ -3,7 +3,12 @@ import struct
 import zlib
 from dataclasses import dataclass
 
-from hegel.protocol.utils import ChannelId, MessageId, ProtocolError
+from hegel.protocol.utils import (
+    ChannelId,
+    ConnectionClosedError,
+    MessageId,
+    ProtocolError,
+)
 
 # 5 unsigned 32-bit integers, big-endian:
 # magic cookie, checksum, channel, message ID, payload length
@@ -47,6 +52,8 @@ def read_exact(sock: socket.socket, *, n: int) -> bytes:
             data.extend(chunk)
             continue
 
+        if not data:
+            raise ConnectionClosedError("Connection closed")
         raise ProtocolError(
             f"Connection closed during socket read (bytes read so far: {data!r})"
         )
