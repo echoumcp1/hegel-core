@@ -419,23 +419,18 @@ def test_data_too_large_detected(client):
 
 
 def test_data_too_large_suppressed(client):
-    """Suppressing data_too_large allows the test to complete.
-
-    Uses a lighter workload than the detection test since all test
-    cases run to completion when health checks are suppressed.
-    """
+    """Suppressing data_too_large allows the test to complete."""
 
     def test():
         do_big = generate_from_schema({"type": "boolean"})
         if do_big:
-            for _ in range(100):
-                generate_from_schema({"type": "integer"})
+            for _ in range(500):
+                generate_from_schema(
+                    {"type": "string", "min_size": 50, "max_size": 100}
+                )
 
-    client.run_test(
-        test,
-        test_cases=15,
-        suppress_health_check=["data_too_large", "too_slow", "large_base_example"],
-    )
+    # Use fewer test_cases to avoid slow runs under coverage/antithesis
+    client.run_test(test, test_cases=20, suppress_health_check=["data_too_large"])
 
 
 def _make_time_warp(monkeypatch):
@@ -527,29 +522,22 @@ def test_large_base_example_detected(client):
 
 
 def test_large_base_example_suppressed(client):
-    """Suppressing large_base_example allows the test to complete.
-
-    Uses a lighter workload than the detection test since all test
-    cases run to completion when health checks are suppressed.
-    """
+    """Suppressing large_base_example allows the test to complete."""
 
     def test():
-        for _ in range(10):
+        for _ in range(50):
             generate_from_schema(
                 {
                     "type": "list",
                     "elements": {"type": "integer"},
-                    "min_size": 50,
-                    "max_size": 50,
+                    "min_size": 100,
+                    "max_size": 100,
                 }
             )
 
+    # Use fewer test_cases to avoid slow runs under coverage/antithesis
     client.run_test(
         test,
-        test_cases=15,
-        suppress_health_check=[
-            "large_base_example",
-            "data_too_large",
-            "too_slow",
-        ],
+        test_cases=20,
+        suppress_health_check=["large_base_example", "data_too_large"],
     )
