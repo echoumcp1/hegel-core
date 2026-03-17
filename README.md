@@ -1,11 +1,11 @@
 # Hegel Core
 
 > [!IMPORTANT]
-> If you've found this repository, congratulations! You're getting a sneak peak at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
+> If you've found this repository, congratulations! You're getting a sneak peek at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
 >
 > We are still making rapid changes and progress.  Feel free to experiment, but don't expect stability from Hegel just yet!
 
-Hegel is a "universal" property-based family of property-based testing libraries, written to centralise much of the difficult implementation into a single server, with client libraries written in a variety of different languages that can be used as test runners.
+Hegel is a "universal" family of property-based testing libraries, written to centralise much of the difficult implementation into a single server, with client libraries written in a variety of different languages that can be used as test runners.
 
 This client/server architecture should largely be invisible when writing tests - the client libraries will spin up a server to connect to - and if you are a Hegel end user, you probably don't want to install this server directly, but instead want to use one of the client libraries:
 
