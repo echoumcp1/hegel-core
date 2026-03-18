@@ -3,7 +3,6 @@ import os
 import random
 import traceback
 from collections import Counter
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from random import Random
 from typing import Any
@@ -14,7 +13,6 @@ from hypothesis.control import BuildContext
 from hypothesis.errors import (
     FailedHealthCheck,
     Flaky,
-    FlakyReplay,
     FlakyStrategyDefinition,
     StopTest,
     UnsatisfiedAssumption,
@@ -136,33 +134,40 @@ class Variables:
         return self.last_id
 
 
-def make_test_function(
-    connection: Connection,
-    channel: Channel,
-    *,
-    is_final: bool = False,
-) -> Callable[[ConjectureData], None]:
-    """Create a test function that communicates with the client.
+class HegelState:
+    """State for a test run that communicates with the client.
 
-    The returned function handles a single test case by:
+    The test_function method handles a single test case by:
     1. Creating a channel for communication
     2. Sending a test_case event to the client
     3. Handling generate/span/target requests from the client until mark_complete
     4. Applying the final status to the ConjectureData
     """
 
-    def test_function(data: ConjectureData) -> None:
+    def __init__(
+        self,
+        connection: Connection,
+        channel: Channel,
+        *,
+        is_final: bool = False,
+    ):
+        self._connection = connection
+        self._channel = channel
+        self._is_final = is_final
+        self.flaky_error: Flaky | None = None
+
+    def test_function(self, data: ConjectureData) -> None:
         collections: dict[str, many] = {}
         variable_pools: list[Variables] = []
         collection_name_counter: Counter[str] = Counter()
 
-        with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
-            test_case_channel = connection.new_channel(role="Test Case")
-            channel.send_request(
+        with BuildContext(data, is_final=self._is_final, wrapped_test=None):  # type: ignore
+            test_case_channel = self._connection.new_channel(role="Test Case")
+            self._channel.send_request(
                 {
                     "event": "test_case",
                     "channel_id": test_case_channel.channel_id,
-                    "is_final": is_final,
+                    "is_final": self._is_final,
                 },
             ).get()
 
@@ -259,15 +264,12 @@ def make_test_function(
                 except StopTest:
                     done = True
                     raise
-                except (FlakyStrategyDefinition, FlakyReplay) as e:
+                except Flaky as e:
                     done = True
-                    test_function.flaky_error = e  # type: ignore[attr-defined]
+                    self.flaky_error = e
                     raise
 
             test_case_channel.handle_requests(handle_client_request, until=lambda: done)
-
-    test_function.flaky_error = None  # type: ignore[attr-defined]
-    return test_function
 
 
 def run_server_on_connection(connection: Connection) -> None:
@@ -358,9 +360,9 @@ def _run_test(
                 channel.send_request({"event": "test_done", "results": result}).get()
                 return result
 
-        test_function = make_test_function(connection, channel, is_final=False)
+        state = HegelState(connection, channel, is_final=False)
         runner = ConjectureRunner(
-            test_function,
+            state.test_function,
             settings=settings(
                 deadline=None,
                 max_examples=test_cases,
@@ -389,7 +391,7 @@ def _run_test(
             channel.send_request({"event": "test_done", "results": result}).get()
             return result
         except Flaky as e:
-            result = _flaky_result(runner, seed, e, test_function.flaky_error)  # type: ignore[attr-defined]
+            result = _flaky_result(runner, seed, e, state.flaky_error)
             channel.send_request({"event": "test_done", "results": result}).get()
             return result
 
@@ -403,7 +405,7 @@ def _run_test(
         }
 
         # Check for flaky behavior detected during test execution
-        flaky_error = test_function.flaky_error  # type: ignore[attr-defined]
+        flaky_error = state.flaky_error
         if flaky_error is not None:
             result["passed"] = False
             result["flaky"] = _flaky_message(flaky_error)
@@ -412,14 +414,14 @@ def _run_test(
             result["flaky"] = FLAKY_TEST_RESULT_MSG
 
         channel.send_request({"event": "test_done", "results": result}).get()
-        final_test_function = make_test_function(connection, channel, is_final=True)
+        final_state = HegelState(connection, channel, is_final=True)
 
         for v in sorted(
             runner.interesting_examples.values(),
             key=lambda d: sort_key(d.nodes),
         ):
             with contextlib.suppress(StopTest):
-                final_test_function(ConjectureData.for_choices(v.choices))
+                final_state.test_function(ConjectureData.for_choices(v.choices))
 
         return result
     except Exception:
