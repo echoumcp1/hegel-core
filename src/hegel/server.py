@@ -22,6 +22,20 @@ from hegel.schema import from_schema
 
 VARIABLES_LABEL = calc_label_from_name("Variables")
 
+# Health checks that are relevant to the Hegel wire protocol.
+# Hypothesis has additional health checks (function_scoped_fixture,
+# differing_executors, nested_given) that are pytest/Hypothesis-specific
+# and don't apply here.
+SUPPORTED_HEALTH_CHECKS: dict[str, HealthCheck] = {
+    h.name: h
+    for h in [
+        HealthCheck.data_too_large,
+        HealthCheck.filter_too_much,
+        HealthCheck.too_slow,
+        HealthCheck.large_base_example,
+    ]
+}
+
 
 class Variables:
     def __init__(self):
@@ -268,10 +282,11 @@ def _run_test(
 
         suppress = []
         for name in suppress_health_check or []:
-            try:
-                suppress.append(HealthCheck[name])
-            except KeyError:
-                valid = [h.name for h in HealthCheck]
+            check = SUPPORTED_HEALTH_CHECKS.get(name)
+            if check is not None:
+                suppress.append(check)
+            else:
+                valid = list(SUPPORTED_HEALTH_CHECKS.keys())
                 result: dict[str, Any] = {
                     "passed": False,
                     "test_cases": 0,
