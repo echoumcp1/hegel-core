@@ -35,6 +35,10 @@ class HealthCheckFailure(Exception):
     """Raised when a health check fires during test execution."""
 
 
+class FlakyTest(Exception):
+    """Raised when the test or its data generation is non-deterministic."""
+
+
 class Client:
     """Test client for connecting to a Hegel server."""
 
@@ -99,6 +103,9 @@ class Client:
         if "health_check_failure" in result_data:
             raise HealthCheckFailure(result_data["health_check_failure"])
 
+        if "flaky" in result_data:
+            raise FlakyTest(result_data["flaky"])
+
         n_interesting = result_data["interesting_test_cases"]
 
         if n_interesting == 0:
@@ -149,7 +156,7 @@ class Client:
             test_fn()
         except AssumeRejected:
             status = "INVALID"
-        except DataExhausted:
+        except (DataExhausted, FlakyTest):
             already_complete = True
         except ConnectionError:
             raise
@@ -205,6 +212,7 @@ def _request(payload: dict) -> Any:
 
     Converts server-side StopTest/UnsatisfiedAssumption errors into
     DataExhausted so the client knows the test case is already complete.
+    Converts flaky errors into FlakyTest with clear messages.
     """
     try:
         return _get_channel().send_request(payload)
@@ -212,6 +220,23 @@ def _request(payload: dict) -> Any:
         if e.error_type == "StopTest":
             _test_aborted.set(True)
             raise DataExhausted("Server ran out of data") from e
+        if e.error_type == "FlakyStrategyDefinition":
+            _test_aborted.set(True)
+            raise FlakyTest(
+                "Your data generation is non-deterministic: a call to "
+                "generate() produced different results when replayed with "
+                "the same random choices. This usually means your test "
+                "depends on external state such as global variables, system "
+                "time, or external random number generators."
+            ) from e
+        if e.error_type == "FlakyReplay":
+            _test_aborted.set(True)
+            raise FlakyTest(
+                "Your test produced different outcomes when run with the "
+                "same generated data. This usually means your test depends "
+                "on external state such as global variables, system time, "
+                "or network calls."
+            ) from e
         raise
 
 
