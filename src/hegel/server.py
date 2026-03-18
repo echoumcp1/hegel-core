@@ -261,12 +261,12 @@ def make_test_function(
                     raise
                 except (FlakyStrategyDefinition, FlakyReplay) as e:
                     done = True
-                    test_function.flaky_error = e
+                    test_function.flaky_error = e  # type: ignore[attr-defined]
                     raise
 
             test_case_channel.handle_requests(handle_client_request, until=lambda: done)
 
-    test_function.flaky_error = None
+    test_function.flaky_error = None  # type: ignore[attr-defined]
     return test_function
 
 
@@ -389,7 +389,7 @@ def _run_test(
             channel.send_request({"event": "test_done", "results": result}).get()
             return result
         except Flaky as e:
-            result = _flaky_result(runner, seed, e, test_function.flaky_error)
+            result = _flaky_result(runner, seed, e, test_function.flaky_error)  # type: ignore[attr-defined]
             channel.send_request({"event": "test_done", "results": result}).get()
             return result
 
@@ -403,7 +403,7 @@ def _run_test(
         }
 
         # Check for flaky behavior detected during test execution
-        flaky_error = test_function.flaky_error
+        flaky_error = test_function.flaky_error  # type: ignore[attr-defined]
         if flaky_error is not None:
             result["passed"] = False
             result["flaky"] = _flaky_message(flaky_error)

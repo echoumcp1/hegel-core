@@ -610,3 +610,13 @@ def test_flaky_test_results(client):
 
     with pytest.raises(FlakyTest, match="Your test produced different outcomes"):
         client.run_test(test, test_cases=20)
+
+
+def test_flaky_message_for_non_strategy_flaky():
+    """Test that _flaky_message returns the test result message for
+    non-FlakyStrategyDefinition errors like FlakyReplay."""
+    from hypothesis.errors import FlakyReplay
+
+    from hegel.server import FLAKY_TEST_RESULT_MSG, _flaky_message
+
+    assert _flaky_message(FlakyReplay("test")) == FLAKY_TEST_RESULT_MSG
