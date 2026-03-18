@@ -31,6 +31,10 @@ class DataExhausted(Exception):
     """Raised when the server runs out of test data (StopTest)."""
 
 
+class HealthCheckFailure(Exception):
+    """Raised when a health check fires during test execution."""
+
+
 class Client:
     """Test client for connecting to a Hegel server."""
 
@@ -46,20 +50,23 @@ class Client:
         *,
         test_cases: int = 100,
         seed: int | None = None,
+        suppress_health_check: list[str] | None = None,
     ) -> None:
         """Run a property test."""
 
         test_channel = self.connection.new_channel()
 
+        message: dict[str, Any] = {
+            "command": "run_test",
+            "test_cases": test_cases,
+            "seed": seed,
+            "channel_id": test_channel.channel_id,
+        }
+        if suppress_health_check:
+            message["suppress_health_check"] = suppress_health_check
+
         with self.__lock:
-            self._control.send_request(
-                {
-                    "command": "run_test",
-                    "test_cases": test_cases,
-                    "seed": seed,
-                    "channel_id": test_channel.channel_id,
-                },
-            )
+            self._control.send_request(message)
 
         result_data = None
 
@@ -85,6 +92,12 @@ class Client:
                 )
 
         assert result_data is not None
+
+        if "error" in result_data:
+            raise ValueError(result_data["error"])
+
+        if "health_check_failure" in result_data:
+            raise HealthCheckFailure(result_data["health_check_failure"])
 
         n_interesting = result_data["interesting_test_cases"]
 

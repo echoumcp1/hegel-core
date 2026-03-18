@@ -14,6 +14,7 @@ from hegel.server import run_server_on_connection
 from tests.client import (
     Client,
     ClientConnection,
+    HealthCheckFailure,
     assume,
     collection,
     generate_from_schema,
@@ -350,3 +351,203 @@ def test_pool_generate_with_mostly_removed_variables(client):
         assert result == variables[-1]
 
     client.run_test(test, test_cases=50)
+
+
+def test_health_check_no_failure_by_default(client):
+    """Normal test should not produce a health_check_failure."""
+
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x >= 0
+
+    # Should complete without raising HealthCheckFailure
+    client.run_test(test, test_cases=10)
+
+
+def test_filter_too_much_detected(client):
+    """Test that always calls assume(False) triggers filter_too_much health check."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assume(False)
+
+    with pytest.raises(HealthCheckFailure, match="filter"):
+        client.run_test(test, test_cases=100)
+
+
+def test_filter_too_much_suppressed(client):
+    """Suppressing filter_too_much allows the test to complete normally."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assume(False)
+
+    # Should not raise - the health check is suppressed
+    client.run_test(test, test_cases=100, suppress_health_check=["filter_too_much"])
+
+
+def test_bad_health_check_name(client):
+    """Sending an invalid health check name reports a clear error."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    with pytest.raises(ValueError, match=r"Unknown health check.*'not_a_real_check'"):
+        client.run_test(test, test_cases=10, suppress_health_check=["not_a_real_check"])
+
+
+def test_data_too_large_detected(client):
+    """Generating too much data per test case triggers test_cases_too_large.
+
+    We suppress large_initial_test_case so the zero-input check passes,
+    then the health check period fires test_cases_too_large when inputs
+    repeatedly overrun the entropy budget.
+    """
+
+    def test():
+        for _ in range(500):
+            generate_from_schema({"type": "string", "min_size": 50, "max_size": 100})
+
+    with pytest.raises(HealthCheckFailure, match="entropy"):
+        client.run_test(
+            test,
+            test_cases=100,
+            suppress_health_check=["large_initial_test_case"],
+        )
+
+
+def test_data_too_large_suppressed(client):
+    """Suppressing test_cases_too_large allows the test to complete."""
+
+    def test():
+        do_big = generate_from_schema({"type": "boolean"})
+        if do_big:
+            for _ in range(100):
+                generate_from_schema({"type": "integer"})
+
+    # Suppress all health checks since pathological inputs can trigger multiple.
+    # Use fewer test_cases and lighter data to keep the antithesis backend fast.
+    client.run_test(
+        test,
+        test_cases=15,
+        suppress_health_check=[
+            "test_cases_too_large",
+            "too_slow",
+            "large_initial_test_case",
+        ],
+    )
+
+
+def _make_time_warp(monkeypatch):
+    """Monkeypatch time.perf_counter to jump forward during draws.
+
+    This avoids actually sleeping while still triggering the too_slow
+    health check, which measures accumulated draw time.
+    """
+    import time as time_mod
+
+    real_perf_counter = time_mod.perf_counter
+    warp = [0.0]
+
+    def warped_perf_counter():
+        return real_perf_counter() + warp[0]
+
+    monkeypatch.setattr(time_mod, "perf_counter", warped_perf_counter)
+    return warp
+
+
+def test_too_slow_detected(client, monkeypatch):
+    """Slow draw operations trigger too_slow health check."""
+    import hegel.server
+
+    warp = _make_time_warp(monkeypatch)
+    original = hegel.server.from_schema
+
+    def slow_schema(schema):
+        strategy = original(schema)
+
+        class SlowStrategy(st.SearchStrategy):
+            def do_draw(self, data):
+                warp[0] += 5.0  # Each draw appears to take 5 seconds
+                return strategy.do_draw(data)
+
+        return SlowStrategy()
+
+    monkeypatch.setattr("hegel.server.from_schema", slow_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    with pytest.raises(HealthCheckFailure, match="slow"):
+        client.run_test(test, test_cases=100)
+
+
+def test_too_slow_suppressed(client, monkeypatch):
+    """Suppressing too_slow allows the test to complete."""
+    import hegel.server
+
+    warp = _make_time_warp(monkeypatch)
+    original = hegel.server.from_schema
+
+    def slow_schema(schema):
+        strategy = original(schema)
+
+        class SlowStrategy(st.SearchStrategy):
+            def do_draw(self, data):
+                warp[0] += 5.0
+                return strategy.do_draw(data)
+
+        return SlowStrategy()
+
+    monkeypatch.setattr("hegel.server.from_schema", slow_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    client.run_test(test, test_cases=100, suppress_health_check=["too_slow"])
+
+
+def test_large_base_example_detected(client):
+    """A test whose simplest input is very large triggers large_initial_test_case."""
+
+    def test():
+        # Generate many large collections - even the simplest input will be large
+        for _ in range(50):
+            generate_from_schema(
+                {
+                    "type": "list",
+                    "elements": {"type": "integer"},
+                    "min_size": 100,
+                    "max_size": 100,
+                }
+            )
+
+    with pytest.raises(HealthCheckFailure, match="smallest natural input"):
+        client.run_test(test, test_cases=100)
+
+
+def test_large_base_example_suppressed(client):
+    """Suppressing large_initial_test_case allows the test to complete."""
+
+    def test():
+        for _ in range(10):
+            generate_from_schema(
+                {
+                    "type": "list",
+                    "elements": {"type": "integer"},
+                    "min_size": 50,
+                    "max_size": 50,
+                }
+            )
+
+    # Suppress all health checks since pathological inputs can trigger multiple.
+    # Use fewer test_cases and lighter data to keep the antithesis backend fast.
+    client.run_test(
+        test,
+        test_cases=15,
+        suppress_health_check=[
+            "large_initial_test_case",
+            "test_cases_too_large",
+            "too_slow",
+        ],
+    )
