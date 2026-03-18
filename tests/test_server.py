@@ -397,10 +397,10 @@ def test_bad_health_check_name(client):
 
 
 def test_data_too_large_detected(client):
-    """Generating too much data per test case triggers data_too_large.
+    """Generating too much data per test case triggers test_cases_too_large.
 
-    We suppress large_base_example so the zero-input check passes,
-    then the health check period fires data_too_large when inputs
+    We suppress large_initial_test_case so the zero-input check passes,
+    then the health check period fires test_cases_too_large when inputs
     repeatedly overrun the entropy budget.
     """
 
@@ -412,12 +412,12 @@ def test_data_too_large_detected(client):
         client.run_test(
             test,
             test_cases=100,
-            suppress_health_check=["large_base_example"],
+            suppress_health_check=["large_initial_test_case"],
         )
 
 
 def test_data_too_large_suppressed(client):
-    """Suppressing data_too_large allows the test to complete."""
+    """Suppressing test_cases_too_large allows the test to complete."""
 
     def test():
         do_big = generate_from_schema({"type": "boolean"})
@@ -431,9 +431,9 @@ def test_data_too_large_suppressed(client):
         test,
         test_cases=15,
         suppress_health_check=[
-            "data_too_large",
+            "test_cases_too_large",
             "too_slow",
-            "large_base_example",
+            "large_initial_test_case",
         ],
     )
 
@@ -508,7 +508,7 @@ def test_too_slow_suppressed(client, monkeypatch):
 
 
 def test_large_base_example_detected(client):
-    """A test whose simplest input is very large triggers large_base_example."""
+    """A test whose simplest input is very large triggers large_initial_test_case."""
 
     def test():
         # Generate many large collections - even the simplest input will be large
@@ -527,7 +527,7 @@ def test_large_base_example_detected(client):
 
 
 def test_large_base_example_suppressed(client):
-    """Suppressing large_base_example allows the test to complete."""
+    """Suppressing large_initial_test_case allows the test to complete."""
 
     def test():
         for _ in range(10):
@@ -546,8 +546,8 @@ def test_large_base_example_suppressed(client):
         test,
         test_cases=15,
         suppress_health_check=[
-            "large_base_example",
-            "data_too_large",
+            "large_initial_test_case",
+            "test_cases_too_large",
             "too_slow",
         ],
     )

@@ -26,14 +26,15 @@ VARIABLES_LABEL = calc_label_from_name("Variables")
 # Hypothesis has additional health checks (function_scoped_fixture,
 # differing_executors, nested_given) that are pytest/Hypothesis-specific
 # and don't apply here.
+#
+# We also rename some of the health checks here because the Hypothesis
+# names are either not great in the first place or clash with Hegel
+# naming conventions.
 SUPPORTED_HEALTH_CHECKS: dict[str, HealthCheck] = {
-    h.name: h
-    for h in [
-        HealthCheck.data_too_large,
-        HealthCheck.filter_too_much,
-        HealthCheck.too_slow,
-        HealthCheck.large_base_example,
-    ]
+    "test_cases_too_large": HealthCheck.data_too_large,
+    "filter_too_much": HealthCheck.filter_too_much,
+    "too_slow": HealthCheck.too_slow,
+    "large_initial_test_case": HealthCheck.large_base_example,
 }
 
 
