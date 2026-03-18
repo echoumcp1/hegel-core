@@ -4,6 +4,8 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any
 
+from hegel.utils import not_set
+
 try:
     ExceptionGroup
 except NameError:  # pragma: no cover
@@ -51,6 +53,9 @@ class Client:
         test_cases: int = 100,
         seed: int | None = None,
         suppress_health_check: list[str] | None = None,
+        database_key: bytes | None = None,
+        derandomize: bool = False,
+        database: str | None | object = not_set,
     ) -> None:
         """Run a property test."""
 
@@ -61,7 +66,11 @@ class Client:
             "test_cases": test_cases,
             "seed": seed,
             "channel_id": test_channel.channel_id,
+            "database_key": database_key,
+            "derandomize": derandomize,
         }
+        if database is not not_set:
+            message["database"] = database
         if suppress_health_check:
             message["suppress_health_check"] = suppress_health_check
 
