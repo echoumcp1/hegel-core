@@ -461,7 +461,7 @@ def test_too_slow_detected(client, monkeypatch):
     import hegel.server
 
     warp = _make_time_warp(monkeypatch)
-    original = hegel.server.cached_from_schema
+    original = hegel.server.from_schema
 
     def slow_schema(schema):
         strategy = original(schema)
@@ -473,7 +473,7 @@ def test_too_slow_detected(client, monkeypatch):
 
         return SlowStrategy()
 
-    monkeypatch.setattr("hegel.server.cached_from_schema", slow_schema)
+    monkeypatch.setattr("hegel.server.from_schema", slow_schema)
 
     def test():
         generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
@@ -487,7 +487,7 @@ def test_too_slow_suppressed(client, monkeypatch):
     import hegel.server
 
     warp = _make_time_warp(monkeypatch)
-    original = hegel.server.cached_from_schema
+    original = hegel.server.from_schema
 
     def slow_schema(schema):
         strategy = original(schema)
@@ -499,7 +499,7 @@ def test_too_slow_suppressed(client, monkeypatch):
 
         return SlowStrategy()
 
-    monkeypatch.setattr("hegel.server.cached_from_schema", slow_schema)
+    monkeypatch.setattr("hegel.server.from_schema", slow_schema)
 
     def test():
         generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})

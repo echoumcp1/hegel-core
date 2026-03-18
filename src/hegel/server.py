@@ -12,7 +12,6 @@ import cbor2
 from hypothesis import HealthCheck, settings
 from hypothesis.control import BuildContext
 from hypothesis.errors import FailedHealthCheck, StopTest, UnsatisfiedAssumption
-from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData, Status
 from hypothesis.internal.conjecture.engine import ConjectureRunner
 from hypothesis.internal.conjecture.shrinker import sort_key
