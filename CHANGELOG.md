@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 - 2026-03-19
+
+Add support for the `derandomize` and `database` settings to the `run_test` payload in the protocol.
+
+As a result, this release also bumps the protocol version to `0.7`.
+
 ## 0.2.1 - 2026-03-18
 
 Hegel currently requires tests to be fully deterministic in their data generation, because Hypothesis does, but was not previously correctly reporting Hypothesis's flaky test errors back to the client (A test is flaky if it doesn't successfully replay - that is, when rerun with the same data generation, a different result is produced).
