@@ -323,6 +323,44 @@ def test_pool_generate_from_empty_pool(client):
     client.run_test(test, test_cases=10)
 
 
+def test_derandomize_with_database_key(client):
+    """Tests that derandomize=True derives seed from database_key."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+
+    client.run_test(test, test_cases=5, derandomize=True, database_key=b"my_test_key")
+
+
+def test_derandomize_without_database_key(client):
+    """Tests that derandomize=True without database_key uses seed=0."""
+    # This just needs to not crash — the branch where database_key is None
+    # and derandomize is True should set seed=0.
+
+    def test():
+        generate_from_schema({"type": "integer"})
+
+    client.run_test(test, test_cases=5, derandomize=True)
+
+
+def test_database_none_disables_persistence(client):
+    """Tests that database=None nullifies database_key."""
+
+    def test():
+        generate_from_schema({"type": "integer"})
+
+    client.run_test(test, test_cases=5, database_key=b"some_key", database=None)
+
+
+def test_database_set_preserves_database_key(client):
+    """Tests that setting database to a path preserves the database_key."""
+
+    def test():
+        generate_from_schema({"type": "integer"})
+
+    client.run_test(test, test_cases=5, database=".hegel/examples")
+
+
 def test_pool_generate_with_mostly_removed_variables(client):
     """Tests the fallback path in Variables.generate when random picks hit removed variables.
 

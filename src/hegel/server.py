@@ -10,6 +10,7 @@ from typing import Any
 import cbor2
 from hypothesis import HealthCheck, settings
 from hypothesis.control import BuildContext
+from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import (
     FailedHealthCheck,
     Flaky,
@@ -24,6 +25,7 @@ from hypothesis.internal.conjecture.utils import calc_label_from_name, many
 
 from hegel.protocol import Channel, Connection, ProtocolError
 from hegel.schema import from_schema
+from hegel.utils import UniqueIdentifier, not_set
 
 VARIABLES_LABEL = calc_label_from_name("Variables")
 
@@ -298,6 +300,8 @@ def run_server_on_connection(connection: Connection) -> None:
                             suppress_health_check=message.get(
                                 "suppress_health_check", []
                             ),
+                            derandomize=message.get("derandomize", False),
+                            database=message.get("database", not_set),
                         ),
                     )
                     connection.control_channel.write_reply(packet.message_id, True)
@@ -324,7 +328,9 @@ def _run_test(
     test_cases: int,
     database_key: bytes | None,
     seed: int | None,
-    suppress_health_check: list[str] | None = None,
+    suppress_health_check: list[str] | None,
+    derandomize: bool,
+    database: str | UniqueIdentifier | None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -336,6 +342,12 @@ def _run_test(
     - failure: optional dict with failure details
     """
     try:
+        # seed takes precendence over derandomize, like Hypothesis
+        if derandomize and seed is None:
+            seed = (
+                int.from_bytes(database_key, "big") if database_key is not None else 0
+            )
+
         seed = random.getrandbits(128) if seed is None else seed
 
         suppress = []
@@ -360,19 +372,28 @@ def _run_test(
                 channel.send_request({"event": "test_done", "results": result}).get()
                 return result
 
+        if database is None:
+            database_key = None
+
+        if isinstance(database, str):
+            database = DirectoryBasedExampleDatabase(database)  # type: ignore
+
+        settings_kwargs = {
+            "deadline": None,
+            "max_examples": test_cases,
+            "suppress_health_check": suppress,
+            "backend": (
+                "hypothesis-urandom"
+                if os.environ.get("ANTITHESIS_OUTPUT_DIR")
+                else "hypothesis"
+            ),
+            **({} if database is not_set else {"database": database}),
+        }
+
         state = HegelState(connection, channel, is_final=False)
         runner = ConjectureRunner(
             state.test_function,
-            settings=settings(
-                deadline=None,
-                max_examples=test_cases,
-                suppress_health_check=suppress,
-                backend=(
-                    "hypothesis-urandom"
-                    if os.environ.get("ANTITHESIS_OUTPUT_DIR")
-                    else "hypothesis"
-                ),
-            ),
+            settings=settings(**settings_kwargs),  # type: ignore
             random=Random(seed),
             database_key=database_key,
         )
