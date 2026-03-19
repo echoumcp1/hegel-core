@@ -3,7 +3,6 @@ import os
 import random
 import traceback
 from collections import Counter
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from random import Random
 from typing import Any
@@ -12,9 +11,15 @@ import cbor2
 from hypothesis import HealthCheck, settings
 from hypothesis.control import BuildContext
 from hypothesis.database import DirectoryBasedExampleDatabase
-from hypothesis.errors import FailedHealthCheck, StopTest, UnsatisfiedAssumption
+from hypothesis.errors import (
+    FailedHealthCheck,
+    Flaky,
+    FlakyStrategyDefinition,
+    StopTest,
+    UnsatisfiedAssumption,
+)
 from hypothesis.internal.conjecture.data import ConjectureData, Status
-from hypothesis.internal.conjecture.engine import ConjectureRunner
+from hypothesis.internal.conjecture.engine import ConjectureRunner, ExitReason
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
 
@@ -23,6 +28,49 @@ from hegel.schema import from_schema
 from hegel.utils import UniqueIdentifier, not_set
 
 VARIABLES_LABEL = calc_label_from_name("Variables")
+
+USUALLY_MEANS = (
+    "This usually means your test "
+    "depends on external state such as global variables, system "
+    "time, or external random number generators."
+)
+
+FLAKY_GENERATION_MSG = (
+    "Your data generation is non-deterministic: a different call to "
+    "draw() happened than expected, or your test errored before data "
+    "generation that previously completed successfully had finished. "
+) + USUALLY_MEANS
+
+FLAKY_TEST_RESULT_MSG = (
+    "Your test produced different outcomes when run with the "
+    "same generated data - it failed when it previously succeeded, or "
+    "succeeded when it previously failed."
+) + USUALLY_MEANS
+
+
+def _flaky_message(error: Flaky) -> str:
+    if isinstance(error, FlakyStrategyDefinition):
+        return FLAKY_GENERATION_MSG
+    return FLAKY_TEST_RESULT_MSG
+
+
+def _flaky_result(
+    runner: ConjectureRunner,
+    seed: int,
+    error: Flaky,
+    captured_error: Flaky | None,
+) -> dict[str, Any]:
+    """Build a test_done result dict for a flaky test."""
+    return {
+        "passed": False,
+        "test_cases": runner.call_count,
+        "valid_test_cases": runner.valid_examples,
+        "invalid_test_cases": runner.invalid_examples,
+        "interesting_test_cases": 0,
+        "seed": str(seed),
+        "flaky": _flaky_message(captured_error or error),
+    }
+
 
 # Health checks that are relevant to the Hegel wire protocol.
 # Hypothesis has additional health checks (function_scoped_fixture,
@@ -88,33 +136,40 @@ class Variables:
         return self.last_id
 
 
-def make_test_function(
-    connection: Connection,
-    channel: Channel,
-    *,
-    is_final: bool = False,
-) -> Callable[[ConjectureData], None]:
-    """Create a test function that communicates with the client.
+class HegelState:
+    """State for a test run that communicates with the client.
 
-    The returned function handles a single test case by:
+    The test_function method handles a single test case by:
     1. Creating a channel for communication
     2. Sending a test_case event to the client
     3. Handling generate/span/target requests from the client until mark_complete
     4. Applying the final status to the ConjectureData
     """
 
-    def test_function(data: ConjectureData) -> None:
+    def __init__(
+        self,
+        connection: Connection,
+        channel: Channel,
+        *,
+        is_final: bool = False,
+    ):
+        self._connection = connection
+        self._channel = channel
+        self._is_final = is_final
+        self.flaky_error: Flaky | None = None
+
+    def test_function(self, data: ConjectureData) -> None:
         collections: dict[str, many] = {}
         variable_pools: list[Variables] = []
         collection_name_counter: Counter[str] = Counter()
 
-        with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
-            test_case_channel = connection.new_channel(role="Test Case")
-            channel.send_request(
+        with BuildContext(data, is_final=self._is_final, wrapped_test=None):  # type: ignore
+            test_case_channel = self._connection.new_channel(role="Test Case")
+            self._channel.send_request(
                 {
                     "event": "test_case",
                     "channel_id": test_case_channel.channel_id,
-                    "is_final": is_final,
+                    "is_final": self._is_final,
                 },
             ).get()
 
@@ -211,10 +266,12 @@ def make_test_function(
                 except StopTest:
                     done = True
                     raise
+                except Flaky as e:
+                    done = True
+                    self.flaky_error = e
+                    raise
 
             test_case_channel.handle_requests(handle_client_request, until=lambda: done)
-
-    return test_function
 
 
 def run_server_on_connection(connection: Connection) -> None:
@@ -333,8 +390,9 @@ def _run_test(
             **({} if database is not_set else {"database": database}),
         }
 
+        state = HegelState(connection, channel, is_final=False)
         runner = ConjectureRunner(
-            make_test_function(connection, channel, is_final=False),
+            state.test_function,
             settings=settings(**settings_kwargs),  # type: ignore
             random=Random(seed),
             database_key=database_key,
@@ -353,6 +411,10 @@ def _run_test(
             }
             channel.send_request({"event": "test_done", "results": result}).get()
             return result
+        except Flaky as e:
+            result = _flaky_result(runner, seed, e, state.flaky_error)
+            channel.send_request({"event": "test_done", "results": result}).get()
+            return result
 
         result = {
             "passed": len(runner.interesting_examples) == 0,
@@ -363,15 +425,24 @@ def _run_test(
             "seed": str(seed),
         }
 
+        # Check for flaky behavior detected during test execution
+        flaky_error = state.flaky_error
+        if flaky_error is not None:
+            result["passed"] = False
+            result["flaky"] = _flaky_message(flaky_error)
+        elif hasattr(runner, "exit_reason") and runner.exit_reason == ExitReason.flaky:
+            result["passed"] = False
+            result["flaky"] = FLAKY_TEST_RESULT_MSG
+
         channel.send_request({"event": "test_done", "results": result}).get()
-        final_test_function = make_test_function(connection, channel, is_final=True)
+        final_state = HegelState(connection, channel, is_final=True)
 
         for v in sorted(
             runner.interesting_examples.values(),
             key=lambda d: sort_key(d.nodes),
         ):
             with contextlib.suppress(StopTest):
-                final_test_function(ConjectureData.for_choices(v.choices))
+                final_state.test_function(ConjectureData.for_choices(v.choices))
 
         return result
     except Exception:

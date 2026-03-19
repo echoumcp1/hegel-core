@@ -14,6 +14,7 @@ from hegel.server import run_server_on_connection
 from tests.client import (
     Client,
     ClientConnection,
+    FlakyTest,
     HealthCheckFailure,
     assume,
     collection,
@@ -589,3 +590,71 @@ def test_large_base_example_suppressed(client):
             "too_slow",
         ],
     )
+
+
+def test_flaky_data_generation(client, monkeypatch):
+    """Test that FlakyStrategyDefinition during generate is caught and reported.
+
+    Directly raises FlakyStrategyDefinition from inside data.draw() via a
+    custom strategy, simulating what happens when the datatree detects
+    inconsistent choice types.
+    """
+    from hypothesis.errors import FlakyStrategyDefinition as FSD
+
+    import hegel.server
+
+    call_count = [0]
+    original = hegel.server.from_schema
+
+    def raising_from_schema(schema):
+        call_count[0] += 1
+        strategy = original(schema)
+        if call_count[0] == 3:
+
+            class FlakyStrat(st.SearchStrategy):
+                def do_draw(self, data):
+                    raise FSD(
+                        "Inconsistent data generation! "
+                        "Data generation behaved differently between runs."
+                    )
+
+            return FlakyStrat()
+        return strategy
+
+    monkeypatch.setattr("hegel.server.from_schema", raising_from_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    with pytest.raises(FlakyTest, match="Your data generation is non-deterministic"):
+        client.run_test(test, test_cases=10)
+
+
+def test_flaky_test_results(client):
+    """Test that ExitReason.flaky during shrinking is detected and reported.
+
+    Uses a counter to make the test fail on early runs but pass on later
+    ones. During shrinking, the runner replays the failing example but the
+    test passes, triggering ExitReason.flaky.
+    """
+    run_count = [0]
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
+        run_count[0] += 1
+        # Fail on early runs, pass on later ones (including shrinking replay).
+        if run_count[0] <= 3:
+            raise AssertionError("deliberate flaky failure")
+
+    with pytest.raises(FlakyTest, match="Your test produced different outcomes"):
+        client.run_test(test, test_cases=20)
+
+
+def test_flaky_message_for_non_strategy_flaky():
+    """Test that _flaky_message returns the test result message for
+    non-FlakyStrategyDefinition errors like FlakyReplay."""
+    from hypothesis.errors import FlakyReplay
+
+    from hegel.server import FLAKY_TEST_RESULT_MSG, _flaky_message
+
+    assert _flaky_message(FlakyReplay("test")) == FLAKY_TEST_RESULT_MSG
