@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any
 
-from hegel.utils import not_set
+from hegel.utils import UniqueIdentifier, not_set
 
 try:
     ExceptionGroup
@@ -59,7 +59,7 @@ class Client:
         suppress_health_check: list[str] | None = None,
         database_key: bytes | None = None,
         derandomize: bool = False,
-        database: str | None | object = not_set,
+        database: str | None | UniqueIdentifier = not_set,
     ) -> None:
         """Run a property test."""
 
