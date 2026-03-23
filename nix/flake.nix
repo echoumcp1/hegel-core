@@ -25,7 +25,7 @@
     let
       inherit (nixpkgs) lib;
 
-      workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./..; };
+      workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ../.; };
       overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
       mkPythonSet = pkgs:
         let
@@ -35,6 +35,14 @@
         in baseSet.overrideScope (lib.composeManyExtensions [
           pyproject-build-systems.overlays.wheel
           overlay
+          (final: prev: {
+            hegel-core = prev.hegel-core.overrideAttrs {
+              src = lib.fileset.toSource {
+                root = ../.;
+                fileset = lib.fileset.intersection (lib.fileset.gitTracked ../.) (lib.fileset.fileFilter ({ name, hasExt, ... }: name == "pyproject.toml" || hasExt "py") ../.);
+              };
+            };
+          })
         ]);
 
     in {
