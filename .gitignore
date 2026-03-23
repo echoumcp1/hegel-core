@@ -5,6 +5,7 @@ __pycache__/
 .tox/
 .vscode/
 .venv/
+.direnv/
 result
 *.egg-info
 .claude/settings.local.json

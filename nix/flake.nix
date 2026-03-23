@@ -56,5 +56,31 @@
           package = pythonSet.hegel-core;
         };
       });
+
+      devShells = lib.genAttrs lib.systems.flakeExposed (system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+        # NOTE(winter): If we don't use editable here, this will cause... coverage to fail?
+        # (Mainly just noting because of how weird it is, we do actually want editable.)
+        pythonSet = (mkPythonSet pkgs).overrideScope (workspace.mkEditablePyprojectOverlay {
+          root = "$REPO_ROOT";
+        });
+      in {
+        default = pkgs.mkShell {
+          packages = [
+            (pythonSet.mkVirtualEnv "hegel-core-dev-env" workspace.deps.all)
+            pkgs.uv
+            pkgs.just
+          ];
+          env = {
+            UV_NO_SYNC = "1";
+            UV_PYTHON = pythonSet.python.interpreter;
+            UV_PYTHON_DOWNLOADS = "never";
+          };
+          shellHook = ''
+            unset PYTHONPATH
+            export REPO_ROOT=$(git rev-parse --show-toplevel)
+          '';
+        };
+      });
     };
 }
