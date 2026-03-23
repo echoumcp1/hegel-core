@@ -27,9 +27,8 @@
 
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./..; };
       overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
-      mkPythonSet = system:
+      mkPythonSet = pkgs:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
           python = pkgs.python312;
           baseSet =
             pkgs.callPackage pyproject-nix.build.packages { inherit python; };
@@ -39,9 +38,15 @@
         ]);
 
     in {
-      packages = lib.genAttrs lib.systems.flakeExposed (system: {
-        default =
-          (mkPythonSet system).mkVirtualEnv "hegel-env" workspace.deps.default;
+      packages = lib.genAttrs lib.systems.flakeExposed (system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+        pythonSet = mkPythonSet pkgs;
+        inherit (pkgs.callPackages pyproject-nix.build.util { }) mkApplication;
+      in {
+        default = mkApplication {
+          venv = pythonSet.mkVirtualEnv "hegel-core-env" workspace.deps.default;
+          package = pythonSet.hegel-core;
+        };
       });
     };
 }
