@@ -1,23 +1,13 @@
+> [!IMPORTANT]
+> We're excited you're checking out Hegel! Hegel is in beta, and we'd love for you to try it and [report any feedback](https://github.com/hegeldev/hegel-core/issues/new).
+>
+> As part of our beta, we may make breaking changes if it makes Hegel a better property-based testing protocol. If that instability bothers you, please check back in a few months for a stable release!
+>
+> See https://hegel.dev/compatibility for more details.
+
 # Hegel
 
-> [!IMPORTANT]
-> If you've found this repository, congratulations! You're getting a sneak peak at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
->
-> We are still making rapid changes and progress.  Feel free to experiment, but don't expect stability from Hegel just yet!
+* [Website](https://hegel.dev)
+* [hegel-rust](https://github.com/hegeldev/hegel-rust)
 
-The Hegel server. Provides communication to the backing Hypothesis library over a socket.
-
-## Hegel libraries
-
-- [Python](https://github.com/hegeldev/hegel-python)
-- [Go](https://github.com/hegeldev/hegel-go)
-- [Rust](https://github.com/hegeldev/hegel-rust)
-
-## Development
-
-```bash
-just setup     # install dependencies
-just test      # run tests
-just format    # run formatter
-just check     # run PR checks: lint + tests + docs
-```
+The Hegel protocol and server, built on [Hypothesis](https://github.com/hypothesisworks/hypothesis).  `hegel-core` provides the core functionality of a property-based testing library, including data generation and shrinking.

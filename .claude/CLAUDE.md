@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hegel is a universal property-based testing framework. A Python server (powered by Hypothesis) communicates with language-specific client libraries via Unix sockets. This repository contains the Python core server:
+Hegel is a universal property-based testing protocol. A Python server (powered by Hypothesis) communicates with language-specific client libraries via Unix sockets. This repository contains the Python core server.
 
 ## Build & Test Commands
 
@@ -21,7 +21,9 @@ uv run pytest -k test_name     # Run tests matching pattern
 uv run mypy src/                # Type check (targets Python 3.14)
 ```
 
-100% branch test coverage is required (`fail_under = 100`). Uses `uv` as package manager, `ruff` + `shed` for formatting.
+100% branch test coverage is required (`fail_under = 100`). Uses `uv` as package manager, `ruff` + `shed` for formatting. Coverage omits `src/hegel/conformance.py`.
+
+Coverage runs twice in CI: once normally and once with `ANTITHESIS_OUTPUT_DIR` set (which switches the Hypothesis backend to `hypothesis-urandom`), then combines results. Both runs must be covered.
 
 ## Architecture
 
@@ -35,18 +37,24 @@ uv run mypy src/                # Type check (targets Python 3.14)
 ### Protocol
 
 Binary protocol over Unix socket with CBOR-encoded payloads:
-- 20-byte header: magic `0x4845474C` (HEGL), CRC32, channel ID, message ID, payload length
-- Channel 0 is the control channel; odd-numbered channels for test communication
+- 20-byte header + variable payload + terminator byte: magic `0x4845474C` (HEGL), CRC32, channel ID, message ID, payload length
+- Channel 0 is the control channel; odd-numbered channels are client-created, even-numbered are server-created
 - Reply bit (`1 << 31`) in message ID distinguishes requests from replies
-- Commands: `generate`, `start_span`, `stop_span`, `target`, `mark_complete`, `new_collection`, `collection_more`, `collection_reject`
+- Commands: `generate`, `start_span`, `stop_span`, `target`, `mark_complete`, `new_collection`, `collection_more`, `collection_reject`, `new_pool`, `pool_add`, `pool_generate`, `pool_consume`
 
 ### Module Overview
 
 - `__main__.py` - CLI entry point (`hegel` command via click), binds Unix socket and starts server
-- `server.py` - Drives test execution via Hypothesis `ConjectureRunner` with a `ThreadPoolExecutor`
-- `protocol.py` - Binary protocol with CBOR encoding, multiplexed channels, thread-safe `Connection`
+- `server.py` - Drives test execution via Hypothesis `ConjectureRunner` with a `ThreadPoolExecutor`. Contains `HegelState` (per-test-run state) and `_run_test` (orchestrates a full test including shrinking and final replay)
+- `protocol/` - Binary protocol package:
+  - `packet.py` - Wire format: `Packet` dataclass, `read_packet`/`write_packet` for serialization with CRC32 checksums
+  - `connection.py` - `Connection` class: manages socket, reader thread, channel registry, handshake. Thread-safe writes via lock
+  - `channel.py` - `Channel` class: per-channel packet queues (requests/replies), `send_request`/`handle_requests` for CBOR request-reply pattern, `PendingRequest` future
+  - `utils.py` - `ChannelId`/`MessageId` newtypes, `ProtocolError`/`RequestError` exceptions, `CHANNEL_TIMEOUT`
 - `schema.py` - JSON Schema to Hypothesis strategy conversion (cached by SHA1 hash in `FROM_SCHEMA_CACHE`)
+- `test_server.py` - Simplified server for error simulation testing (activated via `HEGEL_PROTOCOL_TEST_MODE`). Used by library conformance tests to validate error handling
 - `conformance.py` - Framework for testing library implementations against specification (`ConformanceTest` base class with `__init_subclass__` auto-registration)
+- `utils.py` - `UniqueIdentifier` sentinel factory, `not_set` sentinel
 
 ### Server Execution Flow
 
@@ -54,7 +62,7 @@ Binary protocol over Unix socket with CBOR-encoded payloads:
 2. `server.py` creates a `ConjectureRunner` and a per-test channel
 3. For each test case, a `test_case_channel` is created and the client is notified
 4. Client sends commands (`generate`, `start_span`/`stop_span`, `target`, `mark_complete`) on the test case channel
-5. `generate` calls `data.draw(cached_from_schema(schema))` to produce values
+5. `generate` calls `data.draw(from_schema(schema))` to produce values
 6. After all test cases, interesting (failing) examples are replayed with `is_final=True`
 
 ### Generator Modes
@@ -66,16 +74,21 @@ Key insight: `map()` on a basic generator preserves the schema by composing the 
 
 ### Key Patterns
 
-**ContextVar-based state** - `tests/client.py` and the library's `client.py` use `ContextVar` (`_current_channel`, `_is_final`, `_test_aborted`) so that `generate_from_schema()`, `assume()`, `start_span()` etc. work as free functions without passing channels explicitly.
+**ContextVar-based state** - `tests/client/client.py` uses `ContextVar` (`_current_channel`, `_is_final`, `_test_aborted`) so that `generate_from_schema()`, `assume()`, `start_span()` etc. work as free functions without passing channels explicitly.
 
-**`handle_requests` decorator** - `Channel.handle_requests(handler, until)` dispatches incoming requests to a handler function. Used as `@channel.handle_requests` in both server and test code.
+**`handle_requests` pattern** - `Channel.handle_requests(handler, until)` dispatches incoming requests to a handler function, CBOR-decoding each request and encoding replies. Used in `server.py` for the main test case loop.
 
-**Test client** - `tests/client.py` is a test-local client that mirrors the library's `client.py`. It's used by the `client` pytest fixture (in `conftest.py`) which creates a `socket.socketpair()`, runs the server in a daemon thread, and yields the client side.
+**Test client** - `tests/client/` is a test-local client that mirrors the real library clients:
+- `tests/client/protocol.py` - `ClientConnection` and `ClientChannel`: single-threaded client-side protocol (no reader thread; reads synchronously and stashes packets for other channels)
+- `tests/client/client.py` - `Client` class and free functions (`generate_from_schema`, `assume`, `target`, etc.) using ContextVars
+- The `client` pytest fixture (in `conftest.py`) creates a `socket.socketpair()`, runs the server in a daemon thread, and yields the client side
 
 ### Environment Variables
 
 - `HEGEL_PROTOCOL_DEBUG=1` - Enables protocol packet tracing (set via `--verbosity debug` CLI flag)
 - `HEGEL_CHANNEL_TIMEOUT` - Overrides the default 30-second channel timeout
+- `HEGEL_PROTOCOL_TEST_MODE` - Activates the test server for error simulation (modes: `stop_test_on_generate`, `stop_test_on_mark_complete`, `error_response`, `empty_test`, etc.)
+- `ANTITHESIS_OUTPUT_DIR` - When set, switches Hypothesis backend to `hypothesis-urandom`
 
 ### Library Specification
 
