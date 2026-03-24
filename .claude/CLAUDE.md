@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hegel is a universal property-based testing framework. A Python server (powered by Hypothesis) communicates with language-specific client libraries via Unix sockets. This repository contains the Python core server:
+Hegel is a universal property-based testing protocol. A Python server (powered by Hypothesis) communicates with language-specific client libraries via Unix sockets. This repository contains the Python core server:
 
 ## Build & Test Commands
 
