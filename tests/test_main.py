@@ -12,7 +12,6 @@ from threading import Thread
 
 import pytest
 from click.testing import CliRunner
-
 from hypothesis import Verbosity
 
 from hegel.__main__ import StdioTransport, main, run_server_stdio

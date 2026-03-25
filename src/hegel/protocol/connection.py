@@ -152,9 +152,8 @@ class Connection:
             return
 
         self.running = False
-        if hasattr(self.__socket, "shutdown"):
-            with contextlib.suppress(OSError):
-                self.__socket.shutdown(socket.SHUT_RDWR)
+        with contextlib.suppress(OSError):
+            self.__socket.shutdown(socket.SHUT_RDWR)
         with contextlib.suppress(OSError):
             self.__socket.close()
 
