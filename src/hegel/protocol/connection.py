@@ -93,7 +93,7 @@ class Connection:
 
     def __init__(
         self,
-        socket: socket.socket,
+        socket: Any,
         *,
         name: str | None = None,
         debug: bool | None = None,
@@ -154,7 +154,8 @@ class Connection:
         self.running = False
         with contextlib.suppress(OSError):
             self.__socket.shutdown(socket.SHUT_RDWR)
-        self.__socket.close()
+        with contextlib.suppress(OSError):
+            self.__socket.close()
 
         for v in self.channels.values():
             if not v.closed:
