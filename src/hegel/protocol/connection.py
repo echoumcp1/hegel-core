@@ -93,7 +93,7 @@ class Connection:
 
     def __init__(
         self,
-        socket,
+        socket: Any,
         *,
         name: str | None = None,
         debug: bool | None = None,

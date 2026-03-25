@@ -38,6 +38,9 @@ class StdioTransport:
     def settimeout(self, timeout):
         pass  # No timeout support for stdio
 
+    def shutdown(self, how):
+        pass  # No-op for stdio; closing the fds is sufficient
+
     def close(self):
         with contextlib.suppress(OSError):
             self._writer.close()
