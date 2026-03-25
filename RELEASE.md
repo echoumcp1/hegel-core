@@ -1,4 +1,4 @@
-# RELEASE_TYPE: patch
+RELEASE_TYPE: patch
 
 This release adds a --stdio flag to hegel-core that allows the calling process to communicate with it directly via stdin and stdout rather than going via a unix socket.
 
