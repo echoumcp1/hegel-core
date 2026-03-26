@@ -460,7 +460,7 @@ def test_from_schema(data):
 
 
 def test_invalid_schema():
-    with pytest.raises(ValueError, match="Unsupported schema"):
+    with pytest.raises(KeyError):
         from_schema({})
     with pytest.raises(ValueError, match="Unsupported schema"):
         from_schema({"type": "unknown"})

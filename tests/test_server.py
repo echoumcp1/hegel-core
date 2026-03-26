@@ -8,16 +8,14 @@ import pytest
 from hypothesis import strategies as st
 from hypothesis.errors import UnsatisfiedAssumption
 
-from hegel.protocol import RequestError
-from hegel.protocol.connection import Connection
-from hegel.server import (
-    FROM_SCHEMA_CACHE,
-    cached_from_schema,
-    run_server_on_connection,
-)
+from hegel.protocol import Connection, RequestError
+from hegel.schema import FROM_SCHEMA_CACHE, from_schema
+from hegel.server import run_server_on_connection
 from tests.client import (
     Client,
     ClientConnection,
+    FlakyTest,
+    HealthCheckFailure,
     assume,
     collection,
     generate_from_schema,
@@ -70,7 +68,7 @@ def test_cache_eviction():
     # Fill the cache beyond its max size
     for i in range(FROM_SCHEMA_CACHE.max_size + 10):
         schema = {"type": "integer", "min_value": i, "max_value": i + 100}
-        cached_from_schema(schema)
+        from_schema(schema)
 
     assert len(FROM_SCHEMA_CACHE) <= FROM_SCHEMA_CACHE.max_size
 
@@ -119,7 +117,7 @@ def test_unsatisfied_assumption_in_handler(client, monkeypatch):
             raise UnsatisfiedAssumption
 
     reject = AlwaysRejectStrategy()
-    monkeypatch.setattr("hegel.server.cached_from_schema", lambda _: reject)
+    monkeypatch.setattr("hegel.server.from_schema", lambda _: reject)
 
     def test():
         generate_from_schema({"type": "integer"})
@@ -139,7 +137,7 @@ def test_future_cancel_on_connection_error(monkeypatch):
     def raise_connection_error(*args, **kwargs):
         raise ConnectionError("test disconnect")
 
-    monkeypatch.setattr("hegel.server._run_one", raise_connection_error)
+    monkeypatch.setattr("hegel.server._run_test", raise_connection_error)
     thread = Thread(
         target=run_server_on_connection,
         args=(Connection(server_socket),),
@@ -388,6 +386,44 @@ def test_multiple_blobs(client):
     assert len(client.last_result["failure_blobs"]) == 2
 
 
+def test_derandomize_with_database_key(client):
+    """Tests that derandomize=True derives seed from database_key."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+
+    client.run_test(test, test_cases=5, derandomize=True, database_key=b"my_test_key")
+
+
+def test_derandomize_without_database_key(client):
+    """Tests that derandomize=True without database_key uses seed=0."""
+    # This just needs to not crash — the branch where database_key is None
+    # and derandomize is True should set seed=0.
+
+    def test():
+        generate_from_schema({"type": "integer"})
+
+    client.run_test(test, test_cases=5, derandomize=True)
+
+
+def test_database_none_disables_persistence(client):
+    """Tests that database=None nullifies database_key."""
+
+    def test():
+        generate_from_schema({"type": "integer"})
+
+    client.run_test(test, test_cases=5, database_key=b"some_key", database=None)
+
+
+def test_database_set_preserves_database_key(client):
+    """Tests that setting database to a path preserves the database_key."""
+
+    def test():
+        generate_from_schema({"type": "integer"})
+
+    client.run_test(test, test_cases=5, database=".hegel/examples")
+
+
 def test_pool_generate_with_mostly_removed_variables(client):
     """Tests the fallback path in Variables.generate when random picks hit removed variables.
 
@@ -417,3 +453,271 @@ def test_pool_generate_with_mostly_removed_variables(client):
         assert result == variables[-1]
 
     client.run_test(test, test_cases=50)
+
+
+def test_health_check_no_failure_by_default(client):
+    """Normal test should not produce a health_check_failure."""
+
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x >= 0
+
+    # Should complete without raising HealthCheckFailure
+    client.run_test(test, test_cases=10)
+
+
+def test_filter_too_much_detected(client):
+    """Test that always calls assume(False) triggers filter_too_much health check."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assume(False)
+
+    with pytest.raises(HealthCheckFailure, match="filter"):
+        client.run_test(test, test_cases=100)
+
+
+def test_filter_too_much_suppressed(client):
+    """Suppressing filter_too_much allows the test to complete normally."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assume(False)
+
+    # Should not raise - the health check is suppressed
+    client.run_test(test, test_cases=100, suppress_health_check=["filter_too_much"])
+
+
+def test_bad_health_check_name(client):
+    """Sending an invalid health check name reports a clear error."""
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    with pytest.raises(ValueError, match=r"Unknown health check.*'not_a_real_check'"):
+        client.run_test(test, test_cases=10, suppress_health_check=["not_a_real_check"])
+
+
+def test_data_too_large_detected(client):
+    """Generating too much data per test case triggers test_cases_too_large.
+
+    We suppress large_initial_test_case so the zero-input check passes,
+    then the health check period fires test_cases_too_large when inputs
+    repeatedly overrun the entropy budget.
+    """
+
+    def test():
+        for _ in range(500):
+            generate_from_schema({"type": "string", "min_size": 50, "max_size": 100})
+
+    with pytest.raises(HealthCheckFailure, match="entropy"):
+        client.run_test(
+            test,
+            test_cases=100,
+            suppress_health_check=["large_initial_test_case"],
+        )
+
+
+def test_data_too_large_suppressed(client):
+    """Suppressing test_cases_too_large allows the test to complete."""
+
+    def test():
+        do_big = generate_from_schema({"type": "boolean"})
+        if do_big:
+            for _ in range(100):
+                generate_from_schema({"type": "integer"})
+
+    # Suppress all health checks since pathological inputs can trigger multiple.
+    # Use fewer test_cases and lighter data to keep the antithesis backend fast.
+    client.run_test(
+        test,
+        test_cases=15,
+        suppress_health_check=[
+            "test_cases_too_large",
+            "too_slow",
+            "large_initial_test_case",
+        ],
+    )
+
+
+def _make_time_warp(monkeypatch):
+    """Monkeypatch time.perf_counter to jump forward during draws.
+
+    This avoids actually sleeping while still triggering the too_slow
+    health check, which measures accumulated draw time.
+    """
+    import time as time_mod
+
+    real_perf_counter = time_mod.perf_counter
+    warp = [0.0]
+
+    def warped_perf_counter():
+        return real_perf_counter() + warp[0]
+
+    monkeypatch.setattr(time_mod, "perf_counter", warped_perf_counter)
+    return warp
+
+
+def test_too_slow_detected(client, monkeypatch):
+    """Slow draw operations trigger too_slow health check."""
+    import hegel.server
+
+    warp = _make_time_warp(monkeypatch)
+    original = hegel.server.from_schema
+
+    def slow_schema(schema):
+        strategy = original(schema)
+
+        class SlowStrategy(st.SearchStrategy):
+            def do_draw(self, data):
+                warp[0] += 5.0  # Each draw appears to take 5 seconds
+                return strategy.do_draw(data)
+
+        return SlowStrategy()
+
+    monkeypatch.setattr("hegel.server.from_schema", slow_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    with pytest.raises(HealthCheckFailure, match="slow"):
+        client.run_test(test, test_cases=100)
+
+
+def test_too_slow_suppressed(client, monkeypatch):
+    """Suppressing too_slow allows the test to complete."""
+    import hegel.server
+
+    warp = _make_time_warp(monkeypatch)
+    original = hegel.server.from_schema
+
+    def slow_schema(schema):
+        strategy = original(schema)
+
+        class SlowStrategy(st.SearchStrategy):
+            def do_draw(self, data):
+                warp[0] += 5.0
+                return strategy.do_draw(data)
+
+        return SlowStrategy()
+
+    monkeypatch.setattr("hegel.server.from_schema", slow_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    client.run_test(test, test_cases=100, suppress_health_check=["too_slow"])
+
+
+def test_large_base_example_detected(client):
+    """A test whose simplest input is very large triggers large_initial_test_case."""
+
+    def test():
+        # Generate many large collections - even the simplest input will be large
+        for _ in range(50):
+            generate_from_schema(
+                {
+                    "type": "list",
+                    "elements": {"type": "integer"},
+                    "min_size": 100,
+                    "max_size": 100,
+                }
+            )
+
+    with pytest.raises(HealthCheckFailure, match="smallest natural input"):
+        client.run_test(test, test_cases=100)
+
+
+def test_large_base_example_suppressed(client):
+    """Suppressing large_initial_test_case allows the test to complete."""
+
+    def test():
+        for _ in range(10):
+            generate_from_schema(
+                {
+                    "type": "list",
+                    "elements": {"type": "integer"},
+                    "min_size": 50,
+                    "max_size": 50,
+                }
+            )
+
+    # Suppress all health checks since pathological inputs can trigger multiple.
+    # Use fewer test_cases and lighter data to keep the antithesis backend fast.
+    client.run_test(
+        test,
+        test_cases=15,
+        suppress_health_check=[
+            "large_initial_test_case",
+            "test_cases_too_large",
+            "too_slow",
+        ],
+    )
+
+
+def test_flaky_data_generation(client, monkeypatch):
+    """Test that FlakyStrategyDefinition during generate is caught and reported.
+
+    Directly raises FlakyStrategyDefinition from inside data.draw() via a
+    custom strategy, simulating what happens when the datatree detects
+    inconsistent choice types.
+    """
+    from hypothesis.errors import FlakyStrategyDefinition as FSD
+
+    import hegel.server
+
+    call_count = [0]
+    original = hegel.server.from_schema
+
+    def raising_from_schema(schema):
+        call_count[0] += 1
+        strategy = original(schema)
+        if call_count[0] == 3:
+
+            class FlakyStrat(st.SearchStrategy):
+                def do_draw(self, data):
+                    raise FSD(
+                        "Inconsistent data generation! "
+                        "Data generation behaved differently between runs."
+                    )
+
+            return FlakyStrat()
+        return strategy
+
+    monkeypatch.setattr("hegel.server.from_schema", raising_from_schema)
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+
+    with pytest.raises(FlakyTest, match="Your data generation is non-deterministic"):
+        client.run_test(test, test_cases=10)
+
+
+def test_flaky_test_results(client):
+    """Test that ExitReason.flaky during shrinking is detected and reported.
+
+    Uses a counter to make the test fail on early runs but pass on later
+    ones. During shrinking, the runner replays the failing example but the
+    test passes, triggering ExitReason.flaky.
+    """
+    run_count = [0]
+
+    def test():
+        generate_from_schema({"type": "integer", "min_value": 0, "max_value": 10})
+        run_count[0] += 1
+        # Fail on early runs, pass on later ones (including shrinking replay).
+        if run_count[0] <= 3:
+            raise AssertionError("deliberate flaky failure")
+
+    with pytest.raises(FlakyTest, match="Your test produced different outcomes"):
+        client.run_test(test, test_cases=20)
+
+
+def test_flaky_message_for_non_strategy_flaky():
+    """Test that _flaky_message returns the test result message for
+    non-FlakyStrategyDefinition errors like FlakyReplay."""
+    from hypothesis.errors import FlakyReplay
+
+    from hegel.server import FLAKY_TEST_RESULT_MSG, _flaky_message
+
+    assert _flaky_message(FlakyReplay("test")) == FLAKY_TEST_RESULT_MSG

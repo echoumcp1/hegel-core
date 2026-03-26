@@ -5,6 +5,7 @@ __pycache__/
 .tox/
 .vscode/
 .venv/
+.direnv/
 result
 *.egg-info
 .claude/settings.local.json
@@ -17,6 +18,7 @@ devcontainer
 .coverage.*
 htmlcov/
 error.log
+dist/
 
 .claude/reliability-config.yml
 .claude/reliability-config.yaml

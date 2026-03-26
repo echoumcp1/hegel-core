@@ -1,45 +1,92 @@
 import contextlib
-import hashlib
-import json
 import os
 import random
 import traceback
 from collections import Counter
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from random import Random
 from typing import Any
 
 import cbor2
-from hypothesis import settings
+from hypothesis import HealthCheck, settings
 from hypothesis.control import BuildContext
 from hypothesis.core import decode_failure, encode_failure
-from hypothesis.errors import StopTest, UnsatisfiedAssumption
-from hypothesis.internal.cache import LRUCache
+from hypothesis.database import DirectoryBasedExampleDatabase
+from hypothesis.errors import (
+    FailedHealthCheck,
+    Flaky,
+    FlakyStrategyDefinition,
+    StopTest,
+    UnsatisfiedAssumption,
+)
 from hypothesis.internal.conjecture.data import ConjectureData, Status
-from hypothesis.internal.conjecture.engine import ConjectureRunner
+from hypothesis.internal.conjecture.engine import ConjectureRunner, ExitReason
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
 
-from hegel.protocol import ProtocolError
-from hegel.protocol.channel import Channel
-from hegel.protocol.connection import Connection
+from hegel.protocol import Channel, Connection, ProtocolError
 from hegel.schema import from_schema
-
-FROM_SCHEMA_CACHE: LRUCache = LRUCache(1024)
-
-
-def cached_from_schema(schema: dict) -> Any:
-    key = hashlib.sha1(json.dumps(schema, sort_keys=True).encode("utf-8")).digest()[:32]
-    try:
-        return FROM_SCHEMA_CACHE[key]
-    except KeyError:
-        result = from_schema(schema)
-        FROM_SCHEMA_CACHE[key] = result
-        return result
-
+from hegel.utils import UniqueIdentifier, not_set
 
 VARIABLES_LABEL = calc_label_from_name("Variables")
+
+USUALLY_MEANS = (
+    "This usually means your test "
+    "depends on external state such as global variables, system "
+    "time, or external random number generators."
+)
+
+FLAKY_GENERATION_MSG = (
+    "Your data generation is non-deterministic: a different call to "
+    "draw() happened than expected, or your test errored before data "
+    "generation that previously completed successfully had finished. "
+) + USUALLY_MEANS
+
+FLAKY_TEST_RESULT_MSG = (
+    "Your test produced different outcomes when run with the "
+    "same generated data - it failed when it previously succeeded, or "
+    "succeeded when it previously failed."
+) + USUALLY_MEANS
+
+
+def _flaky_message(error: Flaky) -> str:
+    if isinstance(error, FlakyStrategyDefinition):
+        return FLAKY_GENERATION_MSG
+    return FLAKY_TEST_RESULT_MSG
+
+
+def _flaky_result(
+    runner: ConjectureRunner,
+    seed: int,
+    error: Flaky,
+    captured_error: Flaky | None,
+) -> dict[str, Any]:
+    """Build a test_done result dict for a flaky test."""
+    return {
+        "passed": False,
+        "test_cases": runner.call_count,
+        "valid_test_cases": runner.valid_examples,
+        "invalid_test_cases": runner.invalid_examples,
+        "interesting_test_cases": 0,
+        "seed": str(seed),
+        "flaky": _flaky_message(captured_error or error),
+    }
+
+
+# Health checks that are relevant to the Hegel wire protocol.
+# Hypothesis has additional health checks (function_scoped_fixture,
+# differing_executors, nested_given) that are pytest/Hypothesis-specific
+# and don't apply here.
+#
+# We also rename some of the health checks here because the Hypothesis
+# names are either not great in the first place or clash with Hegel
+# naming conventions.
+SUPPORTED_HEALTH_CHECKS: dict[str, HealthCheck] = {
+    "test_cases_too_large": HealthCheck.data_too_large,
+    "filter_too_much": HealthCheck.filter_too_much,
+    "too_slow": HealthCheck.too_slow,
+    "large_initial_test_case": HealthCheck.large_base_example,
+}
 
 
 class Variables:
@@ -90,33 +137,40 @@ class Variables:
         return self.last_id
 
 
-def make_test_function(
-    connection: Connection,
-    channel: Channel,
-    *,
-    is_final: bool = False,
-) -> Callable[[ConjectureData], None]:
-    """Create a test function that communicates with the client.
+class HegelState:
+    """State for a test run that communicates with the client.
 
-    The returned function handles a single test case by:
+    The test_function method handles a single test case by:
     1. Creating a channel for communication
     2. Sending a test_case event to the client
     3. Handling generate/span/target requests from the client until mark_complete
     4. Applying the final status to the ConjectureData
     """
 
-    def test_function(data: ConjectureData) -> None:
+    def __init__(
+        self,
+        connection: Connection,
+        channel: Channel,
+        *,
+        is_final: bool = False,
+    ):
+        self._connection = connection
+        self._channel = channel
+        self._is_final = is_final
+        self.flaky_error: Flaky | None = None
+
+    def test_function(self, data: ConjectureData) -> None:
         collections: dict[str, many] = {}
         variable_pools: list[Variables] = []
         collection_name_counter: Counter[str] = Counter()
 
-        with BuildContext(data, is_final=is_final, wrapped_test=None):  # type: ignore
-            test_case_channel = connection.new_channel(role="Test Case")
-            channel.send_request(
+        with BuildContext(data, is_final=self._is_final, wrapped_test=None):  # type: ignore
+            test_case_channel = self._connection.new_channel(role="Test Case")
+            self._channel.send_request(
                 {
                     "event": "test_case",
                     "channel_id": test_case_channel.channel_id,
-                    "is_final": is_final,
+                    "is_final": self._is_final,
                 },
             ).get()
 
@@ -129,7 +183,7 @@ def make_test_function(
 
                     if command == "generate":
                         schema = message["schema"]
-                        strategy = cached_from_schema(schema)
+                        strategy = from_schema(schema)
                         return data.draw(strategy)
                     elif command == "start_span":
                         label = message.get("label", 0)
@@ -213,14 +267,15 @@ def make_test_function(
                 except StopTest:
                     done = True
                     raise
+                except Flaky as e:
+                    done = True
+                    self.flaky_error = e
+                    raise
 
             test_case_channel.handle_requests(handle_client_request, until=lambda: done)
 
-    return test_function
-
 
 def run_server_on_connection(connection: Connection) -> None:
-    """Handle a single client connection."""
     connection.receive_handshake()
 
     pending_futures = []
@@ -231,19 +286,24 @@ def run_server_on_connection(connection: Connection) -> None:
                 message = cbor2.loads(packet.payload)
                 command = message["command"]
                 if command == "run_test":
-                    channel = connection.connect_channel(
+                    channel = connection.register_client_channel(
                         message["channel_id"], role="Test channel"
                     )
 
                     pending_futures.append(
                         thread_pool.submit(
-                            _run_one,
+                            _run_test,
                             connection,
                             channel,
                             test_cases=message["test_cases"],
                             database_key=message.get("database_key"),
                             seed=message.get("seed"),
                             failure_blob=message.get("failure_blob"),
+                            suppress_health_check=message.get(
+                                "suppress_health_check", []
+                            ),
+                            derandomize=message.get("derandomize", False),
+                            database=message.get("database", not_set),
                         ),
                     )
                     connection.control_channel.write_reply(packet.message_id, True)
@@ -263,7 +323,7 @@ def run_server_on_connection(connection: Connection) -> None:
             f.cancel()
 
 
-def _run_one(
+def _run_test(
     connection: Connection,
     channel: Channel,
     *,
@@ -271,6 +331,9 @@ def _run_one(
     database_key: bytes | None,
     seed: int | None,
     failure_blob: bytes | None = None,
+    suppress_health_check: list[str] | None,
+    derandomize: bool,
+    database: str | UniqueIdentifier | None,
 ) -> dict[str, Any]:
     """Run a single test using ConjectureRunner.
 
@@ -282,70 +345,136 @@ def _run_one(
     - failure: optional dict with failure details
     """
     try:
-        test_function = make_test_function(connection, channel, is_final=False)
+        # seed takes precendence over derandomize, like Hypothesis
+        if derandomize and seed is None:
+            seed = (
+                int.from_bytes(database_key, "big") if database_key is not None else 0
+            )
 
-        if failure_blob is not None:
-            choices = decode_failure(failure_blob)
-            data = ConjectureData.for_choices(choices)
-            with contextlib.suppress(StopTest):
-                test_function(data)
+        seed = random.getrandbits(128) if seed is None else seed
 
-            is_interesting = data.status is Status.INTERESTING
-            result: dict[str, int | list[bytes] | str] = {
-                "passed": not is_interesting,
-                "test_cases": 1,
-                "valid_test_cases": 0,
-                "invalid_test_cases": 0,
-                "interesting_test_cases": int(is_interesting),
-            }
-            if is_interesting:
-                result["failure_blobs"] = [failure_blob]
-                interesting_choices = [choices]
+        suppress = []
+        for name in suppress_health_check or []:
+            check = SUPPORTED_HEALTH_CHECKS.get(name)
+            if check is not None:
+                suppress.append(check)
             else:
-                result["failure_blobs"] = []
-                interesting_choices = []
-        else:
-            seed = random.getrandbits(128) if seed is None else seed
-            runner = ConjectureRunner(
-                test_function,
-                settings=settings(
-                    deadline=None,
-                    max_examples=test_cases,
-                    backend=(
-                        "hypothesis-urandom"
-                        if os.environ.get("ANTITHESIS_OUTPUT_DIR")
-                        else "hypothesis"
+                valid = list(SUPPORTED_HEALTH_CHECKS.keys())
+                result: dict[str, Any] = {
+                    "passed": False,
+                    "test_cases": 0,
+                    "valid_test_cases": 0,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": 0,
+                    "seed": str(seed),
+                    "error": (
+                        f"Unknown health check: {name!r}. "
+                        f"Valid health checks are: {valid}"
                     ),
-                ),
-                random=Random(seed),
-                database_key=database_key,
-            )
-            runner.run()
+                }
+                channel.send_request({"event": "test_done", "results": result}).get()
+                return result
 
-            interesting_examples = sorted(
-                runner.interesting_examples.values(),
-                key=lambda d: sort_key(d.nodes),
-            )
+        if database is None:
+            database_key = None
+
+        if isinstance(database, str):
+            database = DirectoryBasedExampleDatabase(database)  # type: ignore
+
+        settings_kwargs = {
+            "deadline": None,
+            "max_examples": test_cases,
+            "suppress_health_check": suppress,
+            "backend": (
+                "hypothesis-urandom"
+                if os.environ.get("ANTITHESIS_OUTPUT_DIR")
+                else "hypothesis"
+            ),
+            **({} if database is not_set else {"database": database}),
+        }
+
+        state = HegelState(connection, channel, is_final=False)
+        runner = ConjectureRunner(
+            state.test_function,
+            settings=settings(**settings_kwargs),  # type: ignore
+            random=Random(seed),
+            database_key=database_key,
+        )
+        try:
+            if failure_blob is not None:
+                choices = decode_failure(failure_blob)
+                data = ConjectureData.for_choices(choices)
+                with contextlib.suppress(StopTest):
+                    state.test_function(data)
+
+                is_interesting = data.status is Status.INTERESTING
+                result = {
+                    "passed": not is_interesting,
+                    "test_cases": 1,
+                    "valid_test_cases": 0,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": int(is_interesting),
+                }
+                if is_interesting:
+                    result["failure_blobs"] = [failure_blob]
+                    interesting_choices = [choices]
+                else:
+                    result["failure_blobs"] = []
+                    interesting_choices = []
+            else:
+                runner.run()
+
+                result = {
+                    "passed": len(runner.interesting_examples) == 0,
+                    "test_cases": runner.call_count,
+                    "valid_test_cases": runner.valid_examples,
+                    "invalid_test_cases": runner.invalid_examples,
+                    "interesting_test_cases": len(runner.interesting_examples),
+                    "seed": str(seed),
+                }
+                interesting_examples = sorted(
+                    runner.interesting_examples.values(),
+                    key=lambda d: sort_key(d.nodes),
+                )
+
+                interesting_choices = [v.choices for v in interesting_examples]
+
+                result["failure_blobs"] = [
+                    encode_failure(choices) for choices in interesting_choices
+                ]
+        except FailedHealthCheck as e:
             result = {
-                "passed": len(interesting_examples) == 0,
+                "passed": False,
                 "test_cases": runner.call_count,
                 "valid_test_cases": runner.valid_examples,
                 "invalid_test_cases": runner.invalid_examples,
-                "interesting_test_cases": len(interesting_examples),
+                "interesting_test_cases": 0,
                 "seed": str(seed),
+                "health_check_failure": str(e),
             }
+            channel.send_request({"event": "test_done", "results": result}).get()
+            return result
+        except Flaky as e:
+            result = _flaky_result(runner, seed, e, state.flaky_error)
+            channel.send_request({"event": "test_done", "results": result}).get()
+            return result
 
-            interesting_choices = [v.choices for v in interesting_examples]
-
-            result["failure_blobs"] = [
-                encode_failure(choices) for choices in interesting_choices
-            ]
+        # Check for flaky behavior detected during test execution
+        flaky_error = state.flaky_error
+        if flaky_error is not None:
+            result["passed"] = False
+            result["flaky"] = _flaky_message(flaky_error)
+        elif hasattr(runner, "exit_reason") and runner.exit_reason == ExitReason.flaky:
+            result["passed"] = False
+            result["flaky"] = FLAKY_TEST_RESULT_MSG
 
         channel.send_request({"event": "test_done", "results": result}).get()
-        final_test_function = make_test_function(connection, channel, is_final=True)
+
+        final_state = HegelState(connection, channel, is_final=True)
+
         for choices in interesting_choices:
             with contextlib.suppress(StopTest):
-                final_test_function(ConjectureData.for_choices(choices))
+                final_state.test_function(ConjectureData.for_choices(choices))
 
         return result
     except Exception:

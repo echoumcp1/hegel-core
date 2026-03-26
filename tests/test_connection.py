@@ -7,9 +7,8 @@ from threading import Thread
 import cbor2
 import pytest
 
-from hegel.protocol import RequestError
-from hegel.protocol.connection import PROTOCOL_VERSION, Connection
-from hegel.protocol.packet import Packet
+from hegel.protocol import Connection, Packet, RequestError
+from hegel.protocol.connection import PROTOCOL_VERSION
 from hegel.protocol.utils import SHUTDOWN
 from tests.client import ClientConnection
 
@@ -98,7 +97,7 @@ def test_connection_debug_with_handshake(socket_pair, send_fn):
     ):
         _do_handshake(server_conn, client_conn)
         ch_client = client_conn.new_channel()
-        server_conn.connect_channel(ch_client.channel_id)
+        server_conn.register_client_channel(ch_client.channel_id)
         send_fn(ch_client)
         time.sleep(0.2)
 
@@ -238,7 +237,7 @@ def test_close_channel_marks_closed(socket_pair, create_channel_first):
             msg = cbor2.loads(packet.payload)
             channel_id = msg["channel_id"]
             role = "Hello" if create_channel_first else None
-            server_conn.connect_channel(channel_id, role=role)
+            server_conn.register_client_channel(channel_id, role=role)
             channel.write_reply(packet.message_id, "Ok")
             packet = channel.read_request()
             channel.write_reply(packet.message_id, "Ok")
@@ -452,7 +451,7 @@ def test_connect_channel_before_handshake_raises(socket):
         Connection(socket) as conn,
         pytest.raises(AssertionError),
     ):
-        conn.connect_channel(1)
+        conn.register_client_channel(1)
 
 
 def test_connect_channel_already_exists_raises(socket_pair):
@@ -466,7 +465,7 @@ def test_connect_channel_already_exists_raises(socket_pair):
 
         # Connect to channel 0 which already exists (control channel)
         with pytest.raises(AssertionError):
-            server_conn.connect_channel(0)
+            server_conn.register_client_channel(0)
 
 
 def test_new_channel_before_handshake_raises(socket):
@@ -556,7 +555,7 @@ def test_reader_loop_clean_exit(socket_pair):
     _do_handshake(server_conn, client_conn)
 
     ch_client = client_conn.new_channel()
-    ch_server = server_conn.connect_channel(ch_client.channel_id)
+    ch_server = server_conn.register_client_channel(ch_client.channel_id)
 
     # Replace the queue with a wrapper that sets running = False after put
     real_queue = ch_server.unprocessed_packets
@@ -588,6 +587,37 @@ def test_reader_loop_clean_exit(socket_pair):
     # Now clean up
     client_conn.close()
     server_conn._Connection__socket.close()
+
+
+def test_reader_loop_graceful_exit_on_remote_close(socket_pair):
+    """Test reader loop exits gracefully when the remote end closes the connection.
+
+    When the remote socket is closed, read_packet raises ProtocolError.
+    The reader loop should catch this and exit without printing to stderr.
+    """
+    import threading
+
+    server_socket, client_socket = socket_pair
+    server_conn = Connection(server_socket)
+    client_conn = ClientConnection(client_socket)
+    _do_handshake(server_conn, client_conn)
+
+    thread_errors = []
+    original_excepthook = threading.excepthook
+
+    def capture_excepthook(args):
+        thread_errors.append(args)
+
+    threading.excepthook = capture_excepthook
+    try:
+        # Close the client side — the server's reader loop should exit gracefully
+        client_conn.close()
+        server_conn._reader_thread.join(timeout=5)
+        assert not server_conn.running
+        assert thread_errors == []
+    finally:
+        threading.excepthook = original_excepthook
+        server_conn.close()
 
 
 def test_invalid_hegel_debug_env_var():

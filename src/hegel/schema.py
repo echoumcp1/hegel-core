@@ -1,9 +1,14 @@
+import hashlib
+import json
 from typing import Any
 
 from hypothesis import strategies as st
+from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData
 from hypothesis.provisional import domains, urls
 from hypothesis.strategies import SearchStrategy
+
+FROM_SCHEMA_CACHE: LRUCache = LRUCache(1024)
 
 
 class BooleansStrategy(SearchStrategy[bool]):
@@ -15,15 +20,18 @@ class BooleansStrategy(SearchStrategy[bool]):
         return data.draw_boolean(p=self.p)
 
 
-def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
+def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     if "const" in schema:
+        assert len(schema) == 1
         return st.just(schema["const"])
     if "sampled_from" in schema:
+        assert len(schema) == 1
         return st.sampled_from(schema["sampled_from"])
     if "one_of" in schema:
-        return st.one_of([from_schema(s) for s in schema["one_of"]])
+        assert len(schema) == 1
+        return st.one_of([_from_schema(s) for s in schema["one_of"]])
 
-    schema_type = schema.get("type")
+    schema_type = schema["type"]
 
     if schema_type == "null":
         return st.none()
@@ -68,7 +76,7 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         )
     if schema_type == "list":
         return st.lists(
-            from_schema(schema["elements"]),
+            _from_schema(schema["elements"]),
             min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
             unique=schema.get("unique", False),
@@ -80,13 +88,13 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         # We initially returned a tuple here to avoid json requiring string keys in dicts,
         # but since we switched to cbor that's no longer a problem.
         return st.dictionaries(
-            keys=from_schema(schema["keys"]),
-            values=from_schema(schema["values"]),
+            keys=_from_schema(schema["keys"]),
+            values=_from_schema(schema["values"]),
             min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
         ).map(lambda d: list(d.items()))
     if schema_type == "tuple":
-        elements = [from_schema(s) for s in schema["elements"]]
+        elements = [_from_schema(s) for s in schema["elements"]]
         return st.tuples(*elements)
     if schema_type == "email":
         return st.emails()
@@ -106,3 +114,14 @@ def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         return st.datetimes().map(lambda dt: dt.isoformat())
 
     raise ValueError(f"Unsupported schema: {schema}")
+
+
+def from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
+    key = json.dumps(schema, sort_keys=True).encode("utf-8")
+    key = hashlib.sha1(key).digest()[:32]
+    try:
+        return FROM_SCHEMA_CACHE[key]
+    except KeyError:
+        result = _from_schema(schema)
+        FROM_SCHEMA_CACHE[key] = result
+        return result
