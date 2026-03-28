@@ -35,7 +35,8 @@ def _encode_value(value: object) -> object:
         return [_encode_value(v) for v in value]
     if isinstance(value, tuple):
         return [_encode_value(v) for v in value]
-    if isinstance(value, dict):  # pragma: no cover # we don't actually generate dicts yet
+    # nocover because we don't actually generate dicts yet
+    if isinstance(value, dict):  # pragma: no cover
         return {_encode_value(k): _encode_value(v) for k, v in value.items()}
     return value
 
@@ -93,9 +94,7 @@ def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             fullmatch=schema.get("fullmatch", False),
             alphabet=(
                 # hypothesis typing bug, I think
-                None
-                if alphabet_schema is None
-                else st.characters(**alphabet_schema)  # type: ignore
+                None if alphabet_schema is None else st.characters(**alphabet_schema)  # type: ignore
             ),
         )
     if schema_type == "list":
