@@ -35,7 +35,7 @@ def _encode_value(value: object) -> object:
         return [_encode_value(v) for v in value]
     if isinstance(value, tuple):
         return [_encode_value(v) for v in value]
-    if isinstance(value, dict):
+    if isinstance(value, dict):  # pragma: no cover # we don't actually generate dicts yet
         return {_encode_value(k): _encode_value(v) for k, v in value.items()}
     return value
 
