@@ -4,11 +4,13 @@ import re
 import cbor2
 import pytest
 from cbor2 import _decoder as cbor2_python
-from hypothesis import given, settings as Settings, strategies as st
+from hypothesis import assume, given, settings as Settings, strategies as st
 from hypothesis._settings import local_settings
 from hypothesis.control import _current_build_context
+from hypothesis.strategies._internal.regex import IncompatibleWithAlphabet
 
-from hegel.schema import from_schema
+from hegel.conformance import _character_params, text_params_strategy
+from hegel.schema import _encode_value, from_schema
 
 
 def assert_all_examples(strategy, predicate, settings=None):
@@ -29,6 +31,25 @@ def assert_all_examples(strategy, predicate, settings=None):
 
         assert_examples()
 
+@st.composite
+def string_schemas(draw):
+    params = draw(text_params_strategy())
+    return {"type": "string", **params}
+
+
+@st.composite
+def regex_schemas(draw):
+    schema = {"type": "regex", "pattern": r"[a-z]+", "fullmatch": draw(st.booleans())}
+    if draw(st.booleans()):
+        schema["alphabet"] = draw(_character_params())
+
+    try:
+        from_schema(schema).validate()
+    except IncompatibleWithAlphabet:
+        assume(False)
+
+    return schema
+
 
 def primitive_hashable_schemas():
     return (
@@ -40,13 +61,11 @@ def primitive_hashable_schemas():
                 "min_value": min_val,
                 "max_value": max_val,
             },
-            min_val=st.integers(min_value=-1000, max_value=0),
-            max_val=st.integers(min_value=0, max_value=1000),
+            # TODO this is a bad strategy, make it better
+            min_val=st.integers(-1000, 0),
+            max_val=st.integers(0, 1000),
         )
-        | st.builds(
-            lambda max_size: {"type": "string", "min_size": 0, "max_size": max_size},
-            max_size=st.integers(min_value=0, max_value=10),
-        )
+        | string_schemas()
         | st.just({"type": "email"})
         | st.just({"type": "ipv4"})
         | st.just({"type": "ipv6"})
@@ -71,6 +90,7 @@ def schemas():
     return st.recursive(
         # Base cases: simple schemas with no nested schemas
         hashable_schemas()
+        | regex_schemas()
         | st.builds(
             lambda min_val, max_val: {
                 "type": "float",
@@ -82,8 +102,9 @@ def schemas():
                 "exclude_max": False,
                 "width": 64,
             },
-            min_val=st.floats(min_value=-1000, max_value=0, allow_nan=False),
-            max_val=st.floats(min_value=0, max_value=1000, allow_nan=False),
+            # TODO this is a bad strategy, make it better
+            min_val=st.floats(-1000, 0, allow_nan=False),
+            max_val=st.floats(0, 1000, allow_nan=False),
         )
         # const with JSON-serializable values
         | st.builds(
@@ -438,15 +459,34 @@ def test_nested_dict_of_lists():
     )
 
 
+def _assert_no_strings(value: object) -> None:
+    assert not isinstance(value, str), value
+    if isinstance(value, list):
+        for v in value:
+            _assert_no_strings(v)
+    if isinstance(value, tuple):
+        for v in value:
+            _assert_no_strings(v)
+    if isinstance(value, dict):
+        for k, v in value.items():
+            _assert_no_strings(k)
+            _assert_no_strings(v)
+
+
+@Settings(deadline=None)
 @given(st.data())
 def test_from_schema(data):
     schema = data.draw(schemas())
     value = data.draw(from_schema(schema))
+    value = _encode_value(value)
+    # all strings should have been encoded to our custom tag 6.
+    _assert_no_strings(value)
 
     def tag_hook(decoder, tag):
-        # Unsigned bignum and negative bignum respectively
+        # Unsigned bignum, negative bignum, and custom encoding for utf8 + surrogates
+        # respectively
         # https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml
-        if tag.tag in {2, 3}:
+        if tag.tag in {2, 3, 6}:
             return
         raise AssertionError(f"Saw CBOR tag {tag}")
 

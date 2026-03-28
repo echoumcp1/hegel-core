@@ -2,6 +2,7 @@ import hashlib
 import json
 from typing import Any
 
+from cbor2 import CBORTag
 from hypothesis import strategies as st
 from hypothesis.internal.cache import LRUCache
 from hypothesis.internal.conjecture.data import ConjectureData
@@ -18,6 +19,25 @@ class BooleansStrategy(SearchStrategy[bool]):
 
     def do_draw(self, data: ConjectureData) -> bool:
         return data.draw_boolean(p=self.p)
+
+
+CBOR_STRING_TAG = 6
+
+
+def _encode_value(value: object) -> object:
+    # prepare a final generated value for transport in the protocol.
+    if isinstance(value, str):
+        # this is sometimes called "WTF-8" encoding: https://wtf-8.codeberg.page/. It is
+        # identical to UTF-8 except it drops the well-formed requirement that surrogates
+        # not appear.
+        return CBORTag(CBOR_STRING_TAG, value.encode("utf-8", "surrogatepass"))
+    if isinstance(value, list):
+        return [_encode_value(v) for v in value]
+    if isinstance(value, tuple):
+        return [_encode_value(v) for v in value]
+    if isinstance(value, dict):
+        return {_encode_value(k): _encode_value(v) for k, v in value.items()}
+    return value
 
 
 def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
@@ -53,14 +73,11 @@ def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             exclude_max=schema.get("exclude_max", False),
         )
     if schema_type == "string":
-        # Exclude null bytes due to reflect-cpp truncation bug:
-        # https://github.com/getml/reflect-cpp/issues/559
-        # Exclude surrogates (Cs category) as they're invalid in UTF-8/JSON
+        characters_schema = {
+            k: v for k, v in schema.items() if k not in {"type", "min_size", "max_size"}
+        }
         return st.text(
-            alphabet=st.characters(
-                blacklist_characters="\x00",
-                blacklist_categories=("Cs",),  # type: ignore[arg-type]
-            ),
+            alphabet=st.characters(**characters_schema),
             min_size=schema.get("min_size", 0),
             max_size=schema.get("max_size"),
         )
@@ -70,9 +87,13 @@ def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             max_size=schema.get("max_size"),
         )
     if schema_type == "regex":
+        alphabet_schema = schema.get("alphabet")
         return st.from_regex(
             schema["pattern"],
             fullmatch=schema.get("fullmatch", False),
+            alphabet=(
+                None if alphabet_schema is None else st.characters(**alphabet_schema)
+            ),
         )
     if schema_type == "list":
         return st.lists(
@@ -83,7 +104,8 @@ def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
         )
     if schema_type == "dict":
         # Possibly "dict" should be removed entirely and replaced by libraries calling "tuple"
-        # themselves.
+        # themselves. (me, later: hmm no I don't think so because "tuple" would need
+        # unique_by=itemgetter(0), which is inexpressible over the protocol).
         #
         # We initially returned a tuple here to avoid json requiring string keys in dicts,
         # but since we switched to cbor that's no longer a problem.
