@@ -4,8 +4,9 @@ import sys
 import tempfile
 
 import pytest
+from hypothesis import strategies as st
 
-from hegel.conformance import BooleanConformance, TextConformance
+from hegel.conformance import BooleanConformance, ConformanceTest
 
 
 def _make_conformance_binary(script_body):
@@ -48,9 +49,17 @@ def test_nonexistent_binary():
 
 def test_run_failure(conformance_binary):
     binary_path = conformance_binary("sys.exit(1)")
-    test = BooleanConformance(binary_path, test_cases=1)
+    test = BooleanConformance(binary_path)
     with pytest.raises(RuntimeError, match="exit code"):
         test.run({})
+
+
+class _SingleEntryConformance(ConformanceTest):
+    def params_strategy(self):
+        return st.just({})
+
+    def validate(self, metrics_list, params) -> None:
+        assert len(metrics_list) == 1
 
 
 @pytest.mark.parametrize(
@@ -68,9 +77,9 @@ def test_jsonl_parsing_does_not_split_on_unicode_line_boundaries(
     # string value. Python's json.dumps escapes control characters, so we
     # build the JSON by hand to simulate what a non-Python JSON library that
     # doesn't escape these characters might produce.
-    s = '{"length": 5, "text": "hello' + char + 'world"}'
+    s = '{"text": "hello' + char + 'world"}'
     assert len(s.splitlines()) > 1
 
     binary_path = conformance_binary(f"mf.write({s!r} + '\\n')")
-    conformance = TextConformance(binary_path)
-    conformance.run({"min_size": 0, "max_size": None})
+    conformance = _SingleEntryConformance(binary_path)
+    conformance.run({})
