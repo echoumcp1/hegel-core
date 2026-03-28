@@ -31,6 +31,7 @@ def assert_all_examples(strategy, predicate, settings=None):
 
         assert_examples()
 
+
 @st.composite
 def string_schemas(draw):
     params = draw(text_params_strategy())

@@ -2,13 +2,12 @@ import json
 import os
 import subprocess
 import tempfile
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Collection
+from encodings.aliases import aliases
 from pathlib import Path
 from typing import Any, ClassVar
-
-import unicodedata
-from encodings.aliases import aliases
 
 import pytest
 from hypothesis import (
@@ -33,9 +32,7 @@ def _can_encode(codec: str) -> bool:
 
 
 ALL_CATEGORIES = list(charmap.categories())
-ALL_CODECS = sorted(
-    {c for c in set(aliases).union(aliases.values()) if _can_encode(c)}
-)
+ALL_CODECS = sorted({c for c in set(aliases).union(aliases.values()) if _can_encode(c)})
 
 
 @st.composite
@@ -67,9 +64,7 @@ def _character_params(draw: st.DrawFn) -> dict[str, Any]:
         params["categories"] = draw(st.lists(st.sampled_from(ALL_CATEGORIES)))
 
     if use_exclude_categories:
-        params["exclude_categories"] = draw(
-            st.lists(st.sampled_from(ALL_CATEGORIES))
-        )
+        params["exclude_categories"] = draw(st.lists(st.sampled_from(ALL_CATEGORIES)))
 
     if use_exclude_chars:
         params["exclude_characters"] = draw(st.text())
@@ -415,12 +410,16 @@ class TextConformance(ConformanceTest):
         metrics_list: list[dict[str, Any]],
         params: dict[str, Any],
     ) -> None:
-        expanded_cats = set(
-            charmap.as_general_categories(params["categories"])
-        ) if "categories" in params else set()
-        expanded_exclude_cats = set(
-            charmap.as_general_categories(params["exclude_categories"])
-        ) if "exclude_categories" in params else set()
+        expanded_cats = (
+            set(charmap.as_general_categories(params["categories"]))
+            if "categories" in params
+            else set()
+        )
+        expanded_exclude_cats = (
+            set(charmap.as_general_categories(params["exclude_categories"]))
+            if "exclude_categories" in params
+            else set()
+        )
 
         for metrics in metrics_list:
             if currently_in_test_context():
@@ -442,9 +441,7 @@ class TextConformance(ConformanceTest):
                 if expanded_cats:
                     assert unicodedata.category(chr(cp)) in expanded_cats
                 if expanded_exclude_cats:
-                    assert (
-                        unicodedata.category(chr(cp)) not in expanded_exclude_cats
-                    )
+                    assert unicodedata.category(chr(cp)) not in expanded_exclude_cats
                 if "exclude_characters" in params:
                     assert chr(cp) not in params["exclude_characters"]
 
