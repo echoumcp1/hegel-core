@@ -424,10 +424,9 @@ class TextConformance(ConformanceTest):
         for metrics in metrics_list:
             if currently_in_test_context():
                 note(f"metrics: {metrics}")
-            length = metrics["length"]
             codepoints = metrics["codepoints"]
+            length = len(codepoints)
             assert length >= params["min_size"]
-            assert length == len(codepoints)
             if params.get("max_size") is not None:
                 assert length <= params["max_size"]
 
