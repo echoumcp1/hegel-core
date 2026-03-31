@@ -21,18 +21,14 @@ class BooleansStrategy(SearchStrategy[bool]):
 
 
 def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
-    if "const" in schema:
-        assert len(schema) == 1
-        return st.just(schema["const"])
-    if "sampled_from" in schema:
-        assert len(schema) == 1
-        return st.sampled_from(schema["sampled_from"])
-    if "one_of" in schema:
-        assert len(schema) == 1
-        return st.one_of([_from_schema(s) for s in schema["one_of"]])
-
     schema_type = schema["type"]
 
+    if schema_type == "const":
+        return st.just(schema["value"])
+    if schema_type == "sampled_from":
+        return st.sampled_from(schema["values"])
+    if schema_type == "one_of":
+        return st.one_of([_from_schema(s) for s in schema["generators"]])
     if schema_type == "null":
         return st.none()
     if schema_type == "boolean":
