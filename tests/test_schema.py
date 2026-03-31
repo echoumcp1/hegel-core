@@ -87,7 +87,7 @@ def schemas():
         )
         # const with JSON-serializable values
         | st.builds(
-            lambda v: {"type": "const", "value": v},
+            lambda v: {"type": "constant", "value": v},
             v=st.none() | st.booleans() | st.integers() | st.text(max_size=5),
         )
         # sampled_from with JSON-serializable values
@@ -253,7 +253,7 @@ def test_datetime():
 
 @given(st.integers() | st.text())
 def test_const(v):
-    assert_all_examples(from_schema({"type": "const", "value": v}), lambda x: x == v)
+    assert_all_examples(from_schema({"type": "constant", "value": v}), lambda x: x == v)
 
 
 def test_sampled_from():

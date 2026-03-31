@@ -107,10 +107,10 @@ This release changes the `from_schema` function to require a `"type"` key in all
 
 \```python
 # before
-from_schema({"const": 42})
+from_schema({"constant": 42})
 
 # after
-from_schema({"type": "const", "value": 42})
+from_schema({"type": "constant", "value": 42})
 \```
 
 This will require updating any code that constructs schemas directly.

@@ -23,7 +23,7 @@ class BooleansStrategy(SearchStrategy[bool]):
 def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
     schema_type = schema["type"]
 
-    if schema_type == "const":
+    if schema_type == "constant":
         return st.just(schema["value"])
     if schema_type == "sampled_from":
         return st.sampled_from(schema["values"])

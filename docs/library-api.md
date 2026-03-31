@@ -90,7 +90,7 @@ A generator is basic (i.e. has a schema and optional transform) in these cases:
 | `booleans(...)` | Always | `{"type": "boolean", ...}` | None |
 | `text(...)` | Always | `{"type": "string", ...}` | None |
 | `binary(...)` | Always | `{"type": "binary", ...}` | None |
-| `just(value)` | Always | `{"const": null}` | Returns the constant value, ignoring server input |
+| `just(value)` | Always | `{"constant": null}` | Returns the constant value, ignoring server input |
 | `sampled_from(values)` | Always | `{"type": "integer", "min_value": 0, "max_value": len-1}` | Returns `values[index]` |
 | `basic.map(f)` | Always | Same schema as `basic` | `f` composed with existing transform |
 | `nonbasic.map(f)` | Never | — | — |
@@ -227,7 +227,7 @@ Generate a constant value.
 **Parameters:**
 - `value`: The constant value to always return.
 
-**Schema:** `{"const": null}`.
+**Schema:** `{"constant": null}`.
 
 The schema always uses `null` as the const value (the server generates a null,
 and the client-side transform returns the actual constant). This allows `just`
@@ -452,8 +452,8 @@ Schema:
 ```json
 {
   "one_of": [
-    {"type": "tuple", "elements": [{"const": 0}, <schema1>]},
-    {"type": "tuple", "elements": [{"const": 1}, <schema2>]},
+    {"type": "tuple", "elements": [{"constant": 0}, <schema1>]},
+    {"type": "tuple", "elements": [{"constant": 1}, <schema2>]},
     ...
   ]
 }
@@ -1052,7 +1052,7 @@ reference for new implementations.
 - The `_raw_schema` and `_transform` attributes are accessed directly by
   combinators (they are nominally private but used within the module).
 - `sampled_from` uses the integer-index approach for all types.
-- `just` uses `{"const": null}` schema with a transform that ignores input.
+- `just` uses `{"constant": null}` schema with a transform that ignores input.
 
 ### Rust
 
@@ -1067,7 +1067,7 @@ reference for new implementations.
 - `sampled_from` always uses the integer-index approach (matching the
   reference Python implementation) and is always basic.
 - `just` works with any `Clone + Send + Sync` type and always uses
-  `{"const": null}` with a transform that returns the constant value.
+  `{"constant": null}` with a transform that returns the constant value.
 
 ### C++
 
