@@ -57,7 +57,6 @@ class Client:
         *,
         test_cases: int = 100,
         seed: int | None = None,
-        print_blob: bool = False,
         failure_blob: bytes | None = None,
         suppress_health_check: list[str] | None = None,
         database_key: bytes | None = None,
@@ -75,7 +74,6 @@ class Client:
             "channel_id": test_channel.channel_id,
             "database_key": database_key,
             "derandomize": derandomize,
-            "print_blob": print_blob,
             "failure_blob": failure_blob,
         }
         if database is not not_set:
