@@ -1,3 +1,3 @@
 RELEASE_TYPE: patch
 
-Add support for @reproduce_failure and `print_blob` setting
+Add protocol support for reporting failure blobs back to the client. These are strings that can be used to reproduce a specific failure exactly.
