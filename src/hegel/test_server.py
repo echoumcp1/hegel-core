@@ -186,9 +186,8 @@ def _handle_commands_until(
             return msg_id
 
         if command == "new_collection":
-            name = f"collection_{collection_counter}"
+            data_stream.write_reply(msg_id, collection_counter)
             collection_counter += 1
-            data_stream.write_reply(msg_id, name)
         else:
             # All other commands (generate, start_span, stop_span,
             # mark_complete, etc.) get a simple None/True response.

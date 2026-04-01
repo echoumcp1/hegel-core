@@ -292,27 +292,23 @@ def stop_span(*, discard: bool = False) -> None:
 
 
 class collection:
-    def __init__(
-        self, name: str | None, min_size: int = 0, max_size: int | None = None
-    ):
-        self.__base_name = name
-        self.__server_name = None
+    def __init__(self, min_size: int = 0, max_size: int | None = None):
+        self.__collection_id = None
         self.__finished = False
         self.min_size = min_size
         self.max_size = max_size
 
     @property
-    def _server_name(self):
-        if self.__server_name is None:
-            self.__server_name = _request(
+    def _collection_id(self):
+        if self.__collection_id is None:
+            self.__collection_id = _request(
                 {
                     "command": "new_collection",
-                    "collection_name": self.__base_name,
                     "min_size": self.min_size,
                     "max_size": self.max_size,
                 }
             )
-        return self.__server_name
+        return self.__collection_id
 
     def more(self) -> bool:
         """Should we generate another element?"""
@@ -320,7 +316,7 @@ class collection:
             return False
 
         result = _request(
-            {"command": "collection_more", "collection_name": self._server_name}
+            {"command": "collection_more", "collection_id": self._collection_id}
         )
         if not result:
             self.__finished = True
@@ -333,7 +329,7 @@ class collection:
             _request(
                 {
                     "command": "collection_reject",
-                    "collection_name": self._server_name,
+                    "collection_id": self._collection_id,
                     "why": why,
                 }
             )

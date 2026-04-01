@@ -1,8 +1,8 @@
 import contextlib
+import itertools
 import os
 import random
 import traceback
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from random import Random
 from typing import Any
@@ -160,9 +160,9 @@ class HegelState:
         self.flaky_error: Flaky | None = None
 
     def test_function(self, data: ConjectureData) -> None:
-        collections: dict[str, many] = {}
+        collections: dict[int, many] = {}
         variable_pools: list[Variables] = []
-        collection_name_counter: Counter[str] = Counter()
+        collection_id_counter = itertools.count()
 
         with BuildContext(data, is_final=self._is_final, wrapped_test=None):  # type: ignore
             test_case_stream = self._connection.new_stream(role="Test Case")
@@ -212,10 +212,8 @@ class HegelState:
                                 origin,  # type: ignore[arg-type]
                             )
                     elif command == "new_collection":
-                        base_name = message.get("collection_name", "collection")
-                        name = f"{base_name}_{collection_name_counter[base_name]}"
-                        collection_name_counter[base_name] += 1
-                        assert name not in collections
+                        collection_id = next(collection_id_counter)
+                        assert collection_id not in collections
                         min_size = message.get("min_size", 0)
                         max_size = message.get("max_size", float("inf"))
                         if max_size is None:
@@ -225,18 +223,18 @@ class HegelState:
                             max(min_size * 2, min_size + 5),
                             0.5 * (min_size + max_size),
                         )
-                        collections[name] = many(
+                        collections[collection_id] = many(
                             data,
                             min_size=min_size,
                             max_size=max_size,
                             average_size=average_size,
                         )
-                        return name
+                        return collection_id
                     elif command == "collection_more":
-                        collection = collections[message["collection_name"]]
+                        collection = collections[message["collection_id"]]
                         return collection.more()
                     elif command == "collection_reject":
-                        collection = collections[message["collection_name"]]
+                        collection = collections[message["collection_id"]]
                         return collection.reject(why=message.get("why"))
                     elif command == "new_pool":
                         i = len(variable_pools)

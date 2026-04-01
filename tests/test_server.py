@@ -75,7 +75,7 @@ def test_cache_eviction():
 
 def test_collection_with_no_max_size(client):
     def test():
-        c = collection("test_unbounded", min_size=1)
+        c = collection(min_size=1)
         result = []
         while c.more():
             val = generate_from_schema(
@@ -97,7 +97,7 @@ def test_collection_reject_on_server(client):
     def test():
         # Explicitly use collection.reject() to trigger the server-side
         # collection_reject handler.
-        c = collection("test_coll", min_size=1, max_size=5)
+        c = collection(min_size=1, max_size=5)
         result = []
         while c.more():
             val = generate_from_schema(

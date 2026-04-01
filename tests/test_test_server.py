@@ -86,12 +86,11 @@ def _send_start_span(data_stream, label=1):
 
 
 def _send_new_collection(data_stream, *, min_size=0, max_size=10):
-    """Send a new_collection command and return the collection name."""
+    """Send a new_collection command and return the collection ID."""
     packet = data_stream.write_request(
         cbor2.dumps(
             {
                 "command": "new_collection",
-                "name": "list",
                 "min_size": min_size,
                 "max_size": max_size,
             },
@@ -107,7 +106,6 @@ def _send_new_collection_expect_error(data_stream, *, min_size=0, max_size=10):
         cbor2.dumps(
             {
                 "command": "new_collection",
-                "name": "list",
                 "min_size": min_size,
                 "max_size": max_size,
             },
@@ -118,10 +116,10 @@ def _send_new_collection_expect_error(data_stream, *, min_size=0, max_size=10):
     return raw
 
 
-def _send_collection_more_expect_error(data_stream, collection):
+def _send_collection_more_expect_error(data_stream, collection_id):
     """Send a collection_more command expecting a StopTest error."""
     packet = data_stream.write_request(
-        cbor2.dumps({"command": "collection_more", "collection_name": collection}),
+        cbor2.dumps({"command": "collection_more", "collection_id": collection_id}),
     )
     raw = cbor2.loads(data_stream.read_reply(packet.message_id).payload)
     assert "error" in raw
@@ -326,11 +324,11 @@ class TestStopTestOnCollectionMore:
 
             # client sends start_span (LIST) + new_collection normally
             _send_start_span(data_stream, label=1)
-            collection = _send_new_collection(data_stream)
-            assert isinstance(collection, str)
+            collection_id = _send_new_collection(data_stream)
+            assert isinstance(collection_id, int)
 
             # collection_more should get StopTest
-            error = _send_collection_more_expect_error(data_stream, collection)
+            error = _send_collection_more_expect_error(data_stream, collection_id)
             assert error["type"] == "StopTest"
 
             # Don't send further commands
@@ -347,8 +345,8 @@ class TestStopTestOnCollectionMore:
 
             data_stream, _ = _receive_test_case(test_stream, conn)
             _send_start_span(data_stream, label=1)
-            collection = _send_new_collection(data_stream)
-            _send_collection_more_expect_error(data_stream, collection)
+            collection_id = _send_new_collection(data_stream)
+            _send_collection_more_expect_error(data_stream, collection_id)
 
             results = _receive_test_done(test_stream)
             assert "passed" in results
