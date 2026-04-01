@@ -2,7 +2,7 @@ import argparse
 import os
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 SOURCE_DIRS = ["src/"]
@@ -61,13 +61,29 @@ def set_version(pyproject: Path, new_version: str) -> None:
 
 
 def add_changelog(path: Path, *, version: str, content: str) -> None:
-    date = datetime.now(datetime.UTC).strftime("%Y-%m-%d")
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     entry = f"## {version} - {date}\n\n{content}"
 
     existing = path.read_text()
     assert existing.startswith("# Changelog")
     rest = existing.removeprefix("# Changelog")
     path.write_text(f"# Changelog\n\n{entry}{rest}")
+
+
+def _check_protocol_version_bumped(base_ref: str) -> None:
+    diff = subprocess.check_output(
+        [
+            "git",
+            "diff",
+            f"origin/{base_ref}...HEAD",
+            "--",
+            "src/hegel/protocol/connection.py",
+        ],
+        text=True,
+        cwd=ROOT,
+    )
+    if not re.search(r"^\+.*PROTOCOL_VERSION\s*=", diff, re.MULTILINE):
+        raise ValueError("Patch releases must bump PROTOCOL_VERSION.")
 
 
 def check(base_ref: str) -> None:
@@ -110,7 +126,10 @@ def check(base_ref: str) -> None:
         raise ValueError(box)
 
     # perform validation of RELEASE.md
-    parse_release_file(release_file)
+    release_type, _ = parse_release_file(release_file)
+
+    if release_type == "patch":
+        _check_protocol_version_bumped(base_ref)
 
 
 def release() -> None:
@@ -125,6 +144,8 @@ def release() -> None:
     new_version = bump_version(m.group(1), release_type)
 
     set_version(ROOT / "pyproject.toml", new_version)
+    # regenerate lockfile after version bump
+    subprocess.run(["uv", "lock"], check=True, cwd=ROOT)
 
     add_changelog(ROOT / "CHANGELOG.md", version=new_version, content=content)
 
@@ -139,7 +160,7 @@ def release() -> None:
         f"{bot_user_id}+{app_slug}[bot]@users.noreply.github.com",
         cwd=ROOT,
     )
-    git("add", "pyproject.toml", "CHANGELOG.md", cwd=ROOT)
+    git("add", "pyproject.toml", "uv.lock", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
     git(
         "commit",
