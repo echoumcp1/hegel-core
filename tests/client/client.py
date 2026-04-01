@@ -307,7 +307,7 @@ class collection:
             self.__server_name = _request(
                 {
                     "command": "new_collection",
-                    "name": self.__base_name,
+                    "collection_name": self.__base_name,
                     "min_size": self.min_size,
                     "max_size": self.max_size,
                 }
@@ -320,7 +320,7 @@ class collection:
             return False
 
         result = _request(
-            {"command": "collection_more", "collection": self._server_name}
+            {"command": "collection_more", "collection_name": self._server_name}
         )
         if not result:
             self.__finished = True
@@ -333,7 +333,7 @@ class collection:
             _request(
                 {
                     "command": "collection_reject",
-                    "collection": self._server_name,
+                    "collection_name": self._server_name,
                     "why": why,
                 }
             )

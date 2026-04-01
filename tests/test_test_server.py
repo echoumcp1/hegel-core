@@ -121,7 +121,7 @@ def _send_new_collection_expect_error(data_stream, *, min_size=0, max_size=10):
 def _send_collection_more_expect_error(data_stream, collection):
     """Send a collection_more command expecting a StopTest error."""
     packet = data_stream.write_request(
-        cbor2.dumps({"command": "collection_more", "collection": collection}),
+        cbor2.dumps({"command": "collection_more", "collection_name": collection}),
     )
     raw = cbor2.loads(data_stream.read_reply(packet.message_id).payload)
     assert "error" in raw
