@@ -10,6 +10,7 @@ from typing import Any
 import cbor2
 from hypothesis import HealthCheck, settings
 from hypothesis.control import BuildContext
+from hypothesis.core import decode_failure, encode_failure
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import (
     FailedHealthCheck,
@@ -297,6 +298,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             test_cases=message["test_cases"],
                             database_key=message.get("database_key"),
                             seed=message.get("seed"),
+                            failure_blob=message.get("failure_blob"),
                             suppress_health_check=message.get(
                                 "suppress_health_check", []
                             ),
@@ -328,6 +330,7 @@ def _run_test(
     test_cases: int,
     database_key: bytes | None,
     seed: int | None,
+    failure_blob: bytes | None = None,
     suppress_health_check: list[str] | None,
     derandomize: bool,
     database: str | UniqueIdentifier | None,
@@ -398,7 +401,47 @@ def _run_test(
             database_key=database_key,
         )
         try:
-            runner.run()
+            if failure_blob is not None:
+                choices = decode_failure(failure_blob)
+                data = ConjectureData.for_choices(choices)
+                with contextlib.suppress(StopTest):
+                    state.test_function(data)
+
+                is_interesting = data.status is Status.INTERESTING
+                result = {
+                    "passed": not is_interesting,
+                    "test_cases": 1,
+                    "valid_test_cases": 0,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": int(is_interesting),
+                }
+                if is_interesting:
+                    result["failure_blobs"] = [failure_blob]
+                    interesting_choices = [choices]
+                else:
+                    result["failure_blobs"] = []
+                    interesting_choices = []
+            else:
+                runner.run()
+
+                result = {
+                    "passed": len(runner.interesting_examples) == 0,
+                    "test_cases": runner.call_count,
+                    "valid_test_cases": runner.valid_examples,
+                    "invalid_test_cases": runner.invalid_examples,
+                    "interesting_test_cases": len(runner.interesting_examples),
+                    "seed": str(seed),
+                }
+                interesting_examples = sorted(
+                    runner.interesting_examples.values(),
+                    key=lambda d: sort_key(d.nodes),
+                )
+
+                interesting_choices = [v.choices for v in interesting_examples]
+
+                result["failure_blobs"] = [
+                    encode_failure(choices) for choices in interesting_choices
+                ]
         except FailedHealthCheck as e:
             result = {
                 "passed": False,
@@ -416,15 +459,6 @@ def _run_test(
             channel.send_request({"event": "test_done", "results": result}).get()
             return result
 
-        result = {
-            "passed": len(runner.interesting_examples) == 0,
-            "test_cases": runner.call_count,
-            "valid_test_cases": runner.valid_examples,
-            "invalid_test_cases": runner.invalid_examples,
-            "interesting_test_cases": len(runner.interesting_examples),
-            "seed": str(seed),
-        }
-
         # Check for flaky behavior detected during test execution
         flaky_error = state.flaky_error
         if flaky_error is not None:
@@ -435,14 +469,12 @@ def _run_test(
             result["flaky"] = FLAKY_TEST_RESULT_MSG
 
         channel.send_request({"event": "test_done", "results": result}).get()
+
         final_state = HegelState(connection, channel, is_final=True)
 
-        for v in sorted(
-            runner.interesting_examples.values(),
-            key=lambda d: sort_key(d.nodes),
-        ):
+        for choices in interesting_choices:
             with contextlib.suppress(StopTest):
-                final_state.test_function(ConjectureData.for_choices(v.choices))
+                final_state.test_function(ConjectureData.for_choices(choices))
 
         return result
     except Exception:

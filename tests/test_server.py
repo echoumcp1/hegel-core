@@ -25,6 +25,11 @@ from tests.client import (
 )
 from tests.client.client import _request
 
+try:
+    ExceptionGroup
+except NameError:  # pragma: no cover
+    from exceptiongroup import ExceptionGroup
+
 
 def test_start_and_stop_span(client):
     def test():
@@ -321,6 +326,64 @@ def test_pool_generate_from_empty_pool(client):
         _request({"command": "pool_generate", "pool_id": pool_id})
 
     client.run_test(test, test_cases=10)
+
+
+def test_reproduce_failure(client):
+    def test():
+        assert (
+            generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+            <= 10
+        )
+
+    with pytest.raises(AssertionError):
+        client.run_test(test, test_cases=100)
+
+    blob = client.last_result["failure_blobs"][0]
+    assert isinstance(blob, bytes)
+
+    with pytest.raises(AssertionError):
+        client.run_test(test, failure_blob=blob)
+
+
+def test_reproduce_failure_blob_no_longer_fails(client):
+    """When a blob no longer reproduces, the client raises RuntimeError."""
+
+    def failing_test():
+        assert (
+            generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+            <= 10
+        )
+
+    with pytest.raises(AssertionError):
+        client.run_test(failing_test, test_cases=100)
+
+    blob = client.last_result["failure_blobs"][0]
+
+    # The blob was for failing_test, but we replay with a test that always passes.
+    with pytest.raises(AssertionError, match="failure blob did not reproduce"):
+        client.run_test(lambda: None, failure_blob=blob)
+
+
+def test_reproduce_failure_result_not_in_passing_test(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x >= 0
+
+    client.run_test(test, test_cases=50)
+    assert client.last_result["failure_blobs"] == []
+
+
+def test_multiple_blobs(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x <= 10
+
+        y = generate_from_schema({"type": "integer", "min_value": -10, "max_value": -1})
+        assert y >= 0
+
+    with pytest.raises(ExceptionGroup):
+        client.run_test(test, test_cases=50)
+    assert len(client.last_result["failure_blobs"]) == 2
 
 
 def test_derandomize_with_database_key(client):
