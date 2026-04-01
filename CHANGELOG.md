@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 - 2026-04-01
+
+Several breaking changes:
+- Rename `channel` to `stream` everywhere.
+- Restructure parameters and return values for `collection` commands.
+
 ## 0.2.5 - 2026-04-01
 
 This patch changes how `const`, `sampled_from`, and `one_of` are defined in the protocol, to harmonize with the other generator definitions:
