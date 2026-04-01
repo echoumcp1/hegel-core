@@ -110,3 +110,7 @@ The first line must be `RELEASE_TYPE: major`, `RELEASE_TYPE: minor`, or `RELEASE
 
 - Don't add message strings to pytest asserts (`assert x, "message"`). Pytest provides excellent error messages automatically.
 - Don't reference source line numbers in test comments (e.g., "Covers client.py line 42"). Line numbers are not stable identifiers. Instead, describe the condition or branch being tested (e.g., "Tests the except TypeError branch in schema()").
+
+### Writing Changelog Entries
+
+When writing a `RELEASE.md`, read `.claude/changelog-guidance.md` for detailed style guidance.

@@ -67,7 +67,7 @@ class Packet:
        create streams without coordination.
     - Message id: The id of the message. The R (reply) bit is set if this packet is a reply
        to a previous packet. The message id of a reply packet will be the same as the
-       message id of a non-reply packet, just with the R bit set. The message id is
+       message id of a non-reply packet, but with the R bit set. The message id is
        included in the protocol to support out-of-order replies over the same stream.
     - Payload length: The length of the payload, in bytes.
 
