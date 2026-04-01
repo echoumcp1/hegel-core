@@ -144,6 +144,8 @@ def release() -> None:
     new_version = bump_version(m.group(1), release_type)
 
     set_version(ROOT / "pyproject.toml", new_version)
+    # regenerate lockfile after version bump
+    subprocess.run(["uv", "lock"], check=True, cwd=ROOT)
 
     add_changelog(ROOT / "CHANGELOG.md", version=new_version, content=content)
 
@@ -158,7 +160,7 @@ def release() -> None:
         f"{bot_user_id}+{app_slug}[bot]@users.noreply.github.com",
         cwd=ROOT,
     )
-    git("add", "pyproject.toml", "CHANGELOG.md", cwd=ROOT)
+    git("add", "pyproject.toml", "uv.lock", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
     git(
         "commit",
