@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-04-01
+
+Add protocol support for reporting failure blobs back to the client. These are strings that can be used to reproduce a specific failure exactly.
+
 ## 0.2.3 - 2026-03-25
 
 This release adds a --stdio flag to hegel-core that allows the calling process to communicate with it directly via stdin and stdout rather than going via a unix socket.
