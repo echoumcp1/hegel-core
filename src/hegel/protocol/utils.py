@@ -30,9 +30,9 @@ class RequestError(Exception):
         self.error_type = error_type
 
 
-ChannelId = NewType("ChannelId", int)
+StreamId = NewType("StreamId", int)
 MessageId = NewType("MessageId", int)
 
-CHANNEL_TIMEOUT = float(os.getenv("HEGEL_CHANNEL_TIMEOUT", 30))
+STREAM_TIMEOUT = float(os.getenv("HEGEL_STREAM_TIMEOUT", 30))
 
 SHUTDOWN = UniqueIdentifier("shutdown")
