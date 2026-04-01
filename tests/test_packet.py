@@ -21,7 +21,7 @@ def packets():
     return st.builds(
         Packet,
         message_id=st.integers(0, 1 << 31 - 1),
-        channel_id=st.integers(0, 1 << 32 - 1),
+        stream_id=st.integers(0, 1 << 32 - 1),
     )
 
 
@@ -29,19 +29,19 @@ def _make_packet(
     *,
     magic=PACKET_MAGIC,
     checksum=None,
-    channel_id=0,
+    stream_id=0,
     message_id=1,
     payload=b"payload",
     terminator=PACKET_TERMINATOR,
 ):
     length = len(payload)
     header_for_check = struct.pack(
-        PACKET_HEADER_FORMAT, magic, 0, channel_id, message_id, length
+        PACKET_HEADER_FORMAT, magic, 0, stream_id, message_id, length
     )
     if checksum is None:
         checksum = zlib.crc32(header_for_check + payload) & 0xFFFFFFFF
     header = struct.pack(
-        PACKET_HEADER_FORMAT, magic, checksum, channel_id, message_id, length
+        PACKET_HEADER_FORMAT, magic, checksum, stream_id, message_id, length
     )
     return header + payload + bytes([terminator])
 

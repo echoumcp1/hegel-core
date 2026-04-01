@@ -23,9 +23,9 @@ def _do_handshake(server: Connection, client: ClientConnection):
 def test_request_handling(socket_pair):
     def add_server(connection):
         connection.receive_handshake()
-        handler_channel = connection.new_channel()
+        handler_stream = connection.new_stream()
 
-        @handler_channel.handle_requests
+        @handler_stream.handle_requests
         def _(message):
             return {"sum": message["x"] + message["y"]}
 
@@ -39,10 +39,10 @@ def test_request_handling(socket_pair):
     with ClientConnection(client_socket) as client_connection:
         client_connection.send_handshake()
 
-        # Server creates channel with id=2 (first non-control,
-        # __next_channel_id=1, id = (1 << 1) | 0 = 2)
-        send_channel = client_connection.connect_channel(2)
-        assert send_channel.send_request({"x": 2, "y": 3}) == {"sum": 5}
+        # Server creates stream with id=2 (first non-control,
+        # __next_stream_id=1, id = (1 << 1) | 0 = 2)
+        send_stream = client_connection.connect_stream(2)
+        assert send_stream.send_request({"x": 2, "y": 3}) == {"sum": 5}
 
 
 def test_handle_requests_until(socket_pair):
@@ -50,8 +50,8 @@ def test_handle_requests_until(socket_pair):
 
     def add_server(connection):
         connection.receive_handshake()
-        handler_channel = connection.new_channel()
-        handler_channel.handle_requests(
+        handler_stream = connection.new_stream()
+        handler_stream.handle_requests(
             lambda message: None,
             until=lambda: True,
         )
@@ -78,7 +78,7 @@ def test_handle_requests_until(socket_pair):
 )
 def test_connection_debug_mode(socket, name, payload):
     with Connection(socket, name=name, debug=True) as conn:
-        packet = Packet(channel_id=0, message_id=1, is_reply=False, payload=payload)
+        packet = Packet(stream_id=0, message_id=1, is_reply=False, payload=payload)
         conn._debug_packet(packet, direction="TEST")
 
 
@@ -96,16 +96,16 @@ def test_connection_debug_with_handshake(socket_pair, send_fn):
         ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
-        ch_client = client_conn.new_channel()
-        server_conn.register_client_channel(ch_client.channel_id)
+        ch_client = client_conn.new_stream()
+        server_conn.register_client_stream(ch_client.stream_id)
         send_fn(ch_client)
         time.sleep(0.2)
 
 
-# ---- Channel operations ----
+# ---- Stream operations ----
 
 
-def test_channel_close(socket_pair):
+def test_stream_close(socket_pair):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
@@ -113,16 +113,16 @@ def test_channel_close(socket_pair):
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = server_conn.new_channel()
-        channel.close()
+        stream = server_conn.new_stream()
+        stream.close()
         # Closing again should be a no-op
-        channel.close()
+        stream.close()
 
 
-def test_channel_close_when_connection_not_live(socket_pair):
-    """Test Channel.close() when connection is already closed.
+def test_stream_close_when_connection_not_live(socket_pair):
+    """Test Stream.close() when connection is already closed.
 
-    Tests that Channel.close() skips sending the close notification when
+    Tests that Stream.close() skips sending the close notification when
     connection.live is False.
     """
     server_socket, client_socket = socket_pair
@@ -132,15 +132,15 @@ def test_channel_close_when_connection_not_live(socket_pair):
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = server_conn.new_channel()
+        stream = server_conn.new_stream()
         # Close the connection first
         server_conn.close()
-        # Now close the channel — connection is not live
-        channel.close()
+        # Now close the stream — connection is not live
+        stream.close()
 
 
-def test_channel_process_message_when_closed(socket_pair):
-    """Test reading from a locally-closed channel raises ConnectionError."""
+def test_stream_process_message_when_closed(socket_pair):
+    """Test reading from a locally-closed stream raises ConnectionError."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
@@ -148,20 +148,20 @@ def test_channel_process_message_when_closed(socket_pair):
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = server_conn.new_channel()
-        channel.close()
+        stream = server_conn.new_stream()
+        stream.close()
 
         # First read consumes SHUTDOWN from the queue
         with pytest.raises(ConnectionError):
-            channel.read_request(timeout=0.1)
+            stream.read_request(timeout=0.1)
 
         # Second read hits the empty-queue-but-closed path
         with pytest.raises(ConnectionError):
-            channel.read_request(timeout=0.1)
+            stream.read_request(timeout=0.1)
 
 
-def test_channel_timeout(socket_pair):
-    """Test channel receive times out."""
+def test_stream_timeout(socket_pair):
+    """Test stream receive times out."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
@@ -169,37 +169,37 @@ def test_channel_timeout(socket_pair):
     ):
         _do_handshake(server_conn, client_conn)
 
-        channel = server_conn.new_channel()
+        stream = server_conn.new_stream()
 
         with pytest.raises(TimeoutError):
-            channel.read_request(timeout=0.1)
+            stream.read_request(timeout=0.1)
 
 
-def test_channel_repr(socket):
+def test_stream_repr(socket):
     with Connection(socket) as conn:
-        assert "Control" in repr(conn.control_channel)
+        assert "Control" in repr(conn.control_stream)
 
 
 @pytest.mark.parametrize(
     "role, expected",
     [
-        (None, "Channel "),
+        (None, "Stream "),
         ("TestRole", "(TestRole)"),
     ],
 )
-def test_channel_repr_variations(socket_pair, role, expected):
+def test_stream_repr_variations(socket_pair, role, expected):
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
         ClientConnection(client_socket) as client_conn,
     ):
         _do_handshake(server_conn, client_conn)
-        channel = server_conn.new_channel(role=role)
-        assert expected in repr(channel)
+        stream = server_conn.new_stream(role=role)
+        assert expected in repr(stream)
 
 
-def test_message_to_closed_channel(socket_pair):
-    """Test sending a message to a closed channel."""
+def test_message_to_closed_stream(socket_pair):
+    """Test sending a message to a closed stream."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
@@ -207,21 +207,21 @@ def test_message_to_closed_channel(socket_pair):
     ):
         _do_handshake(server_conn, client_conn)
 
-        ch_server = server_conn.new_channel()
-        ch_client = client_conn.connect_channel(ch_server.channel_id)
+        ch_server = server_conn.new_stream()
+        ch_client = client_conn.connect_stream(ch_server.stream_id)
 
-        # Close the channel on server side
+        # Close the stream on server side
         ch_server.close()
         time.sleep(0.2)
 
-        # Now send a request to the closed channel from client
+        # Now send a request to the closed stream from client
         ch_client.write_request(cbor2.dumps({"test": "data"}))
         time.sleep(0.2)
 
 
-@pytest.mark.parametrize("create_channel_first", [False, True])
-def test_close_channel_marks_closed(socket_pair, create_channel_first):
-    """Test that closing a channel marks it as closed."""
+@pytest.mark.parametrize("create_stream_first", [False, True])
+def test_close_stream_marks_closed(socket_pair, create_stream_first):
+    """Test that closing a stream marks it as closed."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket, name="Server", debug=True) as server_conn,
@@ -230,41 +230,41 @@ def test_close_channel_marks_closed(socket_pair, create_channel_first):
 
         def server_side():
             server_conn.receive_handshake()
-            channel = server_conn.control_channel
-            # Server must always connect to the channel so the reader can route
+            stream = server_conn.control_stream
+            # Server must always connect to the stream so the reader can route
             # the close packet.
-            packet = channel.read_request()
+            packet = stream.read_request()
             msg = cbor2.loads(packet.payload)
-            channel_id = msg["channel_id"]
-            role = "Hello" if create_channel_first else None
-            server_conn.register_client_channel(channel_id, role=role)
-            channel.write_reply(packet.message_id, "Ok")
-            packet = channel.read_request()
-            channel.write_reply(packet.message_id, "Ok")
+            stream_id = msg["stream_id"]
+            role = "Hello" if create_stream_first else None
+            server_conn.register_client_stream(stream_id, role=role)
+            stream.write_reply(packet.message_id, "Ok")
+            packet = stream.read_request()
+            stream.write_reply(packet.message_id, "Ok")
 
         t = Thread(target=server_side, daemon=True)
         t.start()
         client_conn.send_handshake()
 
-        client_channel_to_close = client_conn.new_channel()
+        client_stream_to_close = client_conn.new_stream()
 
-        # Tell the server about the channel so it can connect
+        # Tell the server about the stream so it can connect
         assert (
-            client_conn.control_channel.send_request(
-                {"channel_id": client_channel_to_close.channel_id},
+            client_conn.control_stream.send_request(
+                {"stream_id": client_stream_to_close.stream_id},
             )
             == "Ok"
         )
 
-        client_channel_to_close.close()
+        client_stream_to_close.close()
 
-        assert client_conn.control_channel.send_request({}) == "Ok"
+        assert client_conn.control_stream.send_request({}) == "Ok"
 
-        # The channel should now be closed on the server side
-        channel = server_conn.channels[client_channel_to_close.channel_id]
-        assert channel.closed
-        if create_channel_first:
-            assert channel.role == "Hello"
+        # The stream should now be closed on the server side
+        stream = server_conn.streams[client_stream_to_close.stream_id]
+        assert stream.closed
+        if create_stream_first:
+            assert stream.role == "Hello"
 
 
 # ---- PendingRequest ----
@@ -281,12 +281,12 @@ def test_pending_request_double_get_raises(socket_pair):
 
         def server_side():
             server_conn.receive_handshake()
-            # Tell client which channel we're creating via control channel
-            channel = server_conn.new_channel()
-            server_conn.control_channel.send_request(
-                {"channel_id": channel.channel_id}
+            # Tell client which stream we're creating via control stream
+            stream = server_conn.new_stream()
+            server_conn.control_stream.send_request(
+                {"stream_id": stream.stream_id}
             ).get()
-            pending = channel.send_request({"value": 21})
+            pending = stream.send_request({"value": 21})
             assert pending.get() == 42
             try:
                 pending.get()
@@ -297,15 +297,15 @@ def test_pending_request_double_get_raises(socket_pair):
         t.start()
         client_conn.send_handshake()
 
-        # Server tells us the channel ID via control channel
-        ctrl_packet = client_conn.control_channel.read_request()
-        channel_id = cbor2.loads(ctrl_packet.payload)["channel_id"]
-        channel = client_conn.connect_channel(channel_id)
-        client_conn.control_channel.write_reply(ctrl_packet.message_id, "Ok")
+        # Server tells us the stream ID via control stream
+        ctrl_packet = client_conn.control_stream.read_request()
+        stream_id = cbor2.loads(ctrl_packet.payload)["stream_id"]
+        stream = client_conn.connect_stream(stream_id)
+        client_conn.control_stream.write_reply(ctrl_packet.message_id, "Ok")
 
         # Client receives server's request and replies
-        packet = channel.read_request()
-        channel.write_reply(packet.message_id, 42)
+        packet = stream.read_request()
+        stream.write_reply(packet.message_id, 42)
         t.join(timeout=5)
         assert len(errors) == 1
         assert "Cannot .get() more than once" in str(errors[0])
@@ -322,11 +322,11 @@ def test_pending_request_error_response(socket_pair):
 
         def server_side():
             server_conn.receive_handshake()
-            channel = server_conn.new_channel()
-            server_conn.control_channel.send_request(
-                {"channel_id": channel.channel_id}
+            stream = server_conn.new_stream()
+            server_conn.control_stream.send_request(
+                {"stream_id": stream.stream_id}
             ).get()
-            pending = channel.send_request({"value": 21})
+            pending = stream.send_request({"value": 21})
             try:
                 pending.get()
             except RequestError as e:
@@ -336,14 +336,14 @@ def test_pending_request_error_response(socket_pair):
         t.start()
         client_conn.send_handshake()
 
-        ctrl_packet = client_conn.control_channel.read_request()
-        channel_id = cbor2.loads(ctrl_packet.payload)["channel_id"]
-        channel = client_conn.connect_channel(channel_id)
-        client_conn.control_channel.write_reply(ctrl_packet.message_id, "Ok")
+        ctrl_packet = client_conn.control_stream.read_request()
+        stream_id = cbor2.loads(ctrl_packet.payload)["stream_id"]
+        stream = client_conn.connect_stream(stream_id)
+        client_conn.control_stream.write_reply(ctrl_packet.message_id, "Ok")
 
         # Client receives server's request and replies with an error
-        packet = channel.read_request()
-        channel.write_reply_error(
+        packet = stream.read_request()
+        stream.write_reply_error(
             packet.message_id, error="test error", error_type="TestError"
         )
         t.join(timeout=5)
@@ -362,25 +362,25 @@ def test_receive_reply(socket_pair):
 
         def server_side():
             server_conn.receive_handshake()
-            channel = server_conn.new_channel()
-            server_conn.control_channel.send_request(
-                {"channel_id": channel.channel_id}
+            stream = server_conn.new_stream()
+            server_conn.control_stream.send_request(
+                {"stream_id": stream.stream_id}
             ).get()
-            packet = channel.write_request(cbor2.dumps({"test": True}))
-            result = cbor2.loads(channel.read_reply(packet.message_id).payload)
+            packet = stream.write_request(cbor2.dumps({"test": True}))
+            result = cbor2.loads(stream.read_reply(packet.message_id).payload)
             results.append(result)
 
         t = Thread(target=server_side, daemon=True)
         t.start()
         client_conn.send_handshake()
 
-        ctrl_packet = client_conn.control_channel.read_request()
-        channel_id = cbor2.loads(ctrl_packet.payload)["channel_id"]
-        channel = client_conn.connect_channel(channel_id)
-        client_conn.control_channel.write_reply(ctrl_packet.message_id, "Ok")
+        ctrl_packet = client_conn.control_stream.read_request()
+        stream_id = cbor2.loads(ctrl_packet.payload)["stream_id"]
+        stream = client_conn.connect_stream(stream_id)
+        client_conn.control_stream.write_reply(ctrl_packet.message_id, "Ok")
 
-        packet = channel.read_request()
-        channel.write_reply(packet.message_id, 42)
+        packet = stream.read_request()
+        stream.write_reply(packet.message_id, 42)
         t.join(timeout=5)
         assert results == [{"result": 42}]
 
@@ -391,36 +391,36 @@ def test_receive_reply(socket_pair):
 def test_duplicate_reply_id_raises(socket):
     """Test that getting two replies for same ID raises."""
     with Connection(socket) as conn:
-        channel = conn.control_channel
+        stream = conn.control_stream
 
         # Manually inject two reply packets for the same ID
-        channel.unprocessed_packets.put(
-            Packet(channel_id=0, message_id=1, is_reply=True, payload=b"a")
+        stream.unprocessed_packets.put(
+            Packet(stream_id=0, message_id=1, is_reply=True, payload=b"a")
         )
-        channel.unprocessed_packets.put(
-            Packet(channel_id=0, message_id=1, is_reply=True, payload=b"b")
+        stream.unprocessed_packets.put(
+            Packet(stream_id=0, message_id=1, is_reply=True, payload=b"b")
         )
 
         # First one should work
-        result = channel.read_reply(1).payload
+        result = stream.read_reply(1).payload
         assert result == b"a"
 
 
 def test_duplicate_reply_error(socket):
     """Test that duplicate replies for same ID raises AssertionError."""
     with Connection(socket) as conn:
-        channel = conn.control_channel
+        stream = conn.control_stream
 
         # Put a reply in the replies dict directly
-        channel.replies[42] = b"first"
+        stream.replies[42] = b"first"
 
         # Now try to process another reply with same ID
-        channel.unprocessed_packets.put(
-            Packet(channel_id=0, message_id=42, is_reply=True, payload=b"second")
+        stream.unprocessed_packets.put(
+            Packet(stream_id=0, message_id=42, is_reply=True, payload=b"second")
         )
 
         with pytest.raises(AssertionError):
-            channel._Channel__read_one_packet()
+            stream._Stream__read_one_packet()
 
 
 # ---- Connection handshake ----
@@ -445,17 +445,17 @@ def test_double_handshake_receive_raises(socket_pair):
         t.join(timeout=1)
 
 
-def test_connect_channel_before_handshake_raises(socket):
-    """Test that connect_channel before handshake raises."""
+def test_connect_stream_before_handshake_raises(socket):
+    """Test that connect_stream before handshake raises."""
     with (
         Connection(socket) as conn,
         pytest.raises(AssertionError),
     ):
-        conn.register_client_channel(1)
+        conn.register_client_stream(1)
 
 
-def test_connect_channel_already_exists_raises(socket_pair):
-    """Test connecting to existing channel raises."""
+def test_connect_stream_already_exists_raises(socket_pair):
+    """Test connecting to existing stream raises."""
     server_socket, client_socket = socket_pair
     with (
         Connection(server_socket) as server_conn,
@@ -463,18 +463,18 @@ def test_connect_channel_already_exists_raises(socket_pair):
     ):
         _do_handshake(server_conn, client_conn)
 
-        # Connect to channel 0 which already exists (control channel)
+        # Connect to stream 0 which already exists (control stream)
         with pytest.raises(AssertionError):
-            server_conn.register_client_channel(0)
+            server_conn.register_client_stream(0)
 
 
-def test_new_channel_before_handshake_raises(socket):
-    """Test that new_channel before handshake raises."""
+def test_new_stream_before_handshake_raises(socket):
+    """Test that new_stream before handshake raises."""
     with (
         Connection(socket) as conn,
         pytest.raises(AssertionError),
     ):
-        conn.new_channel()
+        conn.new_stream()
 
 
 def test_bad_handshake_negotiation(socket_pair):
@@ -486,8 +486,8 @@ def test_bad_handshake_negotiation(socket_pair):
     ):
 
         def send_bad():
-            channel = client_conn.control_channel
-            channel.write_request(b"BadVersion")
+            stream = client_conn.control_stream
+            stream.write_request(b"BadVersion")
 
         t = Thread(target=send_bad, daemon=True)
         t.start()
@@ -533,10 +533,10 @@ def test_connection_double_close(socket):
 def test_shutdown_in_inbox_raises(socket):
     """Test that SHUTDOWN in inbox raises ConnectionError."""
     with Connection(socket) as conn:
-        channel = conn.control_channel
-        channel.unprocessed_packets.put(SHUTDOWN)
+        stream = conn.control_stream
+        stream.unprocessed_packets.put(SHUTDOWN)
         with pytest.raises(ConnectionError, match="Connection closed"):
-            channel.read_request(timeout=0.1)
+            stream.read_request(timeout=0.1)
 
 
 def test_reader_loop_clean_exit(socket_pair):
@@ -544,7 +544,7 @@ def test_reader_loop_clean_exit(socket_pair):
 
     Tests that the reader loop exits cleanly via the `while self.running`
     condition becoming False (rather than via an exception).
-    We wrap the channel unprocessed_packets queue so that after the reader
+    We wrap the stream unprocessed_packets queue so that after the reader
     puts a packet into it, we set running = False. The reader then loops
     back, checks the condition, and exits cleanly.
     """
@@ -554,8 +554,8 @@ def test_reader_loop_clean_exit(socket_pair):
 
     _do_handshake(server_conn, client_conn)
 
-    ch_client = client_conn.new_channel()
-    ch_server = server_conn.register_client_channel(ch_client.channel_id)
+    ch_client = client_conn.new_stream()
+    ch_server = server_conn.register_client_stream(ch_client.stream_id)
 
     # Replace the queue with a wrapper that sets running = False after put
     real_queue = ch_server.unprocessed_packets

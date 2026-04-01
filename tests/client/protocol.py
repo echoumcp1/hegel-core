@@ -7,28 +7,28 @@ import cbor2
 
 from hegel.protocol.connection import HANDSHAKE_STRING
 from hegel.protocol.packet import (
-    CLOSE_CHANNEL_MESSAGE_ID,
-    CLOSE_CHANNEL_PAYLOAD,
+    CLOSE_STREAM_MESSAGE_ID,
+    CLOSE_STREAM_PAYLOAD,
     Packet,
     read_packet,
     write_packet,
 )
 from hegel.protocol.utils import (
-    ChannelId,
     MessageId,
     ProtocolError,
     RequestError,
+    StreamId,
 )
 
 
-class ClientChannel:
+class ClientStream:
     def __init__(
         self,
         connection: "ClientConnection",
-        channel_id: ChannelId,
+        stream_id: StreamId,
     ) -> None:
         self.connection = connection
-        self.channel_id = channel_id
+        self.stream_id = stream_id
 
         self.requests: deque[Packet] = deque()
         self.replies: dict[MessageId, Packet] = {}
@@ -37,7 +37,7 @@ class ClientChannel:
         self.closed = False
 
     def close(self):
-        """Close this channel."""
+        """Close this stream."""
         if self.closed:
             return
 
@@ -45,16 +45,16 @@ class ClientChannel:
         if self.connection.running:
             self.connection.write_packet(
                 Packet(
-                    payload=CLOSE_CHANNEL_PAYLOAD,
-                    message_id=CLOSE_CHANNEL_MESSAGE_ID,
-                    channel_id=self.channel_id,
+                    payload=CLOSE_STREAM_PAYLOAD,
+                    message_id=CLOSE_STREAM_MESSAGE_ID,
+                    stream_id=self.stream_id,
                     is_reply=False,
                 ),
             )
 
     def _receive_one(self) -> None:
-        """Read packets from the socket until one for this channel arrives."""
-        packet = self.connection.receive_packet_for_channel(self.channel_id)
+        """Read packets from the socket until one for this stream arrives."""
+        packet = self.connection.receive_packet_for_stream(self.stream_id)
         if packet.is_reply:
             assert packet.message_id not in self.replies
             self.replies[packet.message_id] = packet
@@ -75,7 +75,7 @@ class ClientChannel:
         assert isinstance(payload, bytes)
         packet = Packet(
             payload=payload,
-            channel_id=self.channel_id,
+            stream_id=self.stream_id,
             is_reply=False,
             message_id=self.next_message_id,
         )
@@ -87,7 +87,7 @@ class ClientChannel:
         self.connection.write_packet(
             Packet(
                 payload=payload,
-                channel_id=self.channel_id,
+                stream_id=self.stream_id,
                 is_reply=True,
                 message_id=message_id,
             ),
@@ -124,17 +124,15 @@ class ClientConnection:
     """Client-side multiplexed socket connection to a Hegel server."""
 
     def __init__(self, socket: socket.socket):
-        self.channels: dict[ChannelId, ClientChannel] = {}
+        self.streams: dict[StreamId, ClientStream] = {}
         self.running = True
 
-        self._pending_packets: defaultdict[ChannelId, deque[Packet]] = defaultdict(
-            deque
-        )
+        self._pending_packets: defaultdict[StreamId, deque[Packet]] = defaultdict(deque)
         self._socket = socket
-        self._next_channel_id = 1
+        self._next_stream_id = 1
 
-        # special channel for connection-level commands
-        self.control_channel = self._make_channel(ChannelId(0))
+        # special stream for connection-level commands
+        self.control_stream = self._make_stream(StreamId(0))
 
     def __enter__(self):
         return self
@@ -142,18 +140,18 @@ class ClientConnection:
     def __exit__(self, *args):
         self.close()
 
-    def receive_packet_for_channel(self, channel_id: ChannelId) -> Packet:
-        """Read packets from the socket until one for ``channel_id`` arrives.
+    def receive_packet_for_stream(self, stream_id: StreamId) -> Packet:
+        """Read packets from the socket until one for ``stream_id`` arrives.
 
-        Packets for other channels are stashed in per-channel pending queues.
-        Close-channel packets mark the target channel as closed.
+        Packets for other streams are stashed in per-stream pending queues.
+        Close-stream packets mark the target stream as closed.
         """
         # Check pending first
-        pending = self._pending_packets.get(channel_id)
+        pending = self._pending_packets.get(stream_id)
         if pending:
             return pending.popleft()
 
-        # Read from socket until we get one for our channel
+        # Read from socket until we get one for our stream
         while True:
             try:
                 packet = read_packet(self._socket)
@@ -161,17 +159,17 @@ class ClientConnection:
                 self.running = False
                 raise ConnectionError("Connection closed") from None
 
-            if packet.payload == CLOSE_CHANNEL_PAYLOAD:
-                assert packet.message_id == CLOSE_CHANNEL_MESSAGE_ID
-                channel = self.channels[packet.channel_id]
-                channel.closed = True
+            if packet.payload == CLOSE_STREAM_PAYLOAD:
+                assert packet.message_id == CLOSE_STREAM_MESSAGE_ID
+                stream = self.streams[packet.stream_id]
+                stream.closed = True
                 continue
 
-            if packet.channel_id == channel_id:
+            if packet.stream_id == stream_id:
                 return packet
 
-            # Stash for another channel
-            self._pending_packets[packet.channel_id].append(packet)
+            # Stash for another stream
+            self._pending_packets[packet.stream_id].append(packet)
 
     def write_packet(self, packet: Packet) -> None:
         """Write a packet to the socket."""
@@ -189,26 +187,26 @@ class ClientConnection:
 
     def send_handshake(self) -> str:
         """Initiate handshake as a client. Returns the server protocol version."""
-        packet = self.control_channel.write_request(HANDSHAKE_STRING)
-        reply = self.control_channel.read_reply(packet.message_id)
+        packet = self.control_stream.write_request(HANDSHAKE_STRING)
+        reply = self.control_stream.read_reply(packet.message_id)
         payload = reply.payload.decode("utf-8")
         assert payload.startswith("Hegel/")
         return payload.removeprefix("Hegel/")
 
-    def _make_channel(self, channel_id: ChannelId) -> ClientChannel:
-        """Create and register a channel."""
-        channel = ClientChannel(connection=self, channel_id=channel_id)
-        self.channels[channel.channel_id] = channel
-        return channel
+    def _make_stream(self, stream_id: StreamId) -> ClientStream:
+        """Create and register a stream."""
+        stream = ClientStream(connection=self, stream_id=stream_id)
+        self.streams[stream.stream_id] = stream
+        return stream
 
-    def new_channel(self) -> ClientChannel:
-        """Create a new logical channel on this connection (odd IDs for client)."""
-        channel_id = ChannelId((self._next_channel_id << 1) | 1)
-        self._next_channel_id += 1
-        return self._make_channel(channel_id)
+    def new_stream(self) -> ClientStream:
+        """Create a new logical stream on this connection (odd IDs for client)."""
+        stream_id = StreamId((self._next_stream_id << 1) | 1)
+        self._next_stream_id += 1
+        return self._make_stream(stream_id)
 
-    def connect_channel(self, channel_id: ChannelId) -> ClientChannel:
-        """Connect to a channel created by the server (even IDs)."""
-        assert channel_id not in self.channels
-        assert channel_id & 1 == 0  # server channels are even
-        return self._make_channel(channel_id)
+    def connect_stream(self, stream_id: StreamId) -> ClientStream:
+        """Connect to a stream created by the server (even IDs)."""
+        assert stream_id not in self.streams
+        assert stream_id & 1 == 0  # server streams are even
+        return self._make_stream(stream_id)

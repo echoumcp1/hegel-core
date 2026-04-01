@@ -8,16 +8,16 @@ from typing import TYPE_CHECKING, Any
 import cbor2
 
 from hegel.protocol.packet import (
-    CLOSE_CHANNEL_MESSAGE_ID,
-    CLOSE_CHANNEL_PAYLOAD,
+    CLOSE_STREAM_MESSAGE_ID,
+    CLOSE_STREAM_PAYLOAD,
     Packet,
     read_packet,
     write_packet,
 )
-from hegel.protocol.utils import SHUTDOWN, ChannelId, ConnectionClosedError
+from hegel.protocol.utils import SHUTDOWN, ConnectionClosedError, StreamId
 
 if TYPE_CHECKING:
-    from hegel.protocol.channel import Channel
+    from hegel.protocol.stream import Stream
 
 PROTOCOL_VERSION = 0.8
 HANDSHAKE_STRING = b"hegel_handshake_start"
@@ -51,8 +51,8 @@ class Connection:
     At the lowest level, the protocol is bytes moving across the transport layer. The
     transport layer is currently unix sockets, though this may change to support windows.
     Bytes sent over the socket always consist of logical packets (see the Packet class).
-    Packets on the protocol have a channel_id, which logically organizes packets. See the
-    Channel class for details.
+    Packets on the protocol have a stream_id, which logically organizes packets. See the
+    Stream class for details.
 
     Protocol
     --------
@@ -64,9 +64,9 @@ class Connection:
 
     The protocol between a server and a client starts with a handshake:
 
-    - The client sends a packet on the control channel with payload
+    - The client sends a packet on the control stream with payload
       b"hegel_handshake_start"
-    - The server responds with a packet on the control channel with payload
+    - The server responds with a packet on the control stream with payload
       b"Hegel/{PROTOCOL_VERSION}"
 
     Test case lifetime
@@ -75,11 +75,11 @@ class Connection:
     After the handshake, the lifetime of a test on the protocol is:
 
     - The client sends a {"command": "run_test"} cbor packet on the control
-      channel. The payload includes a channel_id C1 and various test settings.
+      stream. The payload includes a stream_id C1 and various test settings.
     - The server responds with a reply packet containing the cbor payload True.
     - We now start sending and executing test cases. The server sends a
-      {"event": "test_case", "channel_id": C2} cbor packet on channel C1.
-      C2 is conceptually the channel for this specific test case.
+      {"event": "test_case", "stream_id": C2} cbor packet on stream C1.
+      C2 is conceptually the stream for this specific test case.
     - The client sends a {"command": ...} cbor packet, typically "generate",
       on C2. The server responds with an appropriate cbor packet, typically the result
       of drawing from the requested schema.
@@ -101,16 +101,16 @@ class Connection:
         self.name = name
         self._debug = _is_protocol_debug() if debug is None else debug
 
-        self.channels: dict[ChannelId, Channel] = {}
+        self.streams: dict[StreamId, Stream] = {}
         self.running = True
 
         self.__writer_lock = Lock()
         self.__socket = socket
-        self.__next_channel_id = 1
+        self.__next_stream_id = 1
         self._handshake_done = False
 
-        # special channel for connection-level commands
-        self.control_channel = self._make_channel(ChannelId(0), role="Control")
+        # special stream for connection-level commands
+        self.control_stream = self._make_stream(StreamId(0), role="Control")
 
         self._reader_thread = Thread(target=self._reader_loop, daemon=True)
         self._reader_thread.start()
@@ -139,9 +139,9 @@ class Connection:
             except Exception:
                 payload_repr = packet.payload
 
-        channel = self.channels[packet.channel_id]
+        stream = self.streams[packet.stream_id]
         self._debug_print(
-            f"[{self.name or '?'}] {direction} ch={channel}"
+            f"[{self.name or '?'}] {direction} ch={stream}"
             f" message_id={packet.message_id}"
             f" {'reply' if packet.is_reply else 'request'}: {payload_repr!r}",
         )
@@ -157,7 +157,7 @@ class Connection:
         with contextlib.suppress(OSError):
             self.__socket.close()
 
-        for v in self.channels.values():
+        for v in self.streams.values():
             if not v.closed:
                 v.unprocessed_packets.put(SHUTDOWN)
 
@@ -166,16 +166,16 @@ class Connection:
             while self.running:
                 packet = read_packet(self.__socket)
 
-                channel = self.channels[packet.channel_id]
+                stream = self.streams[packet.stream_id]
                 self._debug_packet(packet, direction="RECEIVE")
-                if packet.payload == CLOSE_CHANNEL_PAYLOAD:
-                    assert packet.message_id == CLOSE_CHANNEL_MESSAGE_ID
-                    self._debug_print(f"Received close for {channel}")
-                    channel.closed = True
-                    channel.unprocessed_packets.put(SHUTDOWN)
+                if packet.payload == CLOSE_STREAM_PAYLOAD:
+                    assert packet.message_id == CLOSE_STREAM_MESSAGE_ID
+                    self._debug_print(f"Received close for {stream}")
+                    stream.closed = True
+                    stream.unprocessed_packets.put(SHUTDOWN)
                 else:
-                    assert not channel.closed
-                    channel.unprocessed_packets.put(packet)
+                    assert not stream.closed
+                    stream.unprocessed_packets.put(packet)
         except (ConnectionClosedError, OSError):
             pass
         finally:
@@ -191,49 +191,47 @@ class Connection:
         assert not self._handshake_done
 
         self._handshake_done = True
-        packet = self.control_channel.read_request()
+        packet = self.control_stream.read_request()
         assert packet.payload == HANDSHAKE_STRING
         # we expect the payload to be pure ASCII. ASCII and utf-8 overlap, so passing
         # "ascii" as the encoding is equivalent in the standard case, but gives us a
         # fail-fast error otherwise.
-        self.control_channel.write_reply_bytes(
+        self.control_stream.write_reply_bytes(
             packet.message_id, f"Hegel/{PROTOCOL_VERSION}".encode("ascii")
         )
 
-    def _make_channel(
-        self, channel_id: ChannelId, *, role: str | None = None
-    ) -> "Channel":
-        """Create and register a channel."""
-        from hegel.protocol.channel import Channel
+    def _make_stream(self, stream_id: StreamId, *, role: str | None = None) -> "Stream":
+        """Create and register a stream."""
+        from hegel.protocol.stream import Stream
 
-        channel = Channel(connection=self, channel_id=channel_id, role=role)
+        stream = Stream(connection=self, stream_id=stream_id, role=role)
         with self.__writer_lock:
-            self.channels[channel.channel_id] = channel
-        return channel
+            self.streams[stream.stream_id] = stream
+        return stream
 
-    def new_channel(self, *, role: str | None = None) -> "Channel":
+    def new_stream(self, *, role: str | None = None) -> "Stream":
         assert self._handshake_done
-        # server channels get even ids
-        channel_id = ChannelId(self.__next_channel_id << 1)
-        self.__next_channel_id += 1
-        return self._make_channel(channel_id, role=role)
+        # server streams get even ids
+        stream_id = StreamId(self.__next_stream_id << 1)
+        self.__next_stream_id += 1
+        return self._make_stream(stream_id, role=role)
 
-    def register_client_channel(
-        self, channel_id: ChannelId, *, role: str | None = None
-    ) -> "Channel":
+    def register_client_stream(
+        self, stream_id: StreamId, *, role: str | None = None
+    ) -> "Stream":
         """
-        Register a new channel created by a client.
+        Register a new stream created by a client.
 
-        Because both a client and a server may create a channel in the protocol, this
-        method lets the server create the logical Channel object required to store packets
-        sent over that channel.
+        Because both a client and a server may create a stream in the protocol, this
+        method lets the server create the logical Stream object required to store packets
+        sent over that stream.
 
-        In practice, once a channel is made, no distinction is made between it having
+        In practice, once a stream is made, no distinction is made between it having
         been created by the client or the server. This method's name explicitly mentions
         the client origin for protocol hygiene, not because it has a fundamental impact.
         """
         assert self._handshake_done
-        assert channel_id not in self.channels
-        # client channels have odd ids
-        assert channel_id & 1 == 1
-        return self._make_channel(channel_id, role=role)
+        assert stream_id not in self.streams
+        # client streams have odd ids
+        assert stream_id & 1 == 1
+        return self._make_stream(stream_id, role=role)

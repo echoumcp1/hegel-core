@@ -4,14 +4,14 @@ import zlib
 from dataclasses import dataclass
 
 from hegel.protocol.utils import (
-    ChannelId,
     ConnectionClosedError,
     MessageId,
     ProtocolError,
+    StreamId,
 )
 
 # 5 unsigned 32-bit integers, big-endian:
-# magic cookie, checksum, channel, message ID, payload length
+# magic cookie, checksum, stream, message ID, payload length
 PACKET_HEADER_FORMAT = ">5I"
 # ASCII for "HEGL"
 PACKET_MAGIC = 0x4845474C
@@ -19,13 +19,13 @@ PACKET_TERMINATOR = 0x0A  # '\n'
 # If this is set in the message id, this packet is a reply to a previous packet
 REPLY_BIT = 1 << 31
 
-# Special payload that is sent on a channel when it is shut down. The shutdown
+# Special payload that is sent on a stream when it is shut down. The shutdown
 # is not acked and is handled specifially.
 # Chosen to be invalid CBOR as per https://www.rfc-editor.org/rfc/rfc8949.html
 # It is currently also not the prefix of any valid CBOR (this is a reserved)
 # tag byte) but even if it became valid in future this would not be a problem.
-CLOSE_CHANNEL_PAYLOAD = bytes([0b11111110])
-CLOSE_CHANNEL_MESSAGE_ID = MessageId((1 << 31) - 1)
+CLOSE_STREAM_PAYLOAD = bytes([0b11111110])
+CLOSE_STREAM_MESSAGE_ID = MessageId((1 << 31) - 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +45,7 @@ class Packet:
         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
         |                     Checksum (CRC32)                          |
         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-        |                     Channel id                              |S|
+        |                     Stream id                              |S|
         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
         |R|                   Message id                                |
         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -61,21 +61,21 @@ class Packet:
     - Magic: The constant 0x4845474C (ASCII for "HEGL").
     - Checksum: CRC32 of the header with the checksum field zeroed, concatenated with
        the payload.
-    - Channel id: The logical channel this packet is being sent over. The S (source) bit
-       is 1 for channels created by the client, and 0 for channels created by the server.
+    - Stream id: The logical stream this packet is being sent over. The S (source) bit
+       is 1 for streams created by the client, and 0 for streams created by the server.
        The S bit is only part of the protocol to allow both the client and server to
-       create channels without coordination.
+       create streams without coordination.
     - Message id: The id of the message. The R (reply) bit is set if this packet is a reply
        to a previous packet. The message id of a reply packet will be the same as the
        message id of a non-reply packet, but with the R bit set. The message id is
-       included in the protocol to support out-of-order replies over the same channel.
+       included in the protocol to support out-of-order replies over the same stream.
     - Payload length: The length of the payload, in bytes.
 
     The header is followed by the variable-length payload field, and then a single
     terminator byte (0x0A).
     """
 
-    channel_id: ChannelId
+    stream_id: StreamId
     message_id: MessageId
     is_reply: bool
     payload: bytes
@@ -106,7 +106,7 @@ def read_packet(sock: socket.socket, *, timeout: float | None = None) -> Packet:
     sock.settimeout(timeout)
     header = read_exact(sock, n=struct.calcsize(PACKET_HEADER_FORMAT))
     sock.settimeout(None)
-    magic, checksum, channel, message_id, length = struct.unpack(
+    magic, checksum, stream, message_id, length = struct.unpack(
         PACKET_HEADER_FORMAT, header
     )
     assert magic == PACKET_MAGIC
@@ -125,7 +125,7 @@ def read_packet(sock: socket.socket, *, timeout: float | None = None) -> Packet:
     assert zlib.crc32(zeroed_header + payload) == checksum
 
     return Packet(
-        channel_id=channel,
+        stream_id=stream,
         message_id=message_id,
         payload=payload,
         is_reply=is_reply,
@@ -140,7 +140,7 @@ def write_packet(sock: socket.socket, packet: Packet) -> None:
     # checksum is defined as crc(header + payload), where the header's checksum has
     # been zeroed
     zeroed_header = struct.pack(
-        ">5I", PACKET_MAGIC, 0, packet.channel_id, message_id, len(packet.payload)
+        ">5I", PACKET_MAGIC, 0, packet.stream_id, message_id, len(packet.payload)
     )
     checksum = zlib.crc32(zeroed_header + packet.payload)
 
@@ -148,7 +148,7 @@ def write_packet(sock: socket.socket, packet: Packet) -> None:
         ">5I",
         PACKET_MAGIC,
         checksum,
-        packet.channel_id,
+        packet.stream_id,
         message_id,
         len(packet.payload),
     )
