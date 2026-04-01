@@ -152,6 +152,11 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
+      - uses: ./.github/actions/install-tools
+        if: steps.check.outputs.skip != 'true'
+        with:
+          tools: uv
+
       - name: Release
         if: steps.check.outputs.skip != 'true'
         env:
