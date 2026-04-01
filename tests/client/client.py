@@ -49,6 +49,7 @@ class Client:
         self.connection = connection
         self._control = connection.control_channel
         self.__lock = threading.Lock()
+        self.last_result: dict | None = None
 
     def run_test(
         self,
@@ -56,6 +57,7 @@ class Client:
         *,
         test_cases: int = 100,
         seed: int | None = None,
+        failure_blob: bytes | None = None,
         suppress_health_check: list[str] | None = None,
         database_key: bytes | None = None,
         derandomize: bool = False,
@@ -72,6 +74,7 @@ class Client:
             "channel_id": test_channel.channel_id,
             "database_key": database_key,
             "derandomize": derandomize,
+            "failure_blob": failure_blob,
         }
         if database is not not_set:
             message["database"] = database
@@ -105,6 +108,7 @@ class Client:
                 )
 
         assert result_data is not None
+        self.last_result = result_data
 
         if "error" in result_data:
             raise ValueError(result_data["error"])
@@ -117,6 +121,8 @@ class Client:
 
         n_interesting = result_data["interesting_test_cases"]
 
+        if result_data["passed"] and failure_blob:
+            raise AssertionError("failure blob did not reproduce")
         if n_interesting == 0:
             return
 
