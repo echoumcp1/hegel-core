@@ -2,7 +2,7 @@ import argparse
 import os
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 SOURCE_DIRS = ["src/"]
@@ -61,7 +61,7 @@ def set_version(pyproject: Path, new_version: str) -> None:
 
 
 def add_changelog(path: Path, *, version: str, content: str) -> None:
-    date = datetime.now(datetime.UTC).strftime("%Y-%m-%d")
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     entry = f"## {version} - {date}\n\n{content}"
 
     existing = path.read_text()
