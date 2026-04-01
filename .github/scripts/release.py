@@ -70,6 +70,22 @@ def add_changelog(path: Path, *, version: str, content: str) -> None:
     path.write_text(f"# Changelog\n\n{entry}{rest}")
 
 
+def _check_protocol_version_bumped(base_ref: str) -> None:
+    diff = subprocess.check_output(
+        [
+            "git",
+            "diff",
+            f"origin/{base_ref}...HEAD",
+            "--",
+            "src/hegel/protocol/connection.py",
+        ],
+        text=True,
+        cwd=ROOT,
+    )
+    if not re.search(r"^\+.*PROTOCOL_VERSION\s*=", diff, re.MULTILINE):
+        raise ValueError("Patch releases must bump PROTOCOL_VERSION.")
+
+
 def check(base_ref: str) -> None:
     output = subprocess.check_output(
         ["git", "diff", "--name-only", f"origin/{base_ref}...HEAD"],
@@ -110,7 +126,10 @@ def check(base_ref: str) -> None:
         raise ValueError(box)
 
     # perform validation of RELEASE.md
-    parse_release_file(release_file)
+    release_type, _ = parse_release_file(release_file)
+
+    if release_type == "patch":
+        _check_protocol_version_bumped(base_ref)
 
 
 def release() -> None:
