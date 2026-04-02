@@ -1,5 +1,3 @@
-RELEASE_TYPE: patch
+RELEASE_TYPE: minor
 
-This patch adds support for the `"alphabet"` key in `{"type": "string", "alphabet": ...}`, which allows controlling the strategy the characters of the string are drawn from.
-
-As a result, this bumps our protocol version to `0.8`.
+This release adds support for alphabet parameters in `{"type": "string"}` schemas, allowing control over which characters generated strings are drawn from. Supported parameters include `codec`, `min_codepoint`, `max_codepoint`, `categories`, `exclude_categories`, `exclude_characters`, and `include_characters`.
