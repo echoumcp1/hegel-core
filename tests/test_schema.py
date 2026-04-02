@@ -109,12 +109,12 @@ def schemas():
         )
         # const with JSON-serializable values
         | st.builds(
-            lambda v: {"const": v},
+            lambda v: {"type": "constant", "value": v},
             v=st.none() | st.booleans() | st.integers() | st.text(max_size=5),
         )
         # sampled_from with JSON-serializable values
         | st.builds(
-            lambda vs: {"sampled_from": vs},
+            lambda vs: {"type": "sampled_from", "values": vs},
             vs=st.lists(
                 st.none() | st.booleans() | st.integers(),
                 min_size=1,
@@ -166,7 +166,7 @@ def schemas():
             )
             # one_of
             | st.builds(
-                lambda options: {"one_of": options},
+                lambda options: {"type": "one_of", "generators": options},
                 options=st.lists(inner, min_size=1, max_size=3),
             )
         ),
@@ -275,18 +275,21 @@ def test_datetime():
 
 @given(st.integers() | st.text())
 def test_const(v):
-    assert_all_examples(from_schema({"const": v}), lambda x: x == v)
+    assert_all_examples(from_schema({"type": "constant", "value": v}), lambda x: x == v)
 
 
 def test_sampled_from():
     assert_all_examples(
-        from_schema({"sampled_from": [1, 2, 3]}), lambda x: x in [1, 2, 3]
+        from_schema({"type": "sampled_from", "values": [1, 2, 3]}),
+        lambda x: x in [1, 2, 3],
     )
 
 
 def test_one_of():
     assert_all_examples(
-        from_schema({"one_of": [{"type": "boolean"}, {"type": "null"}]}),
+        from_schema(
+            {"type": "one_of", "generators": [{"type": "boolean"}, {"type": "null"}]}
+        ),
         lambda x: x is None or isinstance(x, bool),
     )
 

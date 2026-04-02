@@ -14,11 +14,11 @@ except NameError:  # pragma: no cover
 import cbor2
 
 from hegel.protocol import RequestError
-from tests.client.protocol import ClientChannel, ClientConnection
+from tests.client.protocol import ClientConnection, ClientStream
 
 # Context variables for the current test case
-_current_channel: ContextVar[ClientChannel | None] = ContextVar(
-    "_current_channel",
+_current_stream: ContextVar[ClientStream | None] = ContextVar(
+    "_current_stream",
     default=None,
 )
 _is_final: ContextVar[bool] = ContextVar("_is_final", default=False)
@@ -47,8 +47,9 @@ class Client:
     def __init__(self, connection: ClientConnection):
         _version = connection.send_handshake()
         self.connection = connection
-        self._control = connection.control_channel
+        self._control = connection.control_stream
         self.__lock = threading.Lock()
+        self.last_result: dict | None = None
 
     def run_test(
         self,
@@ -56,6 +57,7 @@ class Client:
         *,
         test_cases: int = 100,
         seed: int | None = None,
+        failure_blob: bytes | None = None,
         suppress_health_check: list[str] | None = None,
         database_key: bytes | None = None,
         derandomize: bool = False,
@@ -63,15 +65,16 @@ class Client:
     ) -> None:
         """Run a property test."""
 
-        test_channel = self.connection.new_channel()
+        test_stream = self.connection.new_stream()
 
         message: dict[str, Any] = {
             "command": "run_test",
             "test_cases": test_cases,
             "seed": seed,
-            "channel_id": test_channel.channel_id,
+            "stream_id": test_stream.stream_id,
             "database_key": database_key,
             "derandomize": derandomize,
+            "failure_blob": failure_blob,
         }
         if database is not not_set:
             message["database"] = database
@@ -84,27 +87,28 @@ class Client:
         result_data = None
 
         while True:
-            packet = test_channel.read_request()
+            packet = test_stream.read_request()
             message = cbor2.loads(packet.payload)
             event = message.get("event")
 
             if event == "test_case":
-                channel_id = message["channel_id"]
-                test_channel.write_reply(packet.message_id, None)
-                test_case_channel = self.connection.connect_channel(channel_id)
-                self._run_test_case(test_case_channel, test_fn, is_final=False)
+                stream_id = message["stream_id"]
+                test_stream.write_reply(packet.message_id, None)
+                test_case_stream = self.connection.connect_stream(stream_id)
+                self._run_test_case(test_case_stream, test_fn, is_final=False)
             elif event == "test_done":
-                test_channel.write_reply(packet.message_id, True)
+                test_stream.write_reply(packet.message_id, True)
                 result_data = message["results"]
                 break
             else:
-                test_channel.write_reply_error(
+                test_stream.write_reply_error(
                     packet.message_id,
                     error=f"Unrecognised event {event}",
                     error_type="InvalidMessage",
                 )
 
         assert result_data is not None
+        self.last_result = result_data
 
         if "error" in result_data:
             raise ValueError(result_data["error"])
@@ -117,20 +121,22 @@ class Client:
 
         n_interesting = result_data["interesting_test_cases"]
 
+        if result_data["passed"] and failure_blob:
+            raise AssertionError("failure blob did not reproduce")
         if n_interesting == 0:
             return
 
         exceptions: list[Exception] = []
         for i in range(n_interesting):
             try:
-                packet = test_channel.read_request()
+                packet = test_stream.read_request()
                 message = cbor2.loads(packet.payload)
                 assert message["event"] == "test_case"
 
-                channel_id = message["channel_id"]
-                test_channel.write_reply(packet.message_id, None)
-                test_case_channel = self.connection.connect_channel(channel_id)
-                self._run_test_case(test_case_channel, test_fn, is_final=True)
+                stream_id = message["stream_id"]
+                test_stream.write_reply(packet.message_id, None)
+                test_case_stream = self.connection.connect_stream(stream_id)
+                self._run_test_case(test_case_stream, test_fn, is_final=True)
                 if n_interesting > 1:
                     raise ValueError(
                         f"Expected test case {i} to fail but it didn't",
@@ -145,17 +151,17 @@ class Client:
 
     def _run_test_case(
         self,
-        channel: ClientChannel,
+        stream: ClientStream,
         test_fn: Callable[[], None],
         *,
         is_final: bool,
     ) -> None:
         """Run a single test case."""
-        if _current_channel.get() is not None:
+        if _current_stream.get() is not None:
             raise RuntimeError(
                 "Cannot nest test cases - already inside a test case",
             )
-        _current_channel.set(channel)
+        _current_stream.set(stream)
         _is_final.set(is_final)
         _test_aborted.set(False)
         already_complete = False
@@ -176,11 +182,11 @@ class Client:
             if is_final:
                 raise
         finally:
-            _current_channel.set(None)
+            _current_stream.set(None)
             _is_final.set(False)
             _test_aborted.set(False)
             if not already_complete:
-                channel.write_request(
+                stream.write_request(
                     cbor2.dumps(
                         {
                             "command": "mark_complete",
@@ -189,7 +195,7 @@ class Client:
                         }
                     )
                 )
-            channel.close()
+            stream.close()
 
 
 def _extract_origin(exc: Exception, tb: Any) -> str:
@@ -206,25 +212,25 @@ def _extract_origin(exc: Exception, tb: Any) -> str:
     return f"{type(exc).__name__} at {filename}:{lineno}"
 
 
-def _get_channel() -> ClientChannel:
-    """Get the current test channel, raising if not in a test."""
-    channel = _current_channel.get()
-    if channel is None:
+def _get_stream() -> ClientStream:
+    """Get the current test stream, raising if not in a test."""
+    stream = _current_stream.get()
+    if stream is None:
         raise RuntimeError(
             "Not in a test context - must be called from within a test function",
         )
-    return channel
+    return stream
 
 
 def _request(payload: dict) -> Any:
-    """Send a request on the current test channel, handling server-side errors.
+    """Send a request on the current test stream, handling server-side errors.
 
     Converts server-side StopTest/UnsatisfiedAssumption errors into
     DataExhausted so the client knows the test case is already complete.
     Converts flaky errors into FlakyTest with clear messages.
     """
     try:
-        return _get_channel().send_request(payload)
+        return _get_stream().send_request(payload)
     except RequestError as e:
         if e.error_type == "StopTest":
             _test_aborted.set(True)
@@ -286,27 +292,23 @@ def stop_span(*, discard: bool = False) -> None:
 
 
 class collection:
-    def __init__(
-        self, name: str | None, min_size: int = 0, max_size: int | None = None
-    ):
-        self.__base_name = name
-        self.__server_name = None
+    def __init__(self, min_size: int = 0, max_size: int | None = None):
+        self.__collection_id = None
         self.__finished = False
         self.min_size = min_size
         self.max_size = max_size
 
     @property
-    def _server_name(self):
-        if self.__server_name is None:
-            self.__server_name = _request(
+    def _collection_id(self):
+        if self.__collection_id is None:
+            self.__collection_id = _request(
                 {
                     "command": "new_collection",
-                    "name": self.__base_name,
                     "min_size": self.min_size,
                     "max_size": self.max_size,
                 }
             )
-        return self.__server_name
+        return self.__collection_id
 
     def more(self) -> bool:
         """Should we generate another element?"""
@@ -314,7 +316,7 @@ class collection:
             return False
 
         result = _request(
-            {"command": "collection_more", "collection": self._server_name}
+            {"command": "collection_more", "collection_id": self._collection_id}
         )
         if not result:
             self.__finished = True
@@ -327,7 +329,7 @@ class collection:
             _request(
                 {
                     "command": "collection_reject",
-                    "collection": self._server_name,
+                    "collection_id": self._collection_id,
                     "why": why,
                 }
             )

@@ -90,7 +90,7 @@ A generator is basic (i.e. has a schema and optional transform) in these cases:
 | `booleans(...)` | Always | `{"type": "boolean", ...}` | None |
 | `text(...)` | Always | `{"type": "string", ...}` | None |
 | `binary(...)` | Always | `{"type": "binary", ...}` | None |
-| `just(value)` | Always | `{"const": null}` | Returns the constant value, ignoring server input |
+| `just(value)` | Always | `{"constant": null}` | Returns the constant value, ignoring server input |
 | `sampled_from(values)` | Always | `{"type": "integer", "min_value": 0, "max_value": len-1}` | Returns `values[index]` |
 | `basic.map(f)` | Always | Same schema as `basic` | `f` composed with existing transform |
 | `nonbasic.map(f)` | Never | — | — |
@@ -267,7 +267,7 @@ Generate a constant value.
 **Parameters:**
 - `value`: The constant value to always return.
 
-**Schema:** `{"const": null}`.
+**Schema:** `{"constant": null}`.
 
 The schema always uses `null` as the const value (the server generates a null,
 and the client-side transform returns the actual constant). This allows `just`
@@ -499,8 +499,8 @@ Schema:
 ```json
 {
   "one_of": [
-    {"type": "tuple", "elements": [{"const": 0}, <schema1>]},
-    {"type": "tuple", "elements": [{"const": 1}, <schema2>]},
+    {"type": "tuple", "elements": [{"constant": 0}, <schema1>]},
+    {"type": "tuple", "elements": [{"constant": 1}, <schema2>]},
     ...
   ]
 }
@@ -607,16 +607,16 @@ Unix domain sockets.
 Each packet has a 20-byte header:
 - Magic: `0x4845474C` ("HEGL")
 - CRC32 checksum of the payload
-- Channel ID
+- Stream ID
 - Message ID (with reply bit at `1 << 31`)
 - Payload length
 
 Followed by a CBOR-encoded payload and a terminator byte (`0x0A`).
 
-### Channel Multiplexing
+### Stream Multiplexing
 
-- Channel 0: Control channel (handshake, `run_test`)
-- Odd-numbered channels: Created by the client for test communication
+- Stream 0: Control stream (handshake, `run_test`)
+- Odd-numbered streams: Created by the client for test communication
 
 ### Key Commands
 
@@ -844,43 +844,43 @@ labeled group.
 
 ### Reading packets from the Connection
 
-The Hegel protocol uses a **demand-driven reader** reader. When a channel needs
+The Hegel protocol uses a **demand-driven reader** reader. When a stream needs
 a message, it drives the connection's reader to read from the socket until the
 needed message arrives (or a timeout is reached).
 
 **How it works:**
 
-1. When `Channel.receive_request()` or `Channel.wait_for_reply()` is called,
-   the channel invokes `Connection.run_reader(until)` where `until` is a
-   condition that becomes true when the channel's inbox has a message, the
-   channel is closed, or a timeout expires.
+1. When `Stream.receive_request()` or `Stream.wait_for_reply()` is called,
+   the stream invokes `Connection.run_reader(until)` where `until` is a
+   condition that becomes true when the stream's inbox has a message, the
+   stream is closed, or a timeout expires.
 2. `run_reader` acquires a reader lock (non-blocking — if another thread holds
    it, the caller polls until the lock is free or `until` is true).
 3. While the lock is held, it reads packets from the socket (with short
    timeouts to allow checking the `until` condition) and dispatches them to
-   the appropriate channel's inbox.
+   the appropriate stream's inbox.
 4. When `until()` returns true, the reader releases the lock and returns.
 
 **Key design points:**
 
 - **No background thread**: There is no dedicated reader thread. Reading
-  happens on the calling thread when a channel needs data.
+  happens on the calling thread when a stream needs data.
 - **Reader lock**: Only one thread reads from the socket at a time. The lock
   is acquired non-blocking — other threads poll until it's available.
 - **Short read timeouts**: `read_packet` uses a short socket timeout (e.g.
   100ms) so the reader can periodically check the `until` condition.
 - **Close is simple**: Set `running = false`, shutdown the socket, close
-  channels. No thread join needed.
+  streams. No thread join needed.
 
 **Thread safety for sends:**
 
 - A separate writer lock protects `send_packet` so multiple threads can
   send concurrently without corrupting the socket stream.
-- Channel registration also uses the writer lock.
+- Stream registration also uses the writer lock.
 
 **Thread-local state:**
 
-- Use thread-local storage for the current data channel so that `generate()`,
+- Use thread-local storage for the current data stream so that `generate()`,
   `assume()`, etc. work as free functions.
 - Use atomic operations for request ID counters.
 
@@ -1099,7 +1099,7 @@ reference for new implementations.
 - The `_raw_schema` and `_transform` attributes are accessed directly by
   combinators (they are nominally private but used within the module).
 - `sampled_from` uses the integer-index approach for all types.
-- `just` uses `{"const": null}` schema with a transform that ignores input.
+- `just` uses `{"constant": null}` schema with a transform that ignores input.
 
 ### Rust
 
@@ -1114,7 +1114,7 @@ reference for new implementations.
 - `sampled_from` always uses the integer-index approach (matching the
   reference Python implementation) and is always basic.
 - `just` works with any `Clone + Send + Sync` type and always uses
-  `{"const": null}` with a transform that returns the constant value.
+  `{"constant": null}` with a transform that returns the constant value.
 
 ### C++
 

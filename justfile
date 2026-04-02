@@ -1,32 +1,41 @@
-ci: lint typecheck coverage
+# `just` prints bash comments in stdout by default. this suppresses that
+set ignore-comments := true
 
-test:
-    uv run pytest tests
+check-lint: check-format
 
-coverage:
-    uv run coverage run -m pytest tests
-    ANTITHESIS_OUTPUT_DIR="$HOME/antithesis-output" uv run coverage run -m pytest tests
-    uv run coverage combine
-    uv run coverage report
+format:
+    uv run ruff check --fix-only .
+    uv run shed
 
-lint:
+check-format:
     uv run ruff check .
     uv run shed
     git diff --exit-code
 
-typecheck:
+check-typing:
     uv run mypy src/
 
-format:
-    uv run ruff check src tests --fix
-    uv run shed
-    uv run ruff format src tests
+check-tests:
+    uv run pytest tests
 
-check: typecheck format coverage
-    echo "Checks passed successfully"
+check-tests-coverage-normal:
+    uv run coverage run --data-file=.coverage.normal -m pytest tests
+    uv run coverage combine --data-file=.coverage.normal
 
-setup:
-    uv sync --group dev
+check-tests-coverage-antithesis:
+    ANTITHESIS_OUTPUT_DIR="$HOME/antithesis-output" uv run coverage run --data-file=.coverage.antithesis -m pytest tests
+    uv run coverage combine --data-file=.coverage.antithesis
 
-docs:
-    @echo "Documentation build not yet configured"
+check-coverage-report:
+    uv run coverage combine .coverage.normal .coverage.antithesis
+    uv run coverage report
+
+check-coverage: check-tests-coverage-normal check-tests-coverage-antithesis check-coverage-report
+
+# these aliases are provided as ux improvements for local developers. CI should use the longer
+# forms.
+test: check-tests
+lint: check-lint
+typecheck: check-typing
+coverage: check-coverage
+check: check-lint check-typing check-tests

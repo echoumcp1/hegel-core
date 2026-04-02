@@ -5,16 +5,16 @@ from typing import TYPE_CHECKING, Any
 import cbor2
 
 from hegel.protocol.packet import (
-    CLOSE_CHANNEL_MESSAGE_ID,
-    CLOSE_CHANNEL_PAYLOAD,
+    CLOSE_STREAM_MESSAGE_ID,
+    CLOSE_STREAM_PAYLOAD,
     Packet,
 )
 from hegel.protocol.utils import (
-    CHANNEL_TIMEOUT,
     SHUTDOWN,
-    ChannelId,
+    STREAM_TIMEOUT,
     MessageId,
     RequestError,
+    StreamId,
 )
 
 if TYPE_CHECKING:
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 class PendingRequest:
     """Future-like handle for an in-flight request."""
 
-    def __init__(self, channel: "Channel", message_id: MessageId) -> None:
-        self.__channel = channel
+    def __init__(self, stream: "Stream", message_id: MessageId) -> None:
+        self.__stream = stream
         self.__message_id = message_id
         self._closed = False
 
@@ -34,38 +34,38 @@ class PendingRequest:
         if self._closed:
             raise ValueError("Cannot .get() more than once")
         self._closed = True
-        packet = self.__channel.read_reply(self.__message_id)
+        packet = self.__stream.read_reply(self.__message_id)
         payload = cbor2.loads(packet.payload)
         if "error" in payload:
             raise RequestError(payload["error"], error_type=payload["type"])
         return payload["result"]
 
 
-class Channel:
+class Stream:
     """
-    A channel organizes packets sent over the protocol. Every packet is attached to a
-    single channel, according to that packet's channel_id.
+    A stream organizes packets sent over the protocol. Every packet is attached to a
+    single stream, according to that packet's stream_id.
 
-    Channels may be "created" by either the client or the server. There is no explicit
-    negotiation to create a new channel. Rather, the client or server simply sends packets
-    with a channel_id of the new channel's id. In practice, however, the only place the
-    protocol currently allows implicitly creating a new channel is in the run_test command,
-    where that packet's channel_id is treated as a new channel created by the client.
+    Streams may be "created" by either the client or the server. There is no explicit
+    negotiation to create a new stream. Rather, the client or server simply sends packets
+    with a stream_id of the new stream's id. In practice, however, the only place the
+    protocol currently allows implicitly creating a new stream is in the run_test command,
+    where that packet's stream_id is treated as a new stream created by the client.
 
-    There is always a control channel with id 0, which is used for protocol-level
+    There is always a control stream with id 0, which is used for protocol-level
     communication such as the handshake negotiation.
     """
 
     def __init__(
         self,
         connection: "Connection",
-        channel_id: ChannelId,
+        stream_id: StreamId,
         role: str | None = None,
     ) -> None:
-        assert channel_id > 0 or role == "Control"
+        assert stream_id > 0 or role == "Control"
 
         self.connection = connection
-        self.channel_id = channel_id
+        self.stream_id = stream_id
         self.role = role
 
         self.unprocessed_packets: SimpleQueue[Any] = SimpleQueue()
@@ -77,13 +77,13 @@ class Channel:
 
     def __repr__(self):
         if self.role is None and self.connection.name is None:
-            return f"Channel {self.channel_id}"
+            return f"Stream {self.stream_id}"
         if self.role is None:
-            return f"{self.connection.name} channel [id={self.channel_id}]"
-        return f"{self.connection.name} channel [id={self.channel_id}] ({self.role})"
+            return f"{self.connection.name} stream [id={self.stream_id}]"
+        return f"{self.connection.name} stream [id={self.stream_id}] ({self.role})"
 
     def close(self):
-        """Close this channel. Writes a close channel notification packet to the socket."""
+        """Close this stream. Writes a close stream notification packet to the socket."""
         if self.closed:
             return
 
@@ -92,16 +92,16 @@ class Channel:
         if self.connection.running:
             self.connection.write_packet(
                 Packet(
-                    payload=CLOSE_CHANNEL_PAYLOAD,
-                    message_id=CLOSE_CHANNEL_MESSAGE_ID,
-                    channel_id=self.channel_id,
+                    payload=CLOSE_STREAM_PAYLOAD,
+                    message_id=CLOSE_STREAM_MESSAGE_ID,
+                    stream_id=self.stream_id,
                     is_reply=False,
                 ),
             )
 
-    def __read_one_packet(self, timeout: float | None = CHANNEL_TIMEOUT) -> None:
+    def __read_one_packet(self, timeout: float | None = STREAM_TIMEOUT) -> None:
         """Wait for one packet from the reader thread."""
-        # When the channel is closed, drain any already-queued packets with a
+        # When the stream is closed, drain any already-queued packets with a
         # non-blocking get before raising.  The reader thread may have enqueued
         # packets *before* setting self.closed (from a peer close notification),
         # and those packets must still be consumed.
@@ -130,7 +130,7 @@ class Channel:
     def handle_requests(self, handler, *, until=lambda: False):
         """Process incoming requests until `until` is met."""
         while not until():
-            packet = self.read_request(timeout=CHANNEL_TIMEOUT)
+            packet = self.read_request(timeout=STREAM_TIMEOUT)
             message = cbor2.loads(packet.payload)
             try:
                 result = handler(message)
@@ -150,7 +150,7 @@ class Channel:
         assert isinstance(payload, bytes)
         packet = Packet(
             payload=payload,
-            channel_id=self.channel_id,
+            stream_id=self.stream_id,
             is_reply=False,
             message_id=self.next_message_id,
         )
@@ -178,21 +178,21 @@ class Channel:
         self.connection.write_packet(
             Packet(
                 payload=payload,
-                channel_id=self.channel_id,
+                stream_id=self.stream_id,
                 is_reply=True,
                 message_id=message_id,
             ),
         )
 
     def read_reply(
-        self, message_id: MessageId, *, timeout: float | None = CHANNEL_TIMEOUT
+        self, message_id: MessageId, *, timeout: float | None = STREAM_TIMEOUT
     ) -> Packet:
         """Wait to receive a reply to ``message_id``, and return it."""
         while message_id not in self.replies:
             self.__read_one_packet(timeout=timeout)
         return self.replies.pop(message_id)
 
-    def read_request(self, *, timeout: float | None = CHANNEL_TIMEOUT) -> Packet:
+    def read_request(self, *, timeout: float | None = STREAM_TIMEOUT) -> Packet:
         """Wait to receive a request, and return it."""
         while not self.requests:
             self.__read_one_packet(timeout=timeout)

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0 - 2026-04-01
+
+Several breaking changes:
+- Rename `channel` to `stream` everywhere.
+- Restructure parameters and return values for `collection` commands.
+
+## 0.2.5 - 2026-04-01
+
+This patch changes how `const`, `sampled_from`, and `one_of` are defined in the protocol, to harmonize with the other generator definitions:
+
+- `{"const": value}` is now `{"type": "constant", "value": value}`
+- `{"sampled_from": [...]}` is now `{"type": "sampled_from", "values": [...]}`
+- `{"one_of": [...]}` is now `{"type": "one_of", "generators": [...]}`
+
+As a result, this patch bumps our protocol version to `0.8`.
+
+## 0.2.4 - 2026-04-01
+
+Add protocol support for reporting failure blobs back to the client. These are strings that can be used to reproduce a specific failure exactly.
+
 ## 0.2.3 - 2026-03-25
 
 This release adds a --stdio flag to hegel-core that allows the calling process to communicate with it directly via stdin and stdout rather than going via a unix socket.

@@ -1,8 +1,8 @@
 import contextlib
+import itertools
 import os
 import random
 import traceback
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from random import Random
 from typing import Any
@@ -10,6 +10,7 @@ from typing import Any
 import cbor2
 from hypothesis import HealthCheck, settings
 from hypothesis.control import BuildContext
+from hypothesis.core import decode_failure, encode_failure
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.errors import (
     FailedHealthCheck,
@@ -23,7 +24,7 @@ from hypothesis.internal.conjecture.engine import ConjectureRunner, ExitReason
 from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
 
-from hegel.protocol import Channel, Connection, ProtocolError
+from hegel.protocol import Connection, ProtocolError, Stream
 from hegel.schema import _encode_value, from_schema
 from hegel.utils import UniqueIdentifier, not_set
 
@@ -140,7 +141,7 @@ class HegelState:
     """State for a test run that communicates with the client.
 
     The test_function method handles a single test case by:
-    1. Creating a channel for communication
+    1. Creating a stream for communication
     2. Sending a test_case event to the client
     3. Handling generate/span/target requests from the client until mark_complete
     4. Applying the final status to the ConjectureData
@@ -149,26 +150,26 @@ class HegelState:
     def __init__(
         self,
         connection: Connection,
-        channel: Channel,
+        stream: Stream,
         *,
         is_final: bool = False,
     ):
         self._connection = connection
-        self._channel = channel
+        self._stream = stream
         self._is_final = is_final
         self.flaky_error: Flaky | None = None
 
     def test_function(self, data: ConjectureData) -> None:
-        collections: dict[str, many] = {}
+        collections: dict[int, many] = {}
         variable_pools: list[Variables] = []
-        collection_name_counter: Counter[str] = Counter()
+        collection_id_counter = itertools.count()
 
         with BuildContext(data, is_final=self._is_final, wrapped_test=None):  # type: ignore
-            test_case_channel = self._connection.new_channel(role="Test Case")
-            self._channel.send_request(
+            test_case_stream = self._connection.new_stream(role="Test Case")
+            self._stream.send_request(
                 {
                     "event": "test_case",
-                    "channel_id": test_case_channel.channel_id,
+                    "stream_id": test_case_stream.stream_id,
                     "is_final": self._is_final,
                 },
             ).get()
@@ -212,10 +213,8 @@ class HegelState:
                                 origin,  # type: ignore[arg-type]
                             )
                     elif command == "new_collection":
-                        base_name = message.get("name", "collection")
-                        name = f"{base_name}_{collection_name_counter[base_name]}"
-                        collection_name_counter[base_name] += 1
-                        assert name not in collections
+                        collection_id = next(collection_id_counter)
+                        assert collection_id not in collections
                         min_size = message.get("min_size", 0)
                         max_size = message.get("max_size", float("inf"))
                         if max_size is None:
@@ -225,18 +224,18 @@ class HegelState:
                             max(min_size * 2, min_size + 5),
                             0.5 * (min_size + max_size),
                         )
-                        collections[name] = many(
+                        collections[collection_id] = many(
                             data,
                             min_size=min_size,
                             max_size=max_size,
                             average_size=average_size,
                         )
-                        return name
+                        return collection_id
                     elif command == "collection_more":
-                        collection = collections[message["collection"]]
+                        collection = collections[message["collection_id"]]
                         return collection.more()
                     elif command == "collection_reject":
-                        collection = collections[message["collection"]]
+                        collection = collections[message["collection_id"]]
                         return collection.reject(why=message.get("why"))
                     elif command == "new_pool":
                         i = len(variable_pools)
@@ -272,7 +271,7 @@ class HegelState:
                     self.flaky_error = e
                     raise
 
-            test_case_channel.handle_requests(handle_client_request, until=lambda: done)
+            test_case_stream.handle_requests(handle_client_request, until=lambda: done)
 
 
 def run_server_on_connection(connection: Connection) -> None:
@@ -282,22 +281,23 @@ def run_server_on_connection(connection: Connection) -> None:
     try:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as thread_pool:
             while True:
-                packet = connection.control_channel.read_request(timeout=None)
+                packet = connection.control_stream.read_request(timeout=None)
                 message = cbor2.loads(packet.payload)
                 command = message["command"]
                 if command == "run_test":
-                    channel = connection.register_client_channel(
-                        message["channel_id"], role="Test channel"
+                    stream = connection.register_client_stream(
+                        message["stream_id"], role="Test stream"
                     )
 
                     pending_futures.append(
                         thread_pool.submit(
                             _run_test,
                             connection,
-                            channel,
+                            stream,
                             test_cases=message["test_cases"],
                             database_key=message.get("database_key"),
                             seed=message.get("seed"),
+                            failure_blob=message.get("failure_blob"),
                             suppress_health_check=message.get(
                                 "suppress_health_check", []
                             ),
@@ -305,7 +305,7 @@ def run_server_on_connection(connection: Connection) -> None:
                             database=message.get("database", not_set),
                         ),
                     )
-                    connection.control_channel.write_reply(packet.message_id, True)
+                    connection.control_stream.write_reply(packet.message_id, True)
                 else:
                     raise ValueError(f"Unknown command: {command}")
     except (ConnectionError, ProtocolError):
@@ -324,11 +324,12 @@ def run_server_on_connection(connection: Connection) -> None:
 
 def _run_test(
     connection: Connection,
-    channel: Channel,
+    stream: Stream,
     *,
     test_cases: int,
     database_key: bytes | None,
     seed: int | None,
+    failure_blob: bytes | None = None,
     suppress_health_check: list[str] | None,
     derandomize: bool,
     database: str | UniqueIdentifier | None,
@@ -370,7 +371,7 @@ def _run_test(
                         f"Valid health checks are: {valid}"
                     ),
                 }
-                channel.send_request({"event": "test_done", "results": result}).get()
+                stream.send_request({"event": "test_done", "results": result}).get()
                 return result
 
         if database is None:
@@ -391,7 +392,7 @@ def _run_test(
             **({} if database is not_set else {"database": database}),
         }
 
-        state = HegelState(connection, channel, is_final=False)
+        state = HegelState(connection, stream, is_final=False)
         runner = ConjectureRunner(
             state.test_function,
             settings=settings(**settings_kwargs),  # type: ignore
@@ -399,7 +400,47 @@ def _run_test(
             database_key=database_key,
         )
         try:
-            runner.run()
+            if failure_blob is not None:
+                choices = decode_failure(failure_blob)
+                data = ConjectureData.for_choices(choices)
+                with contextlib.suppress(StopTest):
+                    state.test_function(data)
+
+                is_interesting = data.status is Status.INTERESTING
+                result = {
+                    "passed": not is_interesting,
+                    "test_cases": 1,
+                    "valid_test_cases": 0,
+                    "invalid_test_cases": 0,
+                    "interesting_test_cases": int(is_interesting),
+                }
+                if is_interesting:
+                    result["failure_blobs"] = [failure_blob]
+                    interesting_choices = [choices]
+                else:
+                    result["failure_blobs"] = []
+                    interesting_choices = []
+            else:
+                runner.run()
+
+                result = {
+                    "passed": len(runner.interesting_examples) == 0,
+                    "test_cases": runner.call_count,
+                    "valid_test_cases": runner.valid_examples,
+                    "invalid_test_cases": runner.invalid_examples,
+                    "interesting_test_cases": len(runner.interesting_examples),
+                    "seed": str(seed),
+                }
+                interesting_examples = sorted(
+                    runner.interesting_examples.values(),
+                    key=lambda d: sort_key(d.nodes),
+                )
+
+                interesting_choices = [v.choices for v in interesting_examples]
+
+                result["failure_blobs"] = [
+                    encode_failure(choices) for choices in interesting_choices
+                ]
         except FailedHealthCheck as e:
             result = {
                 "passed": False,
@@ -410,21 +451,12 @@ def _run_test(
                 "seed": str(seed),
                 "health_check_failure": str(e),
             }
-            channel.send_request({"event": "test_done", "results": result}).get()
+            stream.send_request({"event": "test_done", "results": result}).get()
             return result
         except Flaky as e:
             result = _flaky_result(runner, seed, e, state.flaky_error)
-            channel.send_request({"event": "test_done", "results": result}).get()
+            stream.send_request({"event": "test_done", "results": result}).get()
             return result
-
-        result = {
-            "passed": len(runner.interesting_examples) == 0,
-            "test_cases": runner.call_count,
-            "valid_test_cases": runner.valid_examples,
-            "invalid_test_cases": runner.invalid_examples,
-            "interesting_test_cases": len(runner.interesting_examples),
-            "seed": str(seed),
-        }
 
         # Check for flaky behavior detected during test execution
         flaky_error = state.flaky_error
@@ -435,15 +467,13 @@ def _run_test(
             result["passed"] = False
             result["flaky"] = FLAKY_TEST_RESULT_MSG
 
-        channel.send_request({"event": "test_done", "results": result}).get()
-        final_state = HegelState(connection, channel, is_final=True)
+        stream.send_request({"event": "test_done", "results": result}).get()
 
-        for v in sorted(
-            runner.interesting_examples.values(),
-            key=lambda d: sort_key(d.nodes),
-        ):
+        final_state = HegelState(connection, stream, is_final=True)
+
+        for choices in interesting_choices:
             with contextlib.suppress(StopTest):
-                final_state.test_function(ConjectureData.for_choices(v.choices))
+                final_state.test_function(ConjectureData.for_choices(choices))
 
         return result
     except Exception:

@@ -25,6 +25,11 @@ from tests.client import (
 )
 from tests.client.client import _request
 
+try:
+    ExceptionGroup
+except NameError:  # pragma: no cover
+    from exceptiongroup import ExceptionGroup
+
 
 def test_start_and_stop_span(client):
     def test():
@@ -49,8 +54,8 @@ def test_unknown_command(client):
         client._control.send_request({"command": "bogus"})
 
 
-def test_unknown_command_on_data_channel(client):
-    """Unknown command on data channel raises RequestError via handle_requests."""
+def test_unknown_command_on_data_stream(client):
+    """Unknown command on data stream raises RequestError via handle_requests."""
 
     def test():
         with pytest.raises(RequestError, match="Unknown command"):
@@ -70,7 +75,7 @@ def test_cache_eviction():
 
 def test_collection_with_no_max_size(client):
     def test():
-        c = collection("test_unbounded", min_size=1)
+        c = collection(min_size=1)
         result = []
         while c.more():
             val = generate_from_schema(
@@ -92,7 +97,7 @@ def test_collection_reject_on_server(client):
     def test():
         # Explicitly use collection.reject() to trigger the server-side
         # collection_reject handler.
-        c = collection("test_coll", min_size=1, max_size=5)
+        c = collection(min_size=1, max_size=5)
         result = []
         while c.more():
             val = generate_from_schema(
@@ -142,11 +147,11 @@ def test_future_cancel_on_connection_error(monkeypatch):
 
     with ClientConnection(client_socket) as client_connection:
         client = Client(client_connection)
-        channel = client_connection.new_channel()
+        stream = client_connection.new_stream()
         client._control.send_request(
             {
                 "command": "run_test",
-                "channel_id": channel.channel_id,
+                "stream_id": stream.stream_id,
                 "test_cases": 100,
             },
         )
@@ -176,11 +181,11 @@ def test_exception_in_run_one_is_printed_and_reraised(monkeypatch):
 
     with ClientConnection(client_socket) as client_connection:
         client = Client(client_connection)
-        channel = client_connection.new_channel()
+        stream = client_connection.new_stream()
         client._control.send_request(
             {
                 "command": "run_test",
-                "channel_id": channel.channel_id,
+                "stream_id": stream.stream_id,
                 "test_cases": 10,
             },
         )
@@ -199,7 +204,7 @@ def test_base_exception_in_server():
     server_socket, client_socket = socket.socketpair()
     server_conn = Connection(server_socket)
 
-    original_receive = server_conn.control_channel.read_request
+    original_receive = server_conn.control_stream.read_request
     call_count = 0
 
     def patched_receive(*args, **kwargs):
@@ -211,7 +216,7 @@ def test_base_exception_in_server():
 
     def server():
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(server_conn.control_channel, "read_request", patched_receive)
+            mp.setattr(server_conn.control_stream, "read_request", patched_receive)
             run_server_on_connection(server_conn)
 
     thread = Thread(target=server, daemon=True)
@@ -321,6 +326,64 @@ def test_pool_generate_from_empty_pool(client):
         _request({"command": "pool_generate", "pool_id": pool_id})
 
     client.run_test(test, test_cases=10)
+
+
+def test_reproduce_failure(client):
+    def test():
+        assert (
+            generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+            <= 10
+        )
+
+    with pytest.raises(AssertionError):
+        client.run_test(test, test_cases=100)
+
+    blob = client.last_result["failure_blobs"][0]
+    assert isinstance(blob, bytes)
+
+    with pytest.raises(AssertionError):
+        client.run_test(test, failure_blob=blob)
+
+
+def test_reproduce_failure_blob_no_longer_fails(client):
+    """When a blob no longer reproduces, the client raises RuntimeError."""
+
+    def failing_test():
+        assert (
+            generate_from_schema({"type": "integer", "min_value": 0, "max_value": 1000})
+            <= 10
+        )
+
+    with pytest.raises(AssertionError):
+        client.run_test(failing_test, test_cases=100)
+
+    blob = client.last_result["failure_blobs"][0]
+
+    # The blob was for failing_test, but we replay with a test that always passes.
+    with pytest.raises(AssertionError, match="failure blob did not reproduce"):
+        client.run_test(lambda: None, failure_blob=blob)
+
+
+def test_reproduce_failure_result_not_in_passing_test(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x >= 0
+
+    client.run_test(test, test_cases=50)
+    assert client.last_result["failure_blobs"] == []
+
+
+def test_multiple_blobs(client):
+    def test():
+        x = generate_from_schema({"type": "integer", "min_value": 0, "max_value": 100})
+        assert x <= 10
+
+        y = generate_from_schema({"type": "integer", "min_value": -10, "max_value": -1})
+        assert y >= 0
+
+    with pytest.raises(ExceptionGroup):
+        client.run_test(test, test_cases=50)
+    assert len(client.last_result["failure_blobs"]) == 2
 
 
 def test_derandomize_with_database_key(client):

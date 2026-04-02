@@ -24,15 +24,14 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/install-tools
         with:
-          tools: uv
-      - run: uv sync --group dev
-      - run: uv run ruff check .
-      - run: uv run shed
-      - run: git diff --exit-code
-      - name: Install zizmor
-        run: uv tool install zizmor
-      - name: Run zizmor
-        run: zizmor --format plain .github/
+          tools: just uv
+
+      - name: Check lint
+        run: just check-lint
+      - name: Check zizmor
+        run: |
+          uv tool install zizmor
+          zizmor --format plain .github/
 
   test:
     name: tests
@@ -45,16 +44,16 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/install-tools
         with:
-          tools: uv
-      - run: uv sync --group dev
+          tools: just uv
+
       - name: Run tests with coverage
-        run: uv run coverage run -m pytest
-      - run: uv run coverage combine
+        run: just check-tests-coverage-normal
+
       - name: Upload coverage data
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-normal
-          path: .coverage
+          path: .coverage.normal
           include-hidden-files: true
 
   test-antithesis:
@@ -68,18 +67,16 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/install-tools
         with:
-          tools: uv
-      - run: uv sync --group dev
+          tools: just uv
+
       - name: Run tests with coverage
-        run: uv run coverage run -m pytest
-        env:
-          ANTITHESIS_OUTPUT_DIR: ${{ runner.temp }}/antithesis-output
-      - run: uv run coverage combine
+        run: just check-tests-coverage-antithesis
+
       - name: Upload coverage data
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-antithesis
-          path: .coverage
+          path: .coverage.antithesis
           include-hidden-files: true
 
   check-coverage:
@@ -94,22 +91,18 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/install-tools
         with:
-          tools: uv
-      - run: uv sync --group dev
+          tools: just uv
+
       - name: Download coverage data
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: coverage-*
-          merge-multiple: false
-      - name: Combine coverage
-        run: |
-          cp coverage-normal/.coverage .coverage.normal
-          cp coverage-antithesis/.coverage .coverage.antithesis
-          uv run coverage combine
-      - name: Check coverage is 100%
-        run: uv run coverage report
+          merge-multiple: true
 
-  typecheck:
+      - name: Check coverage is 100%
+        run: just check-coverage-report
+
+  typing:
     name: mypy
     runs-on: ubuntu-latest
     permissions:
@@ -120,14 +113,15 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/install-tools
         with:
-          tools: uv
-      - run: uv sync --group dev
-      - run: uv run mypy src/
+          tools: just uv
+
+      - name: Run mypy
+        run: just check-typing
 
   release:
     name: release
     if: github.event_name == 'push' && github.repository == 'hegeldev/hegel-core'
-    needs: [lint, check-coverage, typecheck]
+    needs: [lint, check-coverage, typing]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -160,6 +154,11 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           token: ${{ steps.app-token.outputs.token }}
+
+      - uses: ./.github/actions/install-tools
+        if: steps.check.outputs.skip != 'true'
+        with:
+          tools: uv
 
       - name: Release
         if: steps.check.outputs.skip != 'true'
