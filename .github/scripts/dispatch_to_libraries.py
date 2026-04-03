@@ -14,6 +14,13 @@ def get_version() -> str:
     return m.group(1)
 
 
+def get_protocol_version() -> str:
+    text = (ROOT / "src" / "hegel" / "protocol" / "connection.py").read_text()
+    m = re.search(r"^PROTOCOL_VERSION\s*=\s*([\d.]+)", text, re.MULTILINE)
+    assert m is not None
+    return m.group(1)
+
+
 def dispatch(repos: list[str]) -> None:
     version = get_version()
 
@@ -21,7 +28,10 @@ def dispatch(repos: list[str]) -> None:
         body = json.dumps(
             {
                 "event_type": "hegel-core-release",
-                "client_payload": {"version": version},
+                "client_payload": {
+                    "version": version,
+                    "protocol_version": get_protocol_version(),
+                },
             }
         )
         subprocess.run(

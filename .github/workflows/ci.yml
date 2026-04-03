@@ -147,7 +147,7 @@ jobs:
         with:
           app-id: ${{ vars.HEGEL_RELEASE_APP_ID }}
           private-key: ${{ secrets.HEGEL_RELEASE_APP_PRIVATE_KEY }}
-          repositories: hegel-core, hegel-rust
+          repositories: hegel-core, hegel-rust, website
 
       - name: Re-checkout with app token # zizmor: ignore[artipacked]
         if: steps.check.outputs.skip != 'true'
@@ -184,4 +184,4 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: python .github/scripts/dispatch_to_libraries.py hegel-rust
+        run: python .github/scripts/dispatch_to_libraries.py hegel-rust website
