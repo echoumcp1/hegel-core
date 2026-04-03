@@ -21,7 +21,8 @@ class BooleansStrategy(SearchStrategy[bool]):
         return data.draw_boolean(p=self.p)
 
 
-CBOR_STRING_TAG = 6
+# used to allow encoding of surrogate code points. See https://github.com/hegeldev/hegel-core/pull/72
+HEGEL_STRING_TAG = 6
 
 
 def _encode_value(value: object) -> object:
@@ -30,7 +31,7 @@ def _encode_value(value: object) -> object:
         # this is sometimes called "WTF-8" encoding: https://wtf-8.codeberg.page/. It is
         # identical to UTF-8 except it drops the well-formed requirement that surrogates
         # not appear.
-        return CBORTag(CBOR_STRING_TAG, value.encode("utf-8", "surrogatepass"))
+        return CBORTag(HEGEL_STRING_TAG, value.encode("utf-8", "surrogatepass"))
     if isinstance(value, list):
         return [_encode_value(v) for v in value]
     if isinstance(value, tuple):
@@ -103,12 +104,6 @@ def _from_schema(schema: dict[str, Any]) -> SearchStrategy[Any]:
             unique=schema.get("unique", False),
         )
     if schema_type == "dict":
-        # Possibly "dict" should be removed entirely and replaced by libraries calling "tuple"
-        # themselves. (me, later: hmm no I don't think so because "tuple" would need
-        # unique_by=itemgetter(0), which is inexpressible over the protocol).
-        #
-        # We initially returned a tuple here to avoid json requiring string keys in dicts,
-        # but since we switched to cbor that's no longer a problem.
         return st.dictionaries(
             keys=_from_schema(schema["keys"]),
             values=_from_schema(schema["values"]),

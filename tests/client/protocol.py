@@ -20,10 +20,11 @@ from hegel.protocol.utils import (
     RequestError,
     StreamId,
 )
+from hegel.schema import HEGEL_STRING_TAG
 
 
 def _decode_hook(_decoder: object, tag: CBORTag) -> object:
-    if tag.tag == 6:
+    if tag.tag == HEGEL_STRING_TAG:
         return tag.value.decode("utf-8", "surrogatepass")
     return tag
 

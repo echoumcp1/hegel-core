@@ -10,7 +10,7 @@ from hypothesis.control import _current_build_context
 from hypothesis.strategies._internal.regex import IncompatibleWithAlphabet
 
 from hegel.conformance import _character_params, text_params_strategy
-from hegel.schema import _encode_value, from_schema
+from hegel.schema import HEGEL_STRING_TAG, _encode_value, from_schema
 
 
 def assert_all_examples(strategy, predicate, settings=None):
@@ -483,14 +483,14 @@ def test_from_schema(data):
     schema = data.draw(schemas())
     value = data.draw(from_schema(schema))
     value = _encode_value(value)
-    # all strings should have been encoded to our custom tag 6.
+    # all strings should have been encoded to our custom HEGEL_STRING_TAG.
     _assert_no_strings(value)
 
     def tag_hook(decoder, tag):
         # Unsigned bignum, negative bignum, and custom encoding for utf8 + surrogates
         # respectively
         # https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml
-        if tag.tag in {2, 3, 6}:
+        if tag.tag in {2, 3, HEGEL_STRING_TAG}:
             return
         raise AssertionError(f"Saw CBOR tag {tag}")
 
