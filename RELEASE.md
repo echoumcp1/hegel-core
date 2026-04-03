@@ -1,3 +1,3 @@
-RELEASE_TYPE: minor
+RELEASE_TYPE: patch
 
-This release adds support for alphabet parameters in `{"type": "string"}` schemas, allowing control over which characters generated strings are drawn from. Supported parameters include `codec`, `min_codepoint`, `max_codepoint`, `categories`, `exclude_categories`, `exclude_characters`, and `include_characters`.
+This release adds support for alphabet parameters in `{"type": "string"}` and `{"type": "regex"}` schemas, allowing control over generated characters. Supported parameters are `codec`, `min_codepoint`, `max_codepoint`, `categories`, `exclude_categories`, `exclude_characters`, and `include_characters`.
