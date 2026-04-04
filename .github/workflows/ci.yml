@@ -48,6 +48,7 @@ jobs:
 
       - name: Run tests with coverage
         run: just check-tests-coverage-normal
+
       - name: Upload coverage data
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -70,6 +71,7 @@ jobs:
 
       - name: Run tests with coverage
         run: just check-tests-coverage-antithesis
+
       - name: Upload coverage data
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -96,6 +98,7 @@ jobs:
         with:
           pattern: coverage-*
           merge-multiple: true
+
       - name: Check coverage is 100%
         run: just check-coverage-report
 

@@ -25,7 +25,7 @@ from hypothesis.internal.conjecture.shrinker import sort_key
 from hypothesis.internal.conjecture.utils import calc_label_from_name, many
 
 from hegel.protocol import Connection, ProtocolError, Stream
-from hegel.schema import from_schema
+from hegel.schema import _encode_value, from_schema
 from hegel.utils import UniqueIdentifier, not_set
 
 VARIABLES_LABEL = calc_label_from_name("Variables")
@@ -184,7 +184,8 @@ class HegelState:
                     if command == "generate":
                         schema = message["schema"]
                         strategy = from_schema(schema)
-                        return data.draw(strategy)
+                        result = data.draw(strategy)
+                        return _encode_value(result)
                     elif command == "start_span":
                         label = message.get("label", 0)
                         data.start_span(label)

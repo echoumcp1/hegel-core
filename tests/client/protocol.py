@@ -4,6 +4,7 @@ from collections import defaultdict, deque
 from typing import Any
 
 import cbor2
+from cbor2 import CBORTag
 
 from hegel.protocol.connection import HANDSHAKE_STRING
 from hegel.protocol.packet import (
@@ -19,6 +20,13 @@ from hegel.protocol.utils import (
     RequestError,
     StreamId,
 )
+from hegel.schema import HEGEL_STRING_TAG
+
+
+def _decode_hook(_decoder: object, tag: CBORTag) -> object:
+    if tag.tag == HEGEL_STRING_TAG:
+        return tag.value.decode("utf-8", "surrogatepass")
+    return tag
 
 
 class ClientStream:
@@ -65,7 +73,7 @@ class ClientStream:
         """Send a CBOR request and block until reply arrives. Returns the result."""
         packet = self.write_request(cbor2.dumps(payload))
         reply = self.read_reply(packet.message_id)
-        result = cbor2.loads(reply.payload)
+        result = cbor2.loads(reply.payload, tag_hook=_decode_hook)
         if "error" in result:
             raise RequestError(result["error"], error_type=result["type"])
         return result["result"]

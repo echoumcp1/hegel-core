@@ -2,20 +2,94 @@ import json
 import os
 import subprocess
 import tempfile
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Collection
+from encodings.aliases import aliases
 from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
 from hypothesis import (
     Phase,
+    assume,
     currently_in_test_context,
     given,
     note,
     settings as Settings,
     strategies as st,
 )
+from hypothesis.errors import InvalidArgument
+from hypothesis.internal import charmap
+
+
+def _can_encode(codec: str) -> bool:
+    try:
+        "".encode(codec)
+        return True
+    except Exception:
+        return False
+
+
+ALL_CATEGORIES = list(charmap.categories())
+ALL_CODECS = sorted({c for c in set(aliases).union(aliases.values()) if _can_encode(c)})
+
+
+@st.composite
+def _character_params(draw: st.DrawFn) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+
+    use_codec = draw(st.booleans())
+    use_min_codepoint = draw(st.booleans())
+    use_max_codepoint = draw(st.booleans())
+    use_categories = draw(st.booleans())
+    use_exclude_categories = draw(st.booleans())
+    use_exclude_chars = draw(st.booleans())
+    use_include_chars = draw(st.booleans())
+
+    # categories and exclude_categories are mutually exclusive
+    assume(not (use_categories and use_exclude_categories))
+
+    if use_codec:
+        params["codec"] = draw(st.sampled_from(ALL_CODECS))
+
+    if use_min_codepoint:
+        params["min_codepoint"] = draw(st.integers(0, 0x10FFFF))
+
+    if use_max_codepoint:
+        lo = params.get("min_codepoint", 0)
+        params["max_codepoint"] = draw(st.integers(lo, 0x10FFFF))
+
+    if use_categories:
+        params["categories"] = draw(st.lists(st.sampled_from(ALL_CATEGORIES)))
+
+    if use_exclude_categories:
+        params["exclude_categories"] = draw(st.lists(st.sampled_from(ALL_CATEGORIES)))
+
+    if use_exclude_chars:
+        params["exclude_characters"] = draw(st.text())
+
+    if use_include_chars:
+        params["include_characters"] = draw(st.text())
+
+    # reject invalid combinations
+    try:
+        st.characters(**params).validate()
+    except (InvalidArgument, ValueError):
+        assume(False)
+
+    return params
+
+
+@st.composite
+def text_params_strategy(draw: st.DrawFn) -> dict[str, Any]:
+    char_params = draw(_character_params())
+    min_size = draw(st.integers(0, 20))
+    max_size = draw(st.none() | st.integers(min_size, 20))
+    params: dict[str, Any] = {"min_size": min_size, **char_params}
+    if max_size is not None:
+        params["max_size"] = max_size
+    return params
 
 
 @st.composite
@@ -329,34 +403,46 @@ class FloatConformance(ConformanceTest):
 
 class TextConformance(ConformanceTest):
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
-        @st.composite
-        def strategy(draw: st.DrawFn) -> dict[str, Any]:
-            use_min_size = draw(st.booleans())
-            use_max_size = draw(st.booleans())
-
-            min_size = draw(st.integers(0, 50)) if use_min_size else 0
-            max_size = (
-                draw(st.integers(min_value=min_size, max_value=100))
-                if use_max_size
-                else None
-            )
-
-            return {"min_size": min_size, "max_size": max_size}
-
-        return strategy()
+        return text_params_strategy()
 
     def validate(
         self,
         metrics_list: list[dict[str, Any]],
         params: dict[str, Any],
     ) -> None:
+        expanded_cats = (
+            set(charmap.as_general_categories(params["categories"]))
+            if "categories" in params
+            else set()
+        )
+        expanded_exclude_cats = (
+            set(charmap.as_general_categories(params["exclude_categories"]))
+            if "exclude_categories" in params
+            else set()
+        )
+
         for metrics in metrics_list:
             if currently_in_test_context():
                 note(f"metrics: {metrics}")
-            length = metrics["length"]
+            codepoints = metrics["codepoints"]
+            length = len(codepoints)
             assert length >= params["min_size"]
-            if params["max_size"] is not None:
+            if params.get("max_size") is not None:
                 assert length <= params["max_size"]
+
+            for cp in codepoints:
+                if "min_codepoint" in params:
+                    assert cp >= params["min_codepoint"]
+                if "max_codepoint" in params:
+                    assert cp <= params["max_codepoint"]
+                if "codec" in params:
+                    chr(cp).encode(params["codec"])
+                if expanded_cats:
+                    assert unicodedata.category(chr(cp)) in expanded_cats
+                if expanded_exclude_cats:
+                    assert unicodedata.category(chr(cp)) not in expanded_exclude_cats
+                if "exclude_characters" in params:
+                    assert chr(cp) not in params["exclude_characters"]
 
 
 class BinaryConformance(ConformanceTest):

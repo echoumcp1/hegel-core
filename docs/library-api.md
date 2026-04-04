@@ -192,13 +192,53 @@ Generate Unicode text strings.
 **Parameters:**
 - `min_size` (int): Minimum string length. Default: 0.
 - `max_size` (int, optional): Maximum string length. Default: no limit.
+- `codec` (string, optional): Restrict to characters encodable in this codec (e.g. `"ascii"`, `"utf-8"`, `"latin-1"`).
+- `min_codepoint` (int, optional): Minimum Unicode codepoint.
+- `max_codepoint` (int, optional): Maximum Unicode codepoint.
+- `categories` (list of strings, optional): Include only characters from these Unicode general categories (e.g. `["L", "Nd"]`). Mutually exclusive with `exclude_categories`.
+- `exclude_categories` (list of strings, optional): Exclude characters from these Unicode general categories. Mutually exclusive with `categories`.
+- `include_characters` (string, optional): Always include these specific characters, even if excluded by other filters.
+- `exclude_characters` (string, optional): Always exclude these specific characters.
+
+When no character filtering parameters are set, the server generates from the
+full Unicode range. Client libraries that cannot represent surrogates (e.g.
+Rust) should send `exclude_categories: ["Cs"]` in their schemas by default.
 
 **Schema:**
 ```json
-{"type": "string", "min_size": <int>, "max_size": <int>}
+{
+  "type": "string",
+  "min_size": <int>,
+  "max_size": <int>,
+  "codec": <string>,
+  "min_codepoint": <int>,
+  "max_codepoint": <int>,
+  "categories": [<string>, ...],
+  "exclude_categories": [<string>, ...],
+  "include_characters": <string>,
+  "exclude_characters": <string>
+}
 ```
 
-`max_size` is omitted when unspecified.
+All fields except `type` and `min_size` are omitted when unspecified.
+
+**Basic:** Always. No transform.
+
+### `characters`
+
+Generate single Unicode characters. This is a convenience for
+`text(min_size=1, max_size=1)` — it returns the same type/schema with length
+fixed to 1. The `characters` type is also accepted by `from_regex`'s `alphabet`
+parameter.
+
+**Parameters:** Same character filtering parameters as `text` (all optional):
+`codec`, `min_codepoint`, `max_codepoint`, `categories`, `exclude_categories`,
+`include_characters`, `exclude_characters`.
+
+**Schema:**
+```json
+{"type": "string", "min_size": 1, "max_size": 1, "codec": <string>, ...}
+```
 
 **Basic:** Always. No transform.
 
@@ -263,11 +303,18 @@ Generate strings matching a regular expression pattern.
 **Parameters:**
 - `pattern` (string): The regex pattern.
 - `fullmatch` (bool): Whether the entire string must match. Default: `false`.
+- `alphabet` (Characters, optional): Constrain which characters may appear in
+  generated strings. Accepts a `characters()` value. When unspecified, the
+  server generates from the full Unicode range.
 
 **Schema:**
 ```json
-{"type": "regex", "pattern": <string>, "fullmatch": <bool>}
+{"type": "regex", "pattern": <string>, "fullmatch": <bool>, "alphabet": {...}}
 ```
+
+The `alphabet` object contains the same character filtering keys as `text`:
+`codec`, `min_codepoint`, `max_codepoint`, `categories`, `exclude_categories`,
+`include_characters`, `exclude_characters`. It is omitted when unspecified.
 
 **Basic:** Always. No transform.
 
