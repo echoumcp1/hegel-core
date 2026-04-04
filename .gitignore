@@ -25,6 +25,8 @@ dist/
 .claude/*.local.md
 .claude/*.local.json
 .claude/*.local
+CLAUDE.local.md
+.claude/local/
 
 # claude-reliability managed
 .claude/bin/
