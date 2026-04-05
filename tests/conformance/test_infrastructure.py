@@ -2,11 +2,13 @@ import os
 import stat
 import sys
 import tempfile
+import unicodedata
 
 import pytest
-from hypothesis import strategies as st
+from hypothesis import given, settings, strategies as st
 
-from hegel.conformance import BooleanConformance, ConformanceTest
+from hegel.conformance import BooleanConformance, ConformanceTest, text_params_strategy
+from tests.utils import find_any
 
 
 def _make_conformance_binary(script_body):
@@ -55,6 +57,8 @@ def test_run_failure(conformance_binary):
 
 
 class _SingleEntryConformance(ConformanceTest):
+    register_class = False
+
     def params_strategy(self):
         return st.just({})
 
@@ -83,3 +87,25 @@ def test_jsonl_parsing_does_not_split_on_unicode_line_boundaries(
     binary_path = conformance_binary(f"mf.write({s!r} + '\\n')")
     conformance = _SingleEntryConformance(binary_path)
     conformance.run({})
+
+
+@st.composite
+def _text_from_params(draw, *, no_surrogates):
+    params = draw(text_params_strategy(no_surrogates=no_surrogates))
+    text_keys = {"min_size", "max_size"}
+    text_params = {k: v for k, v in params.items() if k in text_keys}
+    char_params = {k: v for k, v in params.items() if k not in text_keys}
+    return draw(st.text(st.characters(**char_params), **text_params))
+
+
+@settings(suppress_health_check=["too_slow"], max_examples=10)
+@given(_text_from_params(no_surrogates=True))
+def test_text_conformance_test_no_surrogates(s):
+    assert all(unicodedata.category(c) != "Cs" for c in s)
+
+
+def test_text_conformance_test_surrogates():
+    find_any(
+        _text_from_params(no_surrogates=False),
+        lambda s: any(unicodedata.category(c) == "Cs" for c in s),
+    )

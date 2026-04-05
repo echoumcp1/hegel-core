@@ -36,7 +36,9 @@ ALL_CODECS = sorted({c for c in set(aliases).union(aliases.values()) if _can_enc
 
 
 @st.composite
-def _character_params(draw: st.DrawFn) -> dict[str, Any]:
+def _character_params(
+    draw: st.DrawFn, *, no_surrogates: bool = False
+) -> dict[str, Any]:
     params: dict[str, Any] = {}
 
     use_codec = draw(st.booleans())
@@ -66,6 +68,14 @@ def _character_params(draw: st.DrawFn) -> dict[str, Any]:
     if use_exclude_categories:
         params["exclude_categories"] = draw(st.lists(st.sampled_from(ALL_CATEGORIES)))
 
+    if no_surrogates:
+        if use_categories:
+            params["categories"] = [c for c in params["categories"] if c != "Cs"]
+        else:
+            exclude_categories = set(params.get("exclude_categories", [])) | {"Cs"}
+            # make json serializable
+            params["exclude_categories"] = list(exclude_categories)
+
     if use_exclude_chars:
         params["exclude_characters"] = draw(st.text())
 
@@ -82,8 +92,10 @@ def _character_params(draw: st.DrawFn) -> dict[str, Any]:
 
 
 @st.composite
-def text_params_strategy(draw: st.DrawFn) -> dict[str, Any]:
-    char_params = draw(_character_params())
+def text_params_strategy(
+    draw: st.DrawFn, *, no_surrogates: bool = False
+) -> dict[str, Any]:
+    char_params = draw(_character_params(no_surrogates=no_surrogates))
     min_size = draw(st.integers(0, 20))
     max_size = draw(st.none() | st.integers(min_size, 20))
     params: dict[str, Any] = {"min_size": min_size, **char_params}
@@ -402,8 +414,18 @@ class FloatConformance(ConformanceTest):
 
 
 class TextConformance(ConformanceTest):
+    def __init__(
+        self,
+        binary_path: str | Path,
+        test_cases: int | None = None,
+        *,
+        no_surrogates: bool = False,
+    ) -> None:
+        super().__init__(binary_path, test_cases)
+        self.no_surrogates = no_surrogates
+
     def params_strategy(self) -> st.SearchStrategy[dict[str, Any]]:
-        return text_params_strategy()
+        return text_params_strategy(no_surrogates=self.no_surrogates)
 
     def validate(
         self,
@@ -430,7 +452,11 @@ class TextConformance(ConformanceTest):
             if params.get("max_size") is not None:
                 assert length <= params["max_size"]
 
+            include_codepoints = {ord(c) for c in params.get("include_characters", "")}
             for cp in codepoints:
+                # include_characters overrides all other character constraints
+                if cp in include_codepoints:
+                    continue
                 if "min_codepoint" in params:
                     assert cp >= params["min_codepoint"]
                 if "max_codepoint" in params:
