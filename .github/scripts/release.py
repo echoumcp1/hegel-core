@@ -83,7 +83,7 @@ def _check_protocol_version_bumped(base_ref: str) -> None:
         cwd=ROOT,
     )
     if not re.search(r"^\+.*PROTOCOL_VERSION\s*=", diff, re.MULTILINE):
-        raise ValueError("Patch releases must bump PROTOCOL_VERSION.")
+        raise ValueError("Minor releases must bump PROTOCOL_VERSION.")
 
 
 def check(base_ref: str) -> None:
@@ -128,7 +128,7 @@ def check(base_ref: str) -> None:
     # perform validation of RELEASE.md
     release_type, _ = parse_release_file(release_file)
 
-    if release_type == "patch":
+    if release_type == "minor":
         _check_protocol_version_bumped(base_ref)
 
 
